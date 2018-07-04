@@ -60,7 +60,6 @@ namespace CoreSync.SqlServer
                         dbTable.Alter();
                     }
 
-
                     var primaryKeyIndex = dbTable.Indexes.Cast<Index>().FirstOrDefault(_ => _.IsClustered && _.IndexKeyType == IndexKeyType.DriPrimaryKey);
                     if (primaryKeyIndex == null)
                         throw new InvalidOperationException($"Table '{table.Name}' doesn't have a primary key");
@@ -87,6 +86,21 @@ namespace CoreSync.SqlServer
             }
 
             _initialized = true;
+        }
+
+        private ChangeType DetectChangeType(Dictionary<string, object> values)
+        {
+            switch (values["SYS_CHANGE_OPERATION"].ToString())
+            {
+                case "I":
+                    return ChangeType.Insert;
+                case "U":
+                    return ChangeType.Update;
+                case "D":
+                    return ChangeType.Delete;
+                default:
+                    throw new NotSupportedException();
+            }
         }
 
         public async Task<SyncChangeSet> GetInitialSetAsync()
@@ -119,7 +133,7 @@ namespace CoreSync.SqlServer
                                 while (await r.ReadAsync())
                                 {
                                     var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => r.GetValue(_));
-                                    items.Add(new SqlSyncItem(table, values));
+                                    items.Add(new SqlSyncItem(table, DetectChangeType(values), values));
                                 }
                             }
                         }
@@ -179,7 +193,7 @@ namespace CoreSync.SqlServer
                                 while (await r.ReadAsync())
                                 {
                                     var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => r.GetValue(_));
-                                    items.Add(new SqlSyncItem(table, values));
+                                    items.Add(new SqlSyncItem(table, DetectChangeType(values), values));
                                 }
                             }
                         }

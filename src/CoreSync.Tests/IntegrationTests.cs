@@ -56,6 +56,7 @@ namespace CoreSync.Tests
                 Assert.IsNotNull(changeSetAfterUserAdd.Items);
                 Assert.AreEqual(1, changeSetAfterUserAdd.Items.Count);
                 Assert.AreEqual(1, ((SqlSyncAnchor)changeSetAfterUserAdd.Anchor).Version);
+                Assert.AreEqual(ChangeType.Insert, changeSetAfterUserAdd.Items[0].ChangeType);
                 Assert.AreEqual(newUser.Email, changeSetAfterUserAdd.Items[0].Values["Email"]);
                 Assert.AreEqual(newUser.Name, changeSetAfterUserAdd.Items[0].Values["Name"]);
 

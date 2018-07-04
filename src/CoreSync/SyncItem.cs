@@ -6,11 +6,15 @@ namespace CoreSync
 {
     public abstract class SyncItem
     {
-        protected SyncItem(Dictionary<string, object> values)
+        protected SyncItem(ChangeType changeType, Dictionary<string, object> values)
         {
+            Validate.NotNull(values, nameof(values));
+
+            ChangeType = changeType;
             Values = values;
         }
 
+        public ChangeType ChangeType { get; }
         public Dictionary<string, object> Values { get; }
     }
 }

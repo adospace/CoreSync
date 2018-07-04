@@ -4,7 +4,12 @@ using System.Text;
 
 namespace CoreSync
 {
-    public class SyncChangeItem
+    public enum ChangeType
     {
+        Insert = 0,
+
+        Update = 1,
+
+        Delete = 2
     }
 }
