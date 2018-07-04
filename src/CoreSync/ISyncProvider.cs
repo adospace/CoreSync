@@ -18,9 +18,9 @@ namespace CoreSync
         Task<SyncChangeSet> GetInitialSetAsync();
 
         [NotNull, ItemNotNull]
-        Task<SyncChangeSet> GetIncreamentalChangesAsync(SyncAnchor anchor);
+        Task<SyncChangeSet> GetIncreamentalChangesAsync([NotNull] SyncAnchor anchor);
 
         [NotNull, ItemNotNull]
-        Task<SyncAnchor> ApplyChangesAsync(SyncChangeSet changeSet);
+        Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncAnchor anchor, [NotNull] SyncChangeSet changeSet);
     }
 }

@@ -64,8 +64,9 @@ namespace CoreSync.SqlServer
                     if (primaryKeyIndex == null)
                         throw new InvalidOperationException($"Table '{table.Name}' doesn't have a primary key");
 
-                    var primaryKeyColumns = primaryKeyIndex.IndexedColumns.Cast<IndexedColumn>();
-                    var tableColumns = dbTable.Columns.Cast<Column>().Where(_ => !primaryKeyColumns.Any(kc => kc.Name == _.Name)).ToArray();
+                    var primaryKeyColumns = primaryKeyIndex.IndexedColumns.Cast<IndexedColumn>().ToList();
+                    var allColumns = dbTable.Columns.Cast<Column>().ToList();
+                    var tableColumns = allColumns.Where(_ => !primaryKeyColumns.Any(kc => kc.Name == _.Name)).ToList();
 
                     table.InitialDataQuery = $@"SELECT
                 {string.Join(", ", dbTable.Columns.Cast<Column>().Select(_ => "[" + _.Name + "]"))}
@@ -82,6 +83,22 @@ namespace CoreSync.SqlServer
             ON  
                 {string.Join(" AND ", primaryKeyColumns.Select(_ => "T." + _ + " = CT." + _))}";
 
+                    table.InsertQuery = $@"INSERT INTO {table.Schema}.[{table.Name}] ({string.Join(", ", allColumns.Select(_ => "[" + _.Name + "]"))}) VALUES({string.Join(", ", allColumns.Select(_ => "@" + _.Name.Replace(' ', '_')))});";
+
+                    table.DeleteQuery = $@"DELETE FROM {table.Schema}.[{table.Name}] WHERE {string.Join(" AND ", primaryKeyColumns.Select(_ => "[" + _.Name + "]" + " = @" + _.Name.Replace(' ', '_')))}";
+
+                    table.UpdateQuery = $@"UPDATE {table.Schema}.[{table.Name}] 
+SET  
+    {string.Join(", ", tableColumns.Select(_ => "[" + _.Name + "] = @" + _.Name.Replace(" ", "_")))}  
+FROM  
+    {table.Schema}.[{table.Name}] AS t  
+WHERE  
+    {string.Join(" AND ", primaryKeyColumns.Select(_ => "[" + _.Name + "]" + " = @" + _.Name.Replace(' ', '_')))} AND  
+    @last_sync_version >= ISNULL (  
+        SELECT CT.SYS_CHANGE_VERSION  
+        FROM CHANGETABLE(VERSION {table.Schema}.[{table.Name}],  
+            ({string.Join(", ", primaryKeyColumns.Select(_ => "[" + _.Name + "]"))}), ({string.Join(", ", primaryKeyColumns.Select(_ => "t.[" + _.Name + "]"))}) AS CT),  
+        0)";
                 }
             }
 
@@ -158,8 +175,6 @@ namespace CoreSync.SqlServer
 
             await InitializeAsync();
 
-            //CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID('SalesLT.Product'))
-
             using (var c = new SqlConnection(Configuration.ConnectionString))
             {
                 await c.OpenAsync();
@@ -207,9 +222,71 @@ namespace CoreSync.SqlServer
             }
         }
 
-        public Task<SyncAnchor> ApplyChangesAsync(SyncChangeSet changeSet)
+        public async Task<SyncAnchor> ApplyChangesAsync(SyncAnchor anchor, SyncChangeSet changeSet)
         {
-            throw new NotImplementedException();
+            Validate.NotNull(anchor, nameof(anchor));
+
+            var sqlAnchor = anchor as SqlSyncAnchor;
+            if (sqlAnchor == null)
+                throw new ArgumentException("Incompatible anchor", nameof(anchor));
+
+            await InitializeAsync();
+
+            using (var c = new SqlConnection(Configuration.ConnectionString))
+            {
+                await c.OpenAsync();
+
+                using (var cmd = new SqlCommand())
+                {
+                    using (var tr = c.BeginTransaction(IsolationLevel.Snapshot))
+                    {
+                        cmd.Connection = c;
+                        cmd.Transaction = tr;
+                        foreach (var item in changeSet.Items)
+                        {
+                            var table = Configuration.Tables.First(_ => _.Name == item.Table.Name);
+
+                            cmd.Parameters.Clear();
+                            cmd.CommandText = $"SELECT CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID('{table.Schema}.[{table.Name}]'))";
+
+                            long minVersionForTable = (long)await cmd.ExecuteScalarAsync();
+
+                            if (sqlAnchor.Version < minVersionForTable)
+                                throw new InvalidOperationException($"Unable to get changes, version of data requested ({sqlAnchor.Version}) for table '{table.Schema}.[{table.Name}]' is too old (min valid version {minVersionForTable})");
+
+                            cmd.Parameters.Clear();
+
+                            switch (item.ChangeType)
+                            {
+                                case ChangeType.Insert:
+                                    cmd.CommandText = table.InsertQuery;
+
+                                    foreach (var valueItem in item.Values)
+                                        cmd.Parameters.Add(new SqlParameter(valueItem.Key.Replace(" ", "_"), valueItem.Value));
+
+                                    break;
+                            }
+
+                            var affectedRows = cmd.ExecuteNonQuery();
+
+                            if (affectedRows == 0)
+                            {
+                                //conflict detected
+
+                            }
+                        }
+
+                        cmd.CommandText = "SELECT CHANGE_TRACKING_CURRENT_VERSION()";
+
+                        long version = (long)await cmd.ExecuteScalarAsync();
+
+                        tr.Commit();
+
+                        return new SqlSyncAnchor(version);
+                    }
+
+                }
+            }
         }
 
         public async Task ApplyProvisionAsync()
