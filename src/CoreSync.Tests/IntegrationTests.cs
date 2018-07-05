@@ -34,6 +34,14 @@ namespace CoreSync.Tests
 
                 var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Configuration);
 
+                var localConfigurationBuilder =
+                    new SqlSyncConfigurationBuilder(dbLocal.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+                var localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Configuration);
+
                 var initialSet = await remoteSyncProvider.GetInitialSetAsync();
 
                 Assert.IsNotNull(initialSet);
@@ -47,7 +55,7 @@ namespace CoreSync.Tests
                 Assert.AreEqual(0, changeSet.Items.Count);
                 Assert.AreEqual(0, ((SqlSyncAnchor)changeSet.Anchor).Version);
 
-                var newUser = new User() { Email = "myemail@test.com", Name = "User1" };
+                var newUser = new User() { Email = "myemail@test.com", Name = "User1", Created = DateTime.Now };
                 dbRemote.Users.Add(newUser);
                 await dbRemote.SaveChangesAsync();
 
@@ -59,6 +67,11 @@ namespace CoreSync.Tests
                 Assert.AreEqual(ChangeType.Insert, changeSetAfterUserAdd.Items[0].ChangeType);
                 Assert.AreEqual(newUser.Email, changeSetAfterUserAdd.Items[0].Values["Email"]);
                 Assert.AreEqual(newUser.Name, changeSetAfterUserAdd.Items[0].Values["Name"]);
+
+                var finalAnchor = await localSyncProvider.ApplyChangesAsync(initialSet.Anchor, changeSetAfterUserAdd);
+                Assert.IsNotNull(finalAnchor);
+                Assert.AreEqual(1, ((SqlSyncAnchor)finalAnchor).Version);
+
 
                 newUser.Created = new DateTime(2018, 1, 1);
                 await dbRemote.SaveChangesAsync();

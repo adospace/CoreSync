@@ -21,6 +21,6 @@ namespace CoreSync
         Task<SyncChangeSet> GetIncreamentalChangesAsync([NotNull] SyncAnchor anchor);
 
         [NotNull, ItemNotNull]
-        Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncAnchor anchor, [NotNull] SyncChangeSet changeSet);
+        Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet);
     }
 }

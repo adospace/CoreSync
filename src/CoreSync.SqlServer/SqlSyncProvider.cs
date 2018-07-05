@@ -222,13 +222,12 @@ WHERE
             }
         }
 
-        public async Task<SyncAnchor> ApplyChangesAsync(SyncAnchor anchor, SyncChangeSet changeSet)
+        public async Task<SyncAnchor> ApplyChangesAsync(SyncChangeSet changeSet)
         {
-            Validate.NotNull(anchor, nameof(anchor));
+            Validate.NotNull(changeSet, nameof(changeSet));
 
-            var sqlAnchor = anchor as SqlSyncAnchor;
-            if (sqlAnchor == null)
-                throw new ArgumentException("Incompatible anchor", nameof(anchor));
+            if (!(changeSet.Anchor is SqlSyncAnchor sqlAnchor))
+                throw new ArgumentException("Incompatible anchor", nameof(changeSet));
 
             await InitializeAsync();
 
@@ -242,6 +241,10 @@ WHERE
                     {
                         cmd.Connection = c;
                         cmd.Transaction = tr;
+                        cmd.CommandText = "SELECT CHANGE_TRACKING_CURRENT_VERSION()";
+
+                        long version = (long)await cmd.ExecuteScalarAsync();
+
                         foreach (var item in changeSet.Items)
                         {
                             var table = Configuration.Tables.First(_ => _.Name == item.Table.Name);
@@ -259,10 +262,13 @@ WHERE
                             switch (item.ChangeType)
                             {
                                 case ChangeType.Insert:
-                                    cmd.CommandText = table.InsertQuery;
+                                    cmd.CommandText =
+                                        $@"{table.UpdateQuery}
+IF @ROWCOUNT = 0
+{table.InsertQuery}";
 
                                     foreach (var valueItem in item.Values)
-                                        cmd.Parameters.Add(new SqlParameter(valueItem.Key.Replace(" ", "_"), valueItem.Value));
+                                        cmd.Parameters.Add(new SqlParameter("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value));
 
                                     break;
                             }
@@ -276,13 +282,9 @@ WHERE
                             }
                         }
 
-                        cmd.CommandText = "SELECT CHANGE_TRACKING_CURRENT_VERSION()";
-
-                        long version = (long)await cmd.ExecuteScalarAsync();
-
                         tr.Commit();
 
-                        return new SqlSyncAnchor(version);
+                        return new SqlSyncAnchor(version + 1);
                     }
 
                 }
