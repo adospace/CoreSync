@@ -6,7 +6,7 @@ namespace CoreSync.SqlServer
 {
     public class SqlSyncChangeSet : SyncChangeSet
     {
-        internal SqlSyncChangeSet(SyncAnchor anchor, IReadOnlyList<SyncItem> items) : base(anchor, items)
+        public SqlSyncChangeSet(SqlSyncAnchor anchor, IReadOnlyList<SyncItem> items) : base(anchor, items)
         {
         }
     }

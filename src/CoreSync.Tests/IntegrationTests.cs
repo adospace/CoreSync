@@ -68,23 +68,44 @@ namespace CoreSync.Tests
                 Assert.AreEqual(newUser.Email, changeSetAfterUserAdd.Items[0].Values["Email"]);
                 Assert.AreEqual(newUser.Name, changeSetAfterUserAdd.Items[0].Values["Name"]);
 
-                var finalAnchor = await localSyncProvider.ApplyChangesAsync(initialSet.Anchor, changeSetAfterUserAdd);
+                var finalAnchor = await localSyncProvider.ApplyChangesAsync(new SqlSyncChangeSet((SqlSyncAnchor)initialSet.Anchor, changeSetAfterUserAdd.Items));
                 Assert.IsNotNull(finalAnchor);
                 Assert.AreEqual(1, ((SqlSyncAnchor)finalAnchor).Version);
 
+                //try to apply same changeset result in an exception
+                var exception = await Assert.ThrowsExceptionAsync<InvalidSyncOperationException>(()=> localSyncProvider.ApplyChangesAsync(new SqlSyncChangeSet((SqlSyncAnchor)initialSet.Anchor, changeSetAfterUserAdd.Items)));
+                Assert.IsNotNull(exception);
+                Assert.AreEqual(((SqlSyncAnchor)finalAnchor).Version, exception.CandidateAnchor.Version);
 
                 newUser.Created = new DateTime(2018, 1, 1);
                 await dbRemote.SaveChangesAsync();
 
-                var changeSetAfterUserEdit = await remoteSyncProvider.GetIncreamentalChangesAsync(initialSet.Anchor);
-                Assert.IsNotNull(changeSetAfterUserEdit);
-                Assert.IsNotNull(changeSetAfterUserEdit.Items);
-                Assert.AreEqual(1, changeSetAfterUserEdit.Items.Count);
-                Assert.AreEqual(2, ((SqlSyncAnchor)changeSetAfterUserEdit.Anchor).Version);
-                Assert.AreEqual(newUser.Email, changeSetAfterUserEdit.Items[0].Values["Email"]);
-                Assert.AreEqual(newUser.Name, changeSetAfterUserEdit.Items[0].Values["Name"]);
-                Assert.AreEqual(newUser.Created, changeSetAfterUserEdit.Items[0].Values["Created"]);
+                {
+                    //after saved changes version should be updated as well at 2
+                    var changeSetAfterUserEdit = await remoteSyncProvider.GetIncreamentalChangesAsync(initialSet.Anchor);
+                    Assert.IsNotNull(changeSetAfterUserEdit);
+                    Assert.IsNotNull(changeSetAfterUserEdit.Items);
+                    Assert.AreEqual(1, changeSetAfterUserEdit.Items.Count);
+                    Assert.AreEqual(2, ((SqlSyncAnchor)changeSetAfterUserEdit.Anchor).Version);
+                    Assert.AreEqual(newUser.Email, changeSetAfterUserEdit.Items[0].Values["Email"]);
+                    Assert.AreEqual(newUser.Name, changeSetAfterUserEdit.Items[0].Values["Name"]);
+                    Assert.AreEqual(newUser.Created, changeSetAfterUserEdit.Items[0].Values["Created"]);
+                }
 
+                {
+                    //now let's change same record in local database and try to apply changes to remote db
+                    //this should result in a conflict
+                    var newUserInLocalDb = await dbLocal.Users.FirstAsync(_ => _.Name == newUser.Name);
+                    newUserInLocalDb.Name = "modified-name";
+                    await dbLocal.SaveChangesAsync();
+
+                    //get changes from local db
+                    var localChangeSet = await localSyncProvider.GetIncreamentalChangesAsync(finalAnchor);
+                    Assert.IsNotNull(localChangeSet);
+                    Assert.AreEqual(2, ((SqlSyncAnchor)localChangeSet.Anchor).Version);
+
+
+                }
             }
 
 

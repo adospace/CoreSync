@@ -11,15 +11,14 @@ namespace CoreSync.SqlServer
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
             Validate.NotNullOrEmptyOrWhiteSpace(schema, nameof(schema));
 
-            Name = name;
             Bidirectional = bidirectional;
             Schema = schema;
         }
 
-        /// <summary>
-        /// Name of the table
-        /// </summary>
-        public string Name { get; }
+        ///// <summary>
+        ///// Name of the table
+        ///// </summary>
+        //public string Name { get; }
 
         /// <summary>
         /// Bidirectional vs upload-only table synchronization
@@ -34,7 +33,7 @@ namespace CoreSync.SqlServer
 
         internal string InitialDataQuery { get; set; }
 
-        internal string IncrementalInsertQuery { get; set; }
+        internal string IncrementalDataQuery { get; set; }
 
         internal string InsertQuery { get; set; }
 

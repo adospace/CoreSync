@@ -13,6 +13,9 @@ namespace CoreSync
             Name = name;
         }
 
+        /// <summary>
+        /// Name of the table/collection
+        /// </summary>
         public string Name { get; }
     }
 }

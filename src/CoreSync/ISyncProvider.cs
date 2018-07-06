@@ -8,11 +8,11 @@ namespace CoreSync
 {
     public interface ISyncProvider
     {
-        [NotNull]
-        Task ApplyProvisionAsync();
+        //[NotNull]
+        //Task ApplyProvisionAsync();
 
-        [NotNull]
-        Task RemoveProvisionAsync();
+        //[NotNull]
+        //Task RemoveProvisionAsync();
 
         [NotNull, ItemNotNull]
         Task<SyncChangeSet> GetInitialSetAsync();
@@ -21,6 +21,6 @@ namespace CoreSync
         Task<SyncChangeSet> GetIncreamentalChangesAsync([NotNull] SyncAnchor anchor);
 
         [NotNull, ItemNotNull]
-        Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet);
+        Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, [CanBeNull] Func<SyncItem, ConflictResolution> onConflictFunc = null);
     }
 }
