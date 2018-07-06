@@ -15,11 +15,6 @@ namespace CoreSync.SqlServer
             Schema = schema;
         }
 
-        ///// <summary>
-        ///// Name of the table
-        ///// </summary>
-        //public string Name { get; }
-
         /// <summary>
         /// Bidirectional vs upload-only table synchronization
         /// </summary>

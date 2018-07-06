@@ -165,7 +165,7 @@ WHERE
 
                         tr.Commit();
 
-                        return new SqlSyncChangeSet(new SqlSyncAnchor(version), items);
+                        return new SyncChangeSet(new SqlSyncAnchor(version), items);
                     }
 
                 }
@@ -223,7 +223,7 @@ WHERE
 
                         tr.Commit();
 
-                        return new SqlSyncChangeSet(new SqlSyncAnchor(version), items);
+                        return new SyncChangeSet(new SqlSyncAnchor(version), items);
                     }
 
                 }

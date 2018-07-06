@@ -68,12 +68,12 @@ namespace CoreSync.Tests
                 Assert.AreEqual(newUser.Email, changeSetAfterUserAdd.Items[0].Values["Email"]);
                 Assert.AreEqual(newUser.Name, changeSetAfterUserAdd.Items[0].Values["Name"]);
 
-                var finalAnchor = await localSyncProvider.ApplyChangesAsync(new SqlSyncChangeSet((SqlSyncAnchor)initialSet.Anchor, changeSetAfterUserAdd.Items));
+                var finalAnchor = await localSyncProvider.ApplyChangesAsync(new SyncChangeSet(initialSet.Anchor, changeSetAfterUserAdd.Items));
                 Assert.IsNotNull(finalAnchor);
                 Assert.AreEqual(1, ((SqlSyncAnchor)finalAnchor).Version);
 
                 //try to apply same changeset result in an exception
-                var exception = await Assert.ThrowsExceptionAsync<InvalidSyncOperationException>(()=> localSyncProvider.ApplyChangesAsync(new SqlSyncChangeSet((SqlSyncAnchor)initialSet.Anchor, changeSetAfterUserAdd.Items)));
+                var exception = await Assert.ThrowsExceptionAsync<InvalidSyncOperationException>(()=> localSyncProvider.ApplyChangesAsync(new SyncChangeSet(initialSet.Anchor, changeSetAfterUserAdd.Items)));
                 Assert.IsNotNull(exception);
                 Assert.AreEqual(((SqlSyncAnchor)finalAnchor).Version, exception.CandidateAnchor.Version);
 
@@ -106,7 +106,7 @@ namespace CoreSync.Tests
 
                     //try to apply changes to remote provider
                     var anchorAfterChangesAppliedFromLocalProvider =
-                        await remoteSyncProvider.ApplyChangesAsync(new SqlSyncChangeSet((SqlSyncAnchor)changeSetAfterUserAdd.Anchor, localChangeSet.Items));
+                        await remoteSyncProvider.ApplyChangesAsync(new SyncChangeSet(changeSetAfterUserAdd.Anchor, localChangeSet.Items));
                     //given we didn't provide a resolution function for the conflict provider just skip 
                     //to apply the changes from local db
                     //so nothing should be changed in remote db
@@ -119,7 +119,7 @@ namespace CoreSync.Tests
 
                     //ok now try apply changes but forcing any write on remote store on conflict
                     anchorAfterChangesAppliedFromLocalProvider =
-                        await remoteSyncProvider.ApplyChangesAsync(new SqlSyncChangeSet((SqlSyncAnchor)changeSetAfterUserAdd.Anchor, localChangeSet.Items), 
+                        await remoteSyncProvider.ApplyChangesAsync(new SyncChangeSet(changeSetAfterUserAdd.Anchor, localChangeSet.Items), 
                         (item) =>
                         {
                             //assert that conflict occurred on item we just got from local db
@@ -154,7 +154,7 @@ namespace CoreSync.Tests
 
                     //try to apply changes to remote provider
                     var anchorAfterChangesAppliedFromLocalProvider =
-                        await remoteSyncProvider.ApplyChangesAsync(new SqlSyncChangeSet((SqlSyncAnchor)changeSetAfterUserAdd.Anchor, localChangeSet.Items));
+                        await remoteSyncProvider.ApplyChangesAsync(new SyncChangeSet(changeSetAfterUserAdd.Anchor, localChangeSet.Items));
                     //given we didn't provide a resolution function for the conflict provider just skip 
                     //to apply the changes from local db
                     //so nothing should be changed in remote db
@@ -167,7 +167,7 @@ namespace CoreSync.Tests
 
                     //ok now try apply changes but forcing any write on remote store on conflict
                     anchorAfterChangesAppliedFromLocalProvider =
-                        await remoteSyncProvider.ApplyChangesAsync(new SqlSyncChangeSet((SqlSyncAnchor)changeSetAfterUserAdd.Anchor, localChangeSet.Items),
+                        await remoteSyncProvider.ApplyChangesAsync(new SyncChangeSet(changeSetAfterUserAdd.Anchor, localChangeSet.Items),
                         (item) =>
                         {
                             //assert that conflict occurred on item we just got from local db
@@ -233,12 +233,12 @@ namespace CoreSync.Tests
 
                 var remoteChangeSet = await remoteSyncProvider.GetInitialSetAsync();
 
-                var changeSetForRemoteDb = new SqlSyncChangeSet((SqlSyncAnchor)remoteChangeSet.Anchor, localChangeSet.Items);
+                var changeSetForRemoteDb = new SyncChangeSet(remoteChangeSet.Anchor, localChangeSet.Items);
                 var anchorAfterApplyChanges = (SqlSyncAnchor)await remoteSyncProvider.ApplyChangesAsync(changeSetForRemoteDb);
                 Assert.IsNotNull(anchorAfterApplyChanges);
                 Assert.AreEqual(1, anchorAfterApplyChanges.Version);
 
-                var changeSetAfterApplyChangesToRemoteDb = (SqlSyncChangeSet)await remoteSyncProvider.GetIncreamentalChangesAsync(anchorAfterApplyChanges);
+                var changeSetAfterApplyChangesToRemoteDb = await remoteSyncProvider.GetIncreamentalChangesAsync(anchorAfterApplyChanges);
                 Assert.IsNotNull(changeSetAfterApplyChangesToRemoteDb);
                 Assert.AreEqual(1, ((SqlSyncAnchor)changeSetAfterApplyChangesToRemoteDb.Anchor).Version);
                 Assert.AreEqual(0, changeSetAfterApplyChangesToRemoteDb.Items.Count);
@@ -252,7 +252,7 @@ namespace CoreSync.Tests
                 Assert.IsNotNull(localChangeSet);
                 Assert.AreEqual(1, ((SqlSyncAnchor)localChangeSet.Anchor).Version);
 
-                changeSetForRemoteDb = new SqlSyncChangeSet(anchorAfterApplyChanges, localChangeSet.Items);
+                changeSetForRemoteDb = new SyncChangeSet(anchorAfterApplyChanges, localChangeSet.Items);
                 anchorAfterApplyChanges = (SqlSyncAnchor)await remoteSyncProvider.ApplyChangesAsync(changeSetForRemoteDb);
                 Assert.IsNotNull(anchorAfterApplyChanges);
                 Assert.AreEqual(2, anchorAfterApplyChanges.Version);

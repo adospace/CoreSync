@@ -3,11 +3,13 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.27703.2035
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CoreSync", "CoreSync\CoreSync.csproj", "{797E3CF9-A58D-4353-AD41-879950540CCE}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CoreSync", "CoreSync\CoreSync.csproj", "{797E3CF9-A58D-4353-AD41-879950540CCE}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CoreSync.SqlServer", "CoreSync.SqlServer\CoreSync.SqlServer.csproj", "{DC2D2BF3-F301-43B6-8E31-E32FB369495F}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CoreSync.SqlServer", "CoreSync.SqlServer\CoreSync.SqlServer.csproj", "{DC2D2BF3-F301-43B6-8E31-E32FB369495F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CoreSync.Tests", "CoreSync.Tests\CoreSync.Tests.csproj", "{5F67292A-49D7-4E98-BE8E-B713FABA70B9}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CoreSync.Tests", "CoreSync.Tests\CoreSync.Tests.csproj", "{5F67292A-49D7-4E98-BE8E-B713FABA70B9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CoreSync.Sqlite", "CoreSync.Sqlite\CoreSync.Sqlite.csproj", "{38D660AD-1E09-48CC-9A90-F4461C18539D}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -27,6 +29,10 @@ Global
 		{5F67292A-49D7-4E98-BE8E-B713FABA70B9}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5F67292A-49D7-4E98-BE8E-B713FABA70B9}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{5F67292A-49D7-4E98-BE8E-B713FABA70B9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{38D660AD-1E09-48CC-9A90-F4461C18539D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{38D660AD-1E09-48CC-9A90-F4461C18539D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{38D660AD-1E09-48CC-9A90-F4461C18539D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{38D660AD-1E09-48CC-9A90-F4461C18539D}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

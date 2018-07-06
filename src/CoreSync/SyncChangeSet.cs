@@ -4,10 +4,13 @@ using System.Text;
 
 namespace CoreSync
 {
-    public abstract class SyncChangeSet
+    public class SyncChangeSet
     {
-        protected SyncChangeSet(SyncAnchor anchor, IReadOnlyList<SyncItem> items)
+        public SyncChangeSet(SyncAnchor anchor, IReadOnlyList<SyncItem> items)
         {
+            Validate.NotNull(anchor, nameof(anchor));
+            Validate.NotNull(items, nameof(items));
+
             Anchor = anchor;
             Items = items;
         }

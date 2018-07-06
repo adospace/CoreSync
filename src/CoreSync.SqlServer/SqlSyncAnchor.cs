@@ -8,9 +8,10 @@ namespace CoreSync.SqlServer
     {
         public long Version { get; }
 
-        public SqlSyncAnchor(long version)
+        internal SqlSyncAnchor(long version)
         {
             Version = version;
         }
+
     }
 }
