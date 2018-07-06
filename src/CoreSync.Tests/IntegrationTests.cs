@@ -104,6 +104,90 @@ namespace CoreSync.Tests
                     Assert.IsNotNull(localChangeSet);
                     Assert.AreEqual(2, ((SqlSyncAnchor)localChangeSet.Anchor).Version);
 
+                    //try to apply changes to remote provider
+                    var anchorAfterChangesAppliedFromLocalProvider =
+                        await remoteSyncProvider.ApplyChangesAsync(new SqlSyncChangeSet((SqlSyncAnchor)changeSetAfterUserAdd.Anchor, localChangeSet.Items));
+                    //given we didn't provide a resolution function for the conflict provider just skip 
+                    //to apply the changes from local db
+                    //so nothing should be changed in remote db
+                    Assert.IsNotNull(anchorAfterChangesAppliedFromLocalProvider);
+                    Assert.AreEqual(2, ((SqlSyncAnchor)anchorAfterChangesAppliedFromLocalProvider).Version);
+
+                    var userNotChangedInRemoteDb = await dbRemote.Users.FirstAsync(_ => _.Email == newUser.Email);
+                    Assert.IsNotNull(userNotChangedInRemoteDb);
+                    Assert.AreEqual(newUser.Name, userNotChangedInRemoteDb.Name);
+
+                    //ok now try apply changes but forcing any write on remote store on conflict
+                    anchorAfterChangesAppliedFromLocalProvider =
+                        await remoteSyncProvider.ApplyChangesAsync(new SqlSyncChangeSet((SqlSyncAnchor)changeSetAfterUserAdd.Anchor, localChangeSet.Items), 
+                        (item) =>
+                        {
+                            //assert that conflict occurred on item we just got from local db
+                            Assert.IsNotNull(item);
+                            Assert.AreEqual(newUserInLocalDb.Email, item.Values["Email"]);
+                            Assert.AreEqual(newUserInLocalDb.Name, item.Values["Name"]);
+                            Assert.AreEqual(ChangeType.Update, item.ChangeType);
+
+                            //force write in remote store
+                            return ConflictResolution.ForceWrite;
+                        });
+
+                    //now we should have a new version  (+1)
+                    Assert.IsNotNull(anchorAfterChangesAppliedFromLocalProvider);
+                    Assert.AreEqual(3, ((SqlSyncAnchor)anchorAfterChangesAppliedFromLocalProvider).Version);
+
+                    //and local db changes should be applied to remote db
+                    var userChangedInRemoteDb = await dbRemote.Users.AsNoTracking().FirstAsync(_ => _.Email == newUser.Email);
+                    Assert.IsNotNull(userChangedInRemoteDb);
+                    Assert.AreEqual(newUserInLocalDb.Name, userChangedInRemoteDb.Name);
+                }
+
+                {
+                    //now let's try to update a deleted record
+                    dbRemote.Users.Remove(newUser);
+                    await dbRemote.SaveChangesAsync();
+
+                    var newUserInLocalDb = await dbLocal.Users.FirstAsync(_ => _.Email == newUser.Email);
+                    var localChangeSet = await localSyncProvider.GetIncreamentalChangesAsync(finalAnchor);
+                    Assert.IsNotNull(localChangeSet);
+                    Assert.AreEqual(2, ((SqlSyncAnchor)localChangeSet.Anchor).Version);
+
+                    //try to apply changes to remote provider
+                    var anchorAfterChangesAppliedFromLocalProvider =
+                        await remoteSyncProvider.ApplyChangesAsync(new SqlSyncChangeSet((SqlSyncAnchor)changeSetAfterUserAdd.Anchor, localChangeSet.Items));
+                    //given we didn't provide a resolution function for the conflict provider just skip 
+                    //to apply the changes from local db
+                    //so nothing should be changed in remote db
+                    Assert.IsNotNull(anchorAfterChangesAppliedFromLocalProvider);
+                    Assert.AreEqual(4, ((SqlSyncAnchor)anchorAfterChangesAppliedFromLocalProvider).Version);
+
+                    //user should not be present
+                    var userNotChangedInRemoteDb = await dbRemote.Users.FirstOrDefaultAsync(_ => _.Email == newUser.Email);
+                    Assert.IsNull(userNotChangedInRemoteDb);
+
+                    //ok now try apply changes but forcing any write on remote store on conflict
+                    anchorAfterChangesAppliedFromLocalProvider =
+                        await remoteSyncProvider.ApplyChangesAsync(new SqlSyncChangeSet((SqlSyncAnchor)changeSetAfterUserAdd.Anchor, localChangeSet.Items),
+                        (item) =>
+                        {
+                            //assert that conflict occurred on item we just got from local db
+                            Assert.IsNotNull(item);
+                            Assert.AreEqual(newUserInLocalDb.Email, item.Values["Email"]);
+                            Assert.AreEqual(newUserInLocalDb.Name, item.Values["Name"]);
+                            Assert.AreEqual(ChangeType.Update, item.ChangeType);
+
+                            //force write in remote store
+                            return ConflictResolution.ForceWrite;
+                        });
+
+                    //now we should have a new version  (+1)
+                    Assert.IsNotNull(anchorAfterChangesAppliedFromLocalProvider);
+                    Assert.AreEqual(5, ((SqlSyncAnchor)anchorAfterChangesAppliedFromLocalProvider).Version);
+
+                    //and local db changes should be applied to remote db
+                    var userChangedInRemoteDb = await dbRemote.Users.AsNoTracking().FirstAsync(_ => _.Email == newUser.Email);
+                    Assert.IsNotNull(userChangedInRemoteDb);
+                    Assert.AreEqual(newUserInLocalDb.Name, userChangedInRemoteDb.Name);
 
                 }
             }

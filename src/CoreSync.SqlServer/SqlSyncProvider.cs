@@ -88,26 +88,20 @@ namespace CoreSync.SqlServer
    SELECT {string.Join(", ", allColumns.Select(_ => "[" + _.Name + "]"))} FROM {table.Schema}.[{table.Name}];";
 
                     table.DeleteQuery = $@"DELETE FROM {table.Schema}.[{table.Name}] 
-WHERE 
-    {string.Join(" AND ", primaryKeyColumns.Select(_ => "[" + _.Name + "]" + " = @" + _.Name.Replace(' ', '_')))} AND  
-    @sync_force_write = 1 OR @last_sync_version >= ISNULL (  
-        SELECT CT.SYS_CHANGE_VERSION  
-        FROM CHANGETABLE(VERSION {table.Schema}.[{table.Name}],  
-            ({string.Join(", ", primaryKeyColumns.Select(_ => "[" + _.Name + "]"))}), ({string.Join(", ", primaryKeyColumns.Select(_ => "t.[" + _.Name + "]"))}) AS CT),  
-        0)";
+FROM  
+    {table.Schema}.[{table.Name}]
+JOIN CHANGETABLE(VERSION {table.Schema}.[{table.Name}], ({string.Join(", ", primaryKeyColumns.Select(_ => "[" + _.Name + "]"))}), ({string.Join(", ", primaryKeyColumns.Select(_ => "@" + _.Name.Replace(' ', '_')))})) CT  ON {string.Join(" AND ", primaryKeyColumns.Select(_ => $"CT.[{_.Name}] = {table.Schema}.[{table.Name}].[{_.Name}]"))}
+WHERE  
+    @sync_force_write = 1 OR @last_sync_version >= ISNULL(CT.SYS_CHANGE_VERSION, 0)";
 
                     table.UpdateQuery = $@"UPDATE {table.Schema}.[{table.Name}] 
 SET  
     {string.Join(", ", tableColumns.Select(_ => "[" + _.Name + "] = @" + _.Name.Replace(" ", "_")))}  
 FROM  
-    {table.Schema}.[{table.Name}] AS t  
+    {table.Schema}.[{table.Name}]
+JOIN CHANGETABLE(VERSION {table.Schema}.[{table.Name}], ({string.Join(", ", primaryKeyColumns.Select(_ => "[" + _.Name + "]"))}), ({string.Join(", ", primaryKeyColumns.Select(_ => "@" + _.Name.Replace(' ', '_')))})) CT ON {string.Join(" AND ", primaryKeyColumns.Select(_ => $"CT.[{_.Name}] = {table.Schema}.[{table.Name}].[{_.Name}]"))}
 WHERE  
-    {string.Join(" AND ", primaryKeyColumns.Select(_ => "[" + _.Name + "]" + " = @" + _.Name.Replace(' ', '_')))} AND  
-    @sync_force_write = 1 OR @last_sync_version >= ISNULL (  
-        SELECT CT.SYS_CHANGE_VERSION  
-        FROM CHANGETABLE(VERSION {table.Schema}.[{table.Name}],  
-            ({string.Join(", ", primaryKeyColumns.Select(_ => "[" + _.Name + "]"))}), ({string.Join(", ", primaryKeyColumns.Select(_ => "t.[" + _.Name + "]"))}) AS CT),  
-        0)";
+    @sync_force_write = 1 OR @last_sync_version >= ISNULL(CT.SYS_CHANGE_VERSION, 0)";
                 }
             }
 
@@ -268,10 +262,12 @@ WHERE
                                 throw new InvalidOperationException($"Unable to get changes, version of data requested ({sqlAnchor.Version}) for table '{table.Schema}.[{table.Name}]' is too old (min valid version {minVersionForTable})");
 
                             bool syncForceWrite = false;
+                            var itemChangeType = item.ChangeType;
+
                             retryWrite:
                             cmd.Parameters.Clear();
 
-                            switch (item.ChangeType)
+                            switch (itemChangeType)
                             {
                                 case ChangeType.Insert:
                                     cmd.CommandText = table.InsertQuery;
@@ -294,7 +290,7 @@ WHERE
 
                             if (affectedRows == 0)
                             {
-                                if (item.ChangeType == ChangeType.Insert)
+                                if (itemChangeType == ChangeType.Insert)
                                 {
                                     //If we can't apply an insert means that we already
                                     //applied the insert or another record with same values (see primary key)
@@ -302,9 +298,25 @@ WHERE
                                     //In any case we can't proceed
                                     throw new InvalidSyncOperationException(new SqlSyncAnchor(sqlAnchor.Version + 1));
                                 }
-                                else if (item.ChangeType == ChangeType.Update ||
-                                    item.ChangeType == ChangeType.Delete)
+                                else if (itemChangeType == ChangeType.Update ||
+                                    itemChangeType == ChangeType.Delete)
                                 {
+                                    if (syncForceWrite)
+                                    {
+                                        if (itemChangeType == ChangeType.Delete)
+                                        {
+                                            //item is already deleted in data store
+                                            //so this means that we're going to delete a already deleted record
+                                            //i.e. nothing to do
+                                        }
+                                        else
+                                        {
+                                            //if user wants to update forcely a delete record means
+                                            //he wants to actually insert it again in store
+                                            itemChangeType = ChangeType.Insert;
+                                            goto retryWrite;
+                                        }
+                                    }
                                     //conflict detected
                                     var res = onConflictFunc?.Invoke(item);
                                     if (res.HasValue && res.Value == ConflictResolution.ForceWrite)
