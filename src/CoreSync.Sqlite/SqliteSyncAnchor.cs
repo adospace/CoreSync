@@ -4,7 +4,7 @@ using System.Text;
 
 namespace CoreSync.Sqlite
 {
-    public class SqliteSyncAnchor
+    public class SqliteSyncAnchor : SyncAnchor
     {
     }
 }

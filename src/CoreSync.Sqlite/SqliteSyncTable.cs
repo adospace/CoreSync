@@ -1,12 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace CoreSync.SqlServer
+﻿namespace CoreSync.Sqlite
 {
-    public class SqlSyncTable : SyncTable
+    public class SqliteSyncTable : SyncTable
     {
-        internal SqlSyncTable(string name, bool bidirectional = true, string schema = "dbo") : base(name)
+        internal SqliteSyncTable(string name, bool bidirectional = true, string schema = "dbo") : base(name)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
             Validate.NotNullOrEmptyOrWhiteSpace(schema, nameof(schema));
@@ -24,16 +20,5 @@ namespace CoreSync.SqlServer
         /// Schema of table (Default: dbo)
         /// </summary>
         public string Schema { get; }
-
-
-        internal string InitialDataQuery { get; set; }
-
-        internal string IncrementalDataQuery { get; set; }
-
-        internal string InsertQuery { get; set; }
-
-        internal string UpdateQuery { get; set; }
-
-        internal string DeleteQuery { get; set; }
     }
 }
