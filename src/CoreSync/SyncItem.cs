@@ -19,5 +19,10 @@ namespace CoreSync
         public SyncTable Table { get; }
         public ChangeType ChangeType { get; }
         public Dictionary<string, object> Values { get; }
+
+        public override string ToString()
+        {
+            return $"{ChangeType} on {Table.Name}";
+        }
     }
 }

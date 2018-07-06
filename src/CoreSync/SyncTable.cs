@@ -17,5 +17,10 @@ namespace CoreSync
         /// Name of the table/collection
         /// </summary>
         public string Name { get; }
+
+        public override string ToString()
+        {
+            return $"{Name}";
+        }
     }
 }

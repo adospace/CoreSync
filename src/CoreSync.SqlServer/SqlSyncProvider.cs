@@ -110,17 +110,22 @@ WHERE
 
         private ChangeType DetectChangeType(Dictionary<string, object> values)
         {
-            switch (values["SYS_CHANGE_OPERATION"].ToString())
+            if (values.TryGetValue("SYS_CHANGE_OPERATION", out var syncChangeOperation))
             {
-                case "I":
-                    return ChangeType.Insert;
-                case "U":
-                    return ChangeType.Update;
-                case "D":
-                    return ChangeType.Delete;
-                default:
-                    throw new NotSupportedException();
+                switch (syncChangeOperation.ToString())
+                {
+                    case "I":
+                        return ChangeType.Insert;
+                    case "U":
+                        return ChangeType.Update;
+                    case "D":
+                        return ChangeType.Delete;
+                    default:
+                        throw new NotSupportedException();
+                }
             }
+
+            return ChangeType.Insert;
         }
 
         public async Task<SyncChangeSet> GetInitialSetAsync()
