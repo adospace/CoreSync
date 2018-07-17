@@ -26,6 +26,6 @@ namespace CoreSync.Sqlite
         /// <summary>
         /// Table columns (discovered)
         /// </summary>
-        internal List<SqliteColumn> Columns { get; set; }
+        internal List<SqliteColumn> Columns { get; set; } = new List<SqliteColumn>();
     }
 }

@@ -6,5 +6,11 @@ namespace CoreSync.Sqlite
 {
     public class SqliteSyncAnchor : SyncAnchor
     {
+        public long Version { get; }
+
+        internal SqliteSyncAnchor(long version)
+        {
+            Version = version;
+        }
     }
 }

@@ -9,8 +9,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace CoreSync.Tests.Migrations
 {
-    [DbContext(typeof(SampleDbContext))]
-    [Migration("20180704120332_InitialCreate")]
+    [DbContext(typeof(SqlServerBlogDbContext))]
+    [Migration("20180717180619_InitialCreate")]
     partial class InitialCreate
     {
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -21,7 +21,7 @@ namespace CoreSync.Tests.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 128)
                 .HasAnnotation("SqlServer:ValueGenerationStrategy", SqlServerValueGenerationStrategy.IdentityColumn);
 
-            modelBuilder.Entity("EfSync.Tests.Data.Comment", b =>
+            modelBuilder.Entity("CoreSync.Tests.Data.Comment", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd();
@@ -47,7 +47,7 @@ namespace CoreSync.Tests.Migrations
                     b.ToTable("Comments");
                 });
 
-            modelBuilder.Entity("EfSync.Tests.Data.Post", b =>
+            modelBuilder.Entity("CoreSync.Tests.Data.Post", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd();
@@ -71,7 +71,7 @@ namespace CoreSync.Tests.Migrations
                     b.ToTable("Posts");
                 });
 
-            modelBuilder.Entity("EfSync.Tests.Data.User", b =>
+            modelBuilder.Entity("CoreSync.Tests.Data.User", b =>
                 {
                     b.Property<string>("Email")
                         .ValueGeneratedOnAdd();
@@ -85,24 +85,24 @@ namespace CoreSync.Tests.Migrations
                     b.ToTable("Users");
                 });
 
-            modelBuilder.Entity("EfSync.Tests.Data.Comment", b =>
+            modelBuilder.Entity("CoreSync.Tests.Data.Comment", b =>
                 {
-                    b.HasOne("EfSync.Tests.Data.User", "Author")
+                    b.HasOne("CoreSync.Tests.Data.User", "Author")
                         .WithMany("Comments")
                         .HasForeignKey("AuthorEmail");
 
-                    b.HasOne("EfSync.Tests.Data.Post", "Post")
+                    b.HasOne("CoreSync.Tests.Data.Post", "Post")
                         .WithMany("Comments")
                         .HasForeignKey("PostId");
 
-                    b.HasOne("EfSync.Tests.Data.Comment", "ReplyTo")
+                    b.HasOne("CoreSync.Tests.Data.Comment", "ReplyTo")
                         .WithMany()
                         .HasForeignKey("ReplyToId");
                 });
 
-            modelBuilder.Entity("EfSync.Tests.Data.Post", b =>
+            modelBuilder.Entity("CoreSync.Tests.Data.Post", b =>
                 {
-                    b.HasOne("EfSync.Tests.Data.User", "Author")
+                    b.HasOne("CoreSync.Tests.Data.User", "Author")
                         .WithMany("Posts")
                         .HasForeignKey("AuthorEmail");
                 });

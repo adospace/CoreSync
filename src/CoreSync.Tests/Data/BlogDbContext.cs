@@ -6,22 +6,17 @@ using System.Text;
 
 namespace CoreSync.Tests.Data
 {
-    public class SampleDbContext : DbContext
+    public abstract class BlogDbContext : DbContext
     {
         public string ConnectionString { get; }
 
-        public SampleDbContext([NotNull] string connectionString)
+        public BlogDbContext([NotNull] string connectionString)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(connectionString, nameof(connectionString));
             ConnectionString = connectionString;
         }
 
-        protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-        {
-            optionsBuilder.UseSqlServer(ConnectionString);
 
-            base.OnConfiguring(optionsBuilder);
-        }
 
         public DbSet<Post> Posts { get; set; }
 
