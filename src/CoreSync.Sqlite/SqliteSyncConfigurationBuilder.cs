@@ -6,18 +6,18 @@ using System.Text;
 
 namespace CoreSync.Sqlite
 {
-    public class SqlSyncConfigurationBuilder
+    public class SqliteSyncConfigurationBuilder
     {
         private readonly string _connectionString;
         private List<SqliteSyncTable> _tables = new List<SqliteSyncTable>();
 
-        public SqlSyncConfigurationBuilder([NotNull] string connectionString)
+        public SqliteSyncConfigurationBuilder([NotNull] string connectionString)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(connectionString, nameof(connectionString));
             _connectionString = connectionString;
         }
 
-        public SqlSyncConfigurationBuilder Table([NotNull] string name, bool bidirectional = true, string schema = "main")
+        public SqliteSyncConfigurationBuilder Table([NotNull] string name, bool bidirectional = true, string schema = "main")
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
 

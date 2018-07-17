@@ -1,4 +1,6 @@
-﻿namespace CoreSync.Sqlite
+﻿using System.Collections.Generic;
+
+namespace CoreSync.Sqlite
 {
     public class SqliteSyncTable : SyncTable
     {
@@ -20,5 +22,10 @@
         /// Schema of table (Default: dbo)
         /// </summary>
         public string Schema { get; }
+
+        /// <summary>
+        /// Table columns (discovered)
+        /// </summary>
+        internal List<SqliteColumn> Columns { get; set; }
     }
 }
