@@ -94,9 +94,43 @@ END");
             return "%s";
         }
 
-        public Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, [CanBeNull] Func<SyncItem, ConflictResolution> onConflictFunc = null)
+        public async Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, [CanBeNull] Func<SyncItem, ConflictResolution> onConflictFunc = null)
         {
-            throw new NotImplementedException();
+            Validate.NotNull(changeSet, nameof(changeSet));
+
+            if (!(changeSet.Anchor is SqliteSyncAnchor sqlAnchor))
+                throw new ArgumentException("Incompatible anchor", nameof(changeSet));
+
+            await InitializeAsync();
+
+            using (var c = new SqliteConnection(Configuration.ConnectionString))
+            {
+                await c.OpenAsync();
+
+                using (var cmd = new SqliteCommand())
+                {
+                    using (var tr = c.BeginTransaction())
+                    {
+                        cmd.Connection = c;
+                        cmd.Transaction = tr;
+                        cmd.CommandText = "SELECT CHANGE_TRACKING_CURRENT_VERSION()";
+
+                        long version = 0;
+                        {
+                            cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
+                            var res = await cmd.ExecuteScalarAsync();
+                            if (!(res is DBNull))
+                                version = (long)res;
+                        }
+
+                        bool atLeastOneChangeApplied = false;
+
+
+
+                    }
+                }
+            }
+
         }
 
         public async Task<SyncChangeSet> GetIncreamentalChangesAsync([NotNull] SyncAnchor anchor)
@@ -183,12 +217,12 @@ END");
                     {
                         cmd.Transaction = tr;
 
-                        int version = 0;
+                        long version = 0;
                         {
                             cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
                             var res = await cmd.ExecuteScalarAsync();
                             if (!(res is DBNull))
-                                version = (int)res;
+                                version = (long)res;
                         }
 
 
