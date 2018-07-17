@@ -50,7 +50,7 @@ namespace CoreSync.Sqlite
                 foreach (var table in Configuration.Tables)
                 {
                     var cmd = connection.CreateCommand();
-                    cmd.CommandText = $"CREATE TABLE IF NOT EXISTS [{table.Schema}].[{table.Name}_ct] ({string.Join(", ", table.Columns.Select(_ => "[" + _.Name + "] " + _.Type))})";
+                    cmd.CommandText = $"CREATE TABLE IF NOT EXISTS [{table.Schema}].[{table.Name}_ct] (__op, {string.Join(", ", table.Columns.Select(_ => "[" + _.Name + "] " + _.Type))})";
                     await cmd.ExecuteNonQueryAsync();
                 }
 
