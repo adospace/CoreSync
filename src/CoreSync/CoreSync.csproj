@@ -5,14 +5,12 @@
     <Version Condition=" '$(APPVEYOR_BUILD_VERSION)' != '' ">$(APPVEYOR_BUILD_VERSION)-beta</Version>
     <TargetFramework>netstandard2.0</TargetFramework>
     <Authors>adospace</Authors>
-    <Description>
-      CoreSync is a .NET standard library that provides data synchronization functions between databases. Currently only Sql Server is supported.
-    </Description>
+    <Description>CoreSync is a .NET standard library that provides data synchronization functions between databases. Currently Sql Server and SQLite are supported.</Description>
     <Copyright>Adolfo Marinucci</Copyright>
-    <PackageProjectUrl>https://github.com/adospace/NoSqlMapper</PackageProjectUrl>
-    <PackageLicenseUrl>https://github.com/adospace/NoSqlMapper/blob/master/LICENSE</PackageLicenseUrl>
-    <RepositoryUrl>https://github.com/adospace/NoSqlMapper</RepositoryUrl>
-    <PackageTags>data database sync synchronization .net</PackageTags>
+    <PackageProjectUrl>https://github.com/adospace/CoreSync</PackageProjectUrl>
+    <PackageLicenseUrl>https://github.com/adospace/CoreSync/blob/master/LICENSE</PackageLicenseUrl>
+    <RepositoryUrl>https://github.com/adospace/CoreSync</RepositoryUrl>
+    <PackageTags>data database sql server sqlite sync synchronization .net</PackageTags>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
   </PropertyGroup>
