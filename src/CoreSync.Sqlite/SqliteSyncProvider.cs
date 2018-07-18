@@ -61,7 +61,7 @@ namespace CoreSync.Sqlite
                 {
                     foreach (var table in Configuration.Tables.Where(_ => _.Columns.Any()))
                     {
-                        var primaryKeyColumns = table.Columns.Where(_ => _.PrimaryKey);
+                        var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey);
 
                         var commandTextBase = new Func<string, string>((op) => $@"CREATE TRIGGER IF NOT EXISTS [__{table.Name}_ct-{op}__] 
 AFTER {op} ON [{table.Schema}].[{table.Name}]
@@ -81,6 +81,26 @@ END");
                 }
             }
 
+            //4. Insert/Update/Delete query templates
+            foreach (var table in Configuration.Tables)
+            {
+                var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey).ToList();
+                var tableColumns = table.Columns.Where(_ => !_.IsPrimaryKey).ToList();
+
+                table.InsertQuery = $@"INSERT OR IGNORE INTO [{table.Schema}].[{table.Name}] ({string.Join(", ", table.Columns.Select(_ => "[" + _.Name + "]"))}) VALUES ({string.Join(", ", table.Columns.Select(_ => "@" + _.Name.Replace(' ', '_')))});";
+
+                table.UpdateQuery = $@"UPDATE [{table.Schema}].[{table.Name}] 
+SET {string.Join(", ", tableColumns.Select(_ => "[" + _.Name + "] = @" + _.Name.Replace(' ', '_')))} 
+WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Schema}].[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))}) 
+AND (@sync_force_write = 1 OR EXISTS (SELECT * FROM [{table.Schema}].[{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK]) 
+AND CT.ID > @last_sync_version))";
+
+                table.DeleteQuery = $@"DELETE FROM [{table.Schema}].[{table.Name}] 
+WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Schema}].[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))}) 
+AND (@sync_force_write = 1 OR EXISTS (SELECT * FROM [{table.Schema}].[{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK]) 
+AND CT.ID > @last_sync_version))";
+            }
+
             _initialized = true;
         }
 
@@ -98,7 +118,7 @@ END");
         {
             Validate.NotNull(changeSet, nameof(changeSet));
 
-            if (!(changeSet.Anchor is SqliteSyncAnchor sqlAnchor))
+            if (!(changeSet.Anchor is SqliteSyncAnchor sqliteAnchor))
                 throw new ArgumentException("Incompatible anchor", nameof(changeSet));
 
             await InitializeAsync();
@@ -113,18 +133,94 @@ END");
                     {
                         cmd.Connection = c;
                         cmd.Transaction = tr;
-                        cmd.CommandText = "SELECT CHANGE_TRACKING_CURRENT_VERSION()";
 
-                        long version = 0;
+                        cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
+                        var version = await cmd.ExecuteLongScalarAsync();
+
+                        cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
+                        var minVersion = await cmd.ExecuteLongScalarAsync();
+
+                        if (sqliteAnchor.Version < minVersion - 1)
+                            throw new InvalidOperationException($"Unable to apply changes, version of data requested ({sqliteAnchor.Version}) is too old (min valid version {minVersion})");
+
+                        foreach (var item in changeSet.Items)
                         {
-                            cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
-                            var res = await cmd.ExecuteScalarAsync();
-                            if (!(res is DBNull))
-                                version = (long)res;
+                            var table = Configuration.Tables.First(_ => _.Name == item.Table.Name);
+
+                            bool syncForceWrite = false;
+                            var itemChangeType = item.ChangeType;
+
+                            retryWrite:
+                            cmd.Parameters.Clear();
+
+                            switch (itemChangeType)
+                            {
+                                case ChangeType.Insert:
+                                    cmd.CommandText = table.InsertQuery;
+                                    break;
+                                case ChangeType.Update:
+                                    cmd.CommandText = table.UpdateQuery;
+                                    break;
+                                case ChangeType.Delete:
+                                    cmd.CommandText = table.DeleteQuery;
+                                    break;
+                            }
+
+                            cmd.Parameters.Add(new SqliteParameter("@last_sync_version", sqliteAnchor.Version));
+                            cmd.Parameters.Add(new SqliteParameter("@sync_force_write", syncForceWrite));
+
+                            foreach (var valueItem in item.Values)
+                                cmd.Parameters.Add(new SqliteParameter("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value ?? DBNull.Value));
+
+                            var affectedRows = cmd.ExecuteNonQuery();
+
+                            if (affectedRows == 0)
+                            {
+                                if (itemChangeType == ChangeType.Insert)
+                                {
+                                    //If we can't apply an insert means that we already
+                                    //applied the insert or another record with same values (see primary key)
+                                    //is already present in table.
+                                    //In any case we can't proceed
+                                    throw new InvalidSyncOperationException(new SqliteSyncAnchor(sqliteAnchor.Version + 1));
+                                }
+                                else if (itemChangeType == ChangeType.Update ||
+                                    itemChangeType == ChangeType.Delete)
+                                {
+                                    if (syncForceWrite)
+                                    {
+                                        if (itemChangeType == ChangeType.Delete)
+                                        {
+                                            //item is already deleted in data store
+                                            //so this means that we're going to delete a already deleted record
+                                            //i.e. nothing to do
+                                        }
+                                        else
+                                        {
+                                            //if user wants to update forcely a delete record means
+                                            //he wants to actually insert it again in store
+                                            itemChangeType = ChangeType.Insert;
+                                            goto retryWrite;
+                                        }
+                                    }
+                                    //conflict detected
+                                    var res = onConflictFunc?.Invoke(item);
+                                    if (res.HasValue && res.Value == ConflictResolution.ForceWrite)
+                                    {
+                                        syncForceWrite = true;
+                                        goto retryWrite;
+                                    }
+                                }
+                            }
+
                         }
 
-                        bool atLeastOneChangeApplied = false;
+                        cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
+                        version = await cmd.ExecuteLongScalarAsync();
 
+                        tr.Commit();
+
+                        return new SqliteSyncAnchor(version);
 
 
                     }
@@ -157,38 +253,27 @@ END");
                         cmd.Transaction = tr;
 
                         cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
+                        var version = await cmd.ExecuteLongScalarAsync();
 
-                        long version = 0;
-                        {
-                            cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
-                            var res = await cmd.ExecuteScalarAsync();
-                            if (!(res is DBNull))
-                                version = (long)res;
-                        }
-
-                        long minVersion = 0;
-                        {
-                            cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
-                            var res = await cmd.ExecuteScalarAsync();
-                            if (!(res is DBNull))
-                                minVersion = (long)res;
-                        }
-
+                        cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
+                        var minVersion = await cmd.ExecuteLongScalarAsync();
+                        
                         if (sqliteAnchor.Version < minVersion - 1)
                             throw new InvalidOperationException($"Unable to get changes, version of data requested ({sqliteAnchor.Version}) is too old (min valid version {minVersion})");
 
                         foreach (var table in Configuration.Tables.Where(_=>_.Columns.Any()))
                         {
-                            var primaryKeyColumns = table.Columns.Where(_ => _.PrimaryKey);
+                            var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey);
 
-                            cmd.CommandText = $@"SELECT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Name + "]"))}, CT.OP FROM [{table.Schema}].[{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.PK WHERE CT.Id > {sqliteAnchor.Version}";
+                            cmd.CommandText = $@"SELECT DISTINCT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Name + "]"))}, MIN(CT.OP) AS OP FROM [{table.Schema}].[{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.PK WHERE CT.Id > {sqliteAnchor.Version}";
 
                             using (var r = await cmd.ExecuteReaderAsync())
                             {
                                 while (await r.ReadAsync())
                                 {
-                                    var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => r.GetValue(_));
-                                    items.Add(new SqliteSyncItem(table, DetectChangeType(values), values));
+                                    var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
+                                    if (values["OP"] != null)
+                                        items.Add(new SqliteSyncItem(table, DetectChangeType(values), values));
                                 }
                             }
                         }
@@ -200,6 +285,56 @@ END");
                     }
                 }
             }
+        }
+
+        private static object GetValueFromRecord(SqliteSyncTable table, string columnName, int columnOrdinal, SqliteDataReader r)
+        {
+            if (r.IsDBNull(columnOrdinal))
+                return null;
+
+            if (table.RecordType == null)
+                return r.GetValue(columnOrdinal);
+
+            foreach (var pi in table.RecordType.GetProperties())
+            {
+                if (pi.Name == columnName)
+                    return GetValueFromRecord(r, columnOrdinal, pi.PropertyType);
+            }
+
+
+            //fallback to getvalue
+            return r.GetValue(columnOrdinal);
+        }
+
+        private static object GetValueFromRecord(SqliteDataReader r, int columnOrdinal, Type propertyType)
+        {
+            if (propertyType == typeof(string))
+                return r.GetString(columnOrdinal);
+            if (propertyType == typeof(DateTime))
+                return r.GetDateTime(columnOrdinal);
+            if (propertyType == typeof(int))
+                return r.GetInt32(columnOrdinal);
+            if (propertyType == typeof(bool))
+                return r.GetBoolean(columnOrdinal);
+            if (propertyType == typeof(byte))
+                return r.GetByte(columnOrdinal);
+            if (propertyType == typeof(char))
+                return r.GetChar(columnOrdinal);
+            if (propertyType == typeof(short))
+                return r.GetInt16(columnOrdinal);
+            if (propertyType == typeof(long))
+                return r.GetInt64(columnOrdinal);
+            if (propertyType == typeof(decimal))
+                return r.GetDecimal(columnOrdinal);
+            if (propertyType == typeof(double))
+                return r.GetDouble(columnOrdinal);
+            if (propertyType == typeof(float))
+                return r.GetFloat(columnOrdinal);
+
+
+            //fallback to getvalue
+            return r.GetValue(columnOrdinal);
+
         }
 
         public async Task<SyncChangeSet> GetInitialSetAsync()
@@ -217,14 +352,8 @@ END");
                     {
                         cmd.Transaction = tr;
 
-                        long version = 0;
-                        {
-                            cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
-                            var res = await cmd.ExecuteScalarAsync();
-                            if (!(res is DBNull))
-                                version = (long)res;
-                        }
-
+                        cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
+                        var version = await cmd.ExecuteLongScalarAsync();
 
                         foreach (var table in Configuration.Tables)
                         {
@@ -234,7 +363,7 @@ END");
                             {
                                 while (await r.ReadAsync())
                                 {
-                                    var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => r.GetValue(_));
+                                    var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
                                     items.Add(new SqliteSyncItem(table, DetectChangeType(values), values));
                                 }
                             }
@@ -247,19 +376,27 @@ END");
             }
         }
 
-        private ChangeType DetectChangeType(Dictionary<string, object> values)
+        private static ChangeType DetectChangeType(Dictionary<string, object> values)
         {
-            switch ((string)values["OP"])
+            if (values.ContainsKey("OP"))
             {
-                case "I":
-                    return ChangeType.Insert;
-                case "U":
-                    return ChangeType.Update;
-                case "D":
-                    return ChangeType.Delete;
+                switch ((string)values["OP"])
+                {
+                    case "I":
+                        return ChangeType.Insert;
+                    case "U":
+                        return ChangeType.Update;
+                    case "D":
+                        return ChangeType.Delete;
+                }
+
+                throw new NotSupportedException();
             }
 
-            throw new NotSupportedException();
+
+            return ChangeType.Insert;
         }
+
+
     }
 }

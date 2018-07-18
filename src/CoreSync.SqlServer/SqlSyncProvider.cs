@@ -172,7 +172,6 @@ WHERE
             }
         }
 
-
         public async Task<SyncChangeSet> GetIncreamentalChangesAsync(SyncAnchor anchor)
         {
             Validate.NotNull(anchor, nameof(anchor));

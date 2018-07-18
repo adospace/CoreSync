@@ -55,10 +55,35 @@ namespace CoreSync.Tests
         [TestMethod]
         public async Task Test2_SqlServer_SqlServer()
         {
-            using (var dbLocal = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test2_Local"))
-            using (var dbRemote = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test2_Remote"))
+            using (var localDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test2_Local"))
+            using (var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test2_Remote"))
             {
-                await Test2(dbLocal, dbRemote);
+                await localDb.Database.EnsureDeletedAsync();
+                await remoteDb.Database.EnsureDeletedAsync();
+
+                await localDb.Database.MigrateAsync();
+                await remoteDb.Database.MigrateAsync();
+
+                var remoteConfigurationBuilder =
+                    new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+                var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Configuration);
+
+                var localConfigurationBuilder =
+                    new SqlSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+                var localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Configuration);
+
+                await Test2(localDb,
+                    localSyncProvider,
+                    remoteDb,
+                    remoteSyncProvider);
             }
         }
 
@@ -82,22 +107,60 @@ namespace CoreSync.Tests
 
                 var remoteConfigurationBuilder =
                     new SqliteSyncConfigurationBuilder(remoteDb.ConnectionString)
-                    .Table("Users")
-                    .Table("Posts")
-                    .Table("Comments");
+                    .Table<User>("Users")
+                    .Table<Post>("Posts")
+                    .Table<Comment>("Comments");
 
                 var remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Configuration);
 
                 var localConfigurationBuilder =
                     new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
-                    .Table("Users")
-                    .Table("Posts")
-                    .Table("Comments");
+                    .Table<User>("Users")
+                    .Table<Post>("Posts")
+                    .Table<Comment>("Comments");
 
                 var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Configuration);
 
 
                 await Test1(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+            }
+        }
+
+        [TestMethod]
+        public async Task Test2_Sqlite_Sqlite()
+        {
+            var localDbFile = $"{Path.GetTempPath()}Test2_Sqlite_Sqlite_local.sqlite";
+            var remoteDbFile = $"{Path.GetTempPath()}Test2_Sqlite_Sqlite_remote.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+            if (File.Exists(remoteDbFile)) File.Delete(remoteDbFile);
+
+            using (var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}"))
+            using (var remoteDb = new SqliteBlogDbContext($"Data Source={remoteDbFile}"))
+            {
+                await localDb.Database.EnsureDeletedAsync();
+                await remoteDb.Database.EnsureDeletedAsync();
+
+                await localDb.Database.MigrateAsync();
+                await remoteDb.Database.MigrateAsync();
+
+                var remoteConfigurationBuilder =
+                    new SqliteSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table<User>("Users")
+                    .Table<Post>("Posts")
+                    .Table<Comment>("Comments");
+
+                var remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Configuration);
+
+                var localConfigurationBuilder =
+                    new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table<User>("Users")
+                    .Table<Post>("Posts")
+                    .Table<Comment>("Comments");
+
+                var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Configuration);
+
+                await Test2(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
             }
         }
 
@@ -112,13 +175,11 @@ namespace CoreSync.Tests
             Assert.IsNotNull(initialSet);
             Assert.IsNotNull(initialSet.Items);
             Assert.AreEqual(0, initialSet.Items.Count);
-            //Assert.AreEqual(0, ((SqlSyncAnchor)initialSet.Anchor).Version);
 
             var changeSet = await remoteSyncProvider.GetIncreamentalChangesAsync(initialSet.Anchor);
             Assert.IsNotNull(changeSet);
             Assert.IsNotNull(changeSet.Items);
             Assert.AreEqual(0, changeSet.Items.Count);
-            //Assert.AreEqual(0, ((SqlSyncAnchor)changeSet.Anchor).Version);
 
             var newUser = new User() { Email = "myemail@test.com", Name = "User1", Created = DateTime.Now };
             remoteDb.Users.Add(newUser);
@@ -128,19 +189,16 @@ namespace CoreSync.Tests
             Assert.IsNotNull(changeSetAfterUserAdd);
             Assert.IsNotNull(changeSetAfterUserAdd.Items);
             Assert.AreEqual(1, changeSetAfterUserAdd.Items.Count);
-            //Assert.AreEqual(1, ((SqlSyncAnchor)changeSetAfterUserAdd.Anchor).Version);
             Assert.AreEqual(ChangeType.Insert, changeSetAfterUserAdd.Items[0].ChangeType);
             Assert.AreEqual(newUser.Email, changeSetAfterUserAdd.Items[0].Values["Email"]);
             Assert.AreEqual(newUser.Name, changeSetAfterUserAdd.Items[0].Values["Name"]);
 
             var finalAnchor = await localSyncProvider.ApplyChangesAsync(new SyncChangeSet(initialSet.Anchor, changeSetAfterUserAdd.Items));
             Assert.IsNotNull(finalAnchor);
-            //Assert.AreEqual(1, ((SqlSyncAnchor)finalAnchor).Version);
 
             //try to apply same changeset result in an exception
             var exception = await Assert.ThrowsExceptionAsync<InvalidSyncOperationException>(() => localSyncProvider.ApplyChangesAsync(new SyncChangeSet(initialSet.Anchor, changeSetAfterUserAdd.Items)));
             Assert.IsNotNull(exception);
-            //Assert.AreEqual(((SqlSyncAnchor)finalAnchor).Version, exception.CandidateAnchor.Version);
 
             newUser.Created = new DateTime(2018, 1, 1);
             await remoteDb.SaveChangesAsync();
@@ -151,7 +209,6 @@ namespace CoreSync.Tests
                 Assert.IsNotNull(changeSetAfterUserEdit);
                 Assert.IsNotNull(changeSetAfterUserEdit.Items);
                 Assert.AreEqual(1, changeSetAfterUserEdit.Items.Count);
-                //Assert.AreEqual(2, ((SqlSyncAnchor)changeSetAfterUserEdit.Anchor).Version);
                 Assert.AreEqual(newUser.Email, changeSetAfterUserEdit.Items[0].Values["Email"]);
                 Assert.AreEqual(newUser.Name, changeSetAfterUserEdit.Items[0].Values["Name"]);
                 Assert.AreEqual(newUser.Created, changeSetAfterUserEdit.Items[0].Values["Created"]);
@@ -167,7 +224,6 @@ namespace CoreSync.Tests
                 //get changes from local db
                 var localChangeSet = await localSyncProvider.GetIncreamentalChangesAsync(finalAnchor);
                 Assert.IsNotNull(localChangeSet);
-                //Assert.AreEqual(2, ((SqlSyncAnchor)localChangeSet.Anchor).Version);
 
                 //try to apply changes to remote provider
                 var anchorAfterChangesAppliedFromLocalProvider =
@@ -176,7 +232,6 @@ namespace CoreSync.Tests
                 //to apply the changes from local db
                 //so nothing should be changed in remote db
                 Assert.IsNotNull(anchorAfterChangesAppliedFromLocalProvider);
-                //Assert.AreEqual(2, ((SqlSyncAnchor)anchorAfterChangesAppliedFromLocalProvider).Version);
 
                 var userNotChangedInRemoteDb = await remoteDb.Users.FirstAsync(_ => _.Email == newUser.Email);
                 Assert.IsNotNull(userNotChangedInRemoteDb);
@@ -187,19 +242,18 @@ namespace CoreSync.Tests
                     await remoteSyncProvider.ApplyChangesAsync(new SyncChangeSet(changeSetAfterUserAdd.Anchor, localChangeSet.Items),
                     (item) =>
                     {
-                            //assert that conflict occurred on item we just got from local db
-                            Assert.IsNotNull(item);
+                        //assert that conflict occurred on item we just got from local db
+                        Assert.IsNotNull(item);
                         Assert.AreEqual(newUserInLocalDb.Email, item.Values["Email"]);
                         Assert.AreEqual(newUserInLocalDb.Name, item.Values["Name"]);
                         Assert.AreEqual(ChangeType.Update, item.ChangeType);
 
-                            //force write in remote store
-                            return ConflictResolution.ForceWrite;
+                        //force write in remote store
+                        return ConflictResolution.ForceWrite;
                     });
 
                 //now we should have a new version  (+1)
                 Assert.IsNotNull(anchorAfterChangesAppliedFromLocalProvider);
-                //Assert.AreEqual(3, ((SqlSyncAnchor)anchorAfterChangesAppliedFromLocalProvider).Version);
 
                 //and local db changes should be applied to remote db
                 var userChangedInRemoteDb = await remoteDb.Users.AsNoTracking().FirstAsync(_ => _.Email == newUser.Email);
@@ -215,7 +269,6 @@ namespace CoreSync.Tests
                 var newUserInLocalDb = await localDb.Users.FirstAsync(_ => _.Email == newUser.Email);
                 var localChangeSet = await localSyncProvider.GetIncreamentalChangesAsync(finalAnchor);
                 Assert.IsNotNull(localChangeSet);
-                //Assert.AreEqual(2, ((SqlSyncAnchor)localChangeSet.Anchor).Version);
 
                 //try to apply changes to remote provider
                 var anchorAfterChangesAppliedFromLocalProvider =
@@ -224,7 +277,6 @@ namespace CoreSync.Tests
                 //to apply the changes from local db
                 //so nothing should be changed in remote db
                 Assert.IsNotNull(anchorAfterChangesAppliedFromLocalProvider);
-                //Assert.AreEqual(4, ((SqlSyncAnchor)anchorAfterChangesAppliedFromLocalProvider).Version);
 
                 //user should not be present
                 var userNotChangedInRemoteDb = await remoteDb.Users.FirstOrDefaultAsync(_ => _.Email == newUser.Email);
@@ -235,19 +287,18 @@ namespace CoreSync.Tests
                     await remoteSyncProvider.ApplyChangesAsync(new SyncChangeSet(changeSetAfterUserAdd.Anchor, localChangeSet.Items),
                     (item) =>
                     {
-                            //assert that conflict occurred on item we just got from local db
-                            Assert.IsNotNull(item);
+                        //assert that conflict occurred on item we just got from local db
+                        Assert.IsNotNull(item);
                         Assert.AreEqual(newUserInLocalDb.Email, item.Values["Email"]);
                         Assert.AreEqual(newUserInLocalDb.Name, item.Values["Name"]);
                         Assert.AreEqual(ChangeType.Update, item.ChangeType);
 
-                            //force write in remote store
-                            return ConflictResolution.ForceWrite;
+                        //force write in remote store
+                        return ConflictResolution.ForceWrite;
                     });
 
                 //now we should have a new version  (+1)
                 Assert.IsNotNull(anchorAfterChangesAppliedFromLocalProvider);
-                //Assert.AreEqual(5, ((SqlSyncAnchor)anchorAfterChangesAppliedFromLocalProvider).Version);
 
                 //and local db changes should be applied to remote db
                 var userChangedInRemoteDb = await remoteDb.Users.AsNoTracking().FirstAsync(_ => _.Email == newUser.Email);
@@ -257,65 +308,46 @@ namespace CoreSync.Tests
             }
         }
 
-        private async Task Test2(BlogDbContext dbLocal, BlogDbContext dbRemote)
+        private async Task Test2(
+            BlogDbContext localDb,
+            ISyncProvider localSyncProvider,
+            BlogDbContext remoteDb,
+            ISyncProvider remoteSyncProvider)
         {
-            await dbLocal.Database.EnsureDeletedAsync();
-            await dbRemote.Database.EnsureDeletedAsync();
-
-            await dbLocal.Database.MigrateAsync();
-            await dbRemote.Database.MigrateAsync();
-
-            var remoteConfigurationBuilder =
-                new SqlSyncConfigurationBuilder(dbRemote.ConnectionString)
-                .Table("Users")
-                .Table("Posts")
-                .Table("Comments");
-
-            var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Configuration);
-
-            var localConfigurationBuilder =
-                new SqlSyncConfigurationBuilder(dbLocal.ConnectionString)
-                .Table("Users")
-                .Table("Posts")
-                .Table("Comments");
-
-            var localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Configuration);
 
             var newUserLocal = new User() { Email = "user1@email.com", Name = "user1", Created = new DateTime(2018, 1, 1) };
             newUserLocal.Posts.Add(new Post() { Title = "title of post", Content = "content of post", Claps = 2, Stars = 4.5f, Updated = new DateTime(2018, 3, 1) });
-            dbLocal.Users.Add(newUserLocal);
-            await dbLocal.SaveChangesAsync();
+            localDb.Users.Add(newUserLocal);
+            await localDb.SaveChangesAsync();
 
             //let's apply changes from local db to remote db
             var localChangeSet = await localSyncProvider.GetInitialSetAsync();
             Assert.IsNotNull(localChangeSet);
-            Assert.AreEqual(0, ((SqlSyncAnchor)localChangeSet.Anchor).Version);
 
             var remoteChangeSet = await remoteSyncProvider.GetInitialSetAsync();
 
             var changeSetForRemoteDb = new SyncChangeSet(remoteChangeSet.Anchor, localChangeSet.Items);
-            var anchorAfterApplyChanges = (SqlSyncAnchor)await remoteSyncProvider.ApplyChangesAsync(changeSetForRemoteDb);
+            var anchorAfterApplyChanges = (SyncAnchor)await remoteSyncProvider.ApplyChangesAsync(changeSetForRemoteDb);
             Assert.IsNotNull(anchorAfterApplyChanges);
-            Assert.AreEqual(1, anchorAfterApplyChanges.Version);
 
             var changeSetAfterApplyChangesToRemoteDb = await remoteSyncProvider.GetIncreamentalChangesAsync(anchorAfterApplyChanges);
             Assert.IsNotNull(changeSetAfterApplyChangesToRemoteDb);
-            Assert.AreEqual(1, ((SqlSyncAnchor)changeSetAfterApplyChangesToRemoteDb.Anchor).Version);
             Assert.AreEqual(0, changeSetAfterApplyChangesToRemoteDb.Items.Count);
 
             newUserLocal.Posts[0].Comments.Add(new Comment() { Content = "my first comment on post", Created = new DateTime(2018, 3, 2) });
             newUserLocal.Posts[0].Stars = 4.0f;
             newUserLocal.Posts[0].Updated = new DateTime(2018, 3, 2);
-            await dbLocal.SaveChangesAsync();
+            await localDb.SaveChangesAsync();
 
             localChangeSet = await localSyncProvider.GetIncreamentalChangesAsync(localChangeSet.Anchor);
             Assert.IsNotNull(localChangeSet);
-            Assert.AreEqual(1, ((SqlSyncAnchor)localChangeSet.Anchor).Version);
 
             changeSetForRemoteDb = new SyncChangeSet(anchorAfterApplyChanges, localChangeSet.Items);
-            anchorAfterApplyChanges = (SqlSyncAnchor)await remoteSyncProvider.ApplyChangesAsync(changeSetForRemoteDb);
+            anchorAfterApplyChanges = (SyncAnchor)await remoteSyncProvider.ApplyChangesAsync(changeSetForRemoteDb);
             Assert.IsNotNull(anchorAfterApplyChanges);
-            Assert.AreEqual(2, anchorAfterApplyChanges.Version);
+
+            var commentAdded = await remoteDb.Comments.FirstOrDefaultAsync(_ => _.Content == "my first comment on post");
+            Assert.IsNotNull(commentAdded);
         }
     }
 }

@@ -17,7 +17,7 @@ namespace CoreSync.Sqlite
             _connectionString = connectionString;
         }
 
-        public SqliteSyncConfigurationBuilder Table([NotNull] string name, bool bidirectional = true, string schema = "main")
+        public SqliteSyncConfigurationBuilder Table([NotNull] string name, Type recordType = null, bool bidirectional = true, string schema = "main")
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
 
@@ -25,8 +25,13 @@ namespace CoreSync.Sqlite
             if (_tables.Any(_ => String.CompareOrdinal(_.Name, name) == 0))
                 throw new InvalidOperationException("Table with name '{name}' already added");
 
-            _tables.Add(new SqliteSyncTable(name, bidirectional, schema));
+            _tables.Add(new SqliteSyncTable(name, recordType: recordType, bidirectional: bidirectional, schema: schema));
             return this;
+        }
+
+        public SqliteSyncConfigurationBuilder Table<T>([NotNull] string name, bool bidirectional = true, string schema = "main")
+        {
+            return Table(name, typeof(T), bidirectional, schema);
         }
 
         public SqliteSyncConfiguration Configuration

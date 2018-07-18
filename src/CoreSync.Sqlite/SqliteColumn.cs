@@ -10,11 +10,11 @@ namespace CoreSync.Sqlite
         {
             Name = name;
             Type = type;
-            PrimaryKey = primaryKey;
+            IsPrimaryKey = primaryKey;
         }
 
         public string Name { get; }
         public string Type { get; }
-        public bool PrimaryKey { get; }
+        public bool IsPrimaryKey { get; }
     }
 }
