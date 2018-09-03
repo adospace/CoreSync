@@ -2,10 +2,9 @@
 
 namespace CoreSync.Sqlite
 {
-    public class SqliteSyncConfiguration
+    public class SqliteSyncConfiguration : SyncConfiguration
     {
         public string ConnectionString { get; }
-        public SqliteSyncTable[] Tables { get; }
 
         internal SqliteSyncConfiguration([NotNull] string connectionString, [NotNull] SqliteSyncTable[] tables)
         {

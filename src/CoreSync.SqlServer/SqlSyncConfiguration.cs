@@ -2,10 +2,9 @@
 
 namespace CoreSync.SqlServer
 {
-    public class SqlSyncConfiguration
+    public class SqlSyncConfiguration : SyncConfiguration
     {
         public string ConnectionString { get; }
-        public SqlSyncTable[] Tables { get; }
 
         internal SqlSyncConfiguration([NotNull] string connectionString, [NotNull] SqlSyncTable[] tables)
         {

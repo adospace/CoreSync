@@ -27,7 +27,7 @@ namespace CoreSync.SqlServer
 
             var connStringBuilder = new SqlConnectionStringBuilder(Configuration.ConnectionString);
             if (string.IsNullOrWhiteSpace(connStringBuilder.InitialCatalog))
-                throw new InvalidOperationException("Invalid connection string");
+                throw new InvalidOperationException("Invalid connection string: InitialCatalog property is missing");
 
             using (var c = new SqlConnection(Configuration.ConnectionString))
             {
@@ -37,7 +37,7 @@ namespace CoreSync.SqlServer
                 var database = server.Databases.Cast<Database>().FirstOrDefault(_=>_.Name == connStringBuilder.InitialCatalog);
 
                 if (database == null)
-                    throw new InvalidOperationException($"Unable to find database '{connStringBuilder.InitialCatalog}'");
+                    throw new InvalidOperationException($"Unable to find database '{connStringBuilder.InitialCatalog}' in server '{connStringBuilder.DataSource}'");
 
                 if (!database.ChangeTrackingEnabled)
                 {
@@ -52,7 +52,7 @@ namespace CoreSync.SqlServer
                     database.Alter();
                 }
 
-                foreach (var table in Configuration.Tables)
+                foreach (SqlSyncTable table in Configuration.Tables)
                 {
                     var dbTable = database.Tables[table.Name];
                     if (!dbTable.ChangeTrackingEnabled)
@@ -149,7 +149,7 @@ WHERE
 
                         long version = (long)await cmd.ExecuteScalarAsync();
 
-                        foreach (var table in Configuration.Tables)
+                        foreach (SqlSyncTable table in Configuration.Tables)
                         {
                             cmd.CommandText = table.InitialDataQuery;
 
@@ -199,7 +199,7 @@ WHERE
 
                         long version = (long)await cmd.ExecuteScalarAsync();
 
-                        foreach (var table in Configuration.Tables)
+                        foreach (SqlSyncTable table in Configuration.Tables)
                         {
                             cmd.CommandText = $"SELECT CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID('{table.Schema}.[{table.Name}]'))";
 
@@ -255,7 +255,7 @@ WHERE
 
                         foreach (var item in changeSet.Items)
                         {
-                            var table = Configuration.Tables.First(_ => _.Name == item.Table.Name);
+                            var table = (SqlSyncTable) Configuration.Tables.First(_ => _.Name == item.Table.Name);
 
                             cmd.Parameters.Clear();
                             cmd.CommandText = $"SELECT CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID('{table.Schema}.[{table.Name}]'))";

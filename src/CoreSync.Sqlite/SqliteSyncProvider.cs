@@ -28,7 +28,7 @@ namespace CoreSync.Sqlite
                 //1. discover tables
                 using (var cmd = connection.CreateCommand())
                 {
-                    foreach (var table in Configuration.Tables)
+                    foreach (SqliteSyncTable table in Configuration.Tables)
                     {
                         cmd.CommandText = $"PRAGMA table_info('{table.Name}')";
                         using (var reader = await cmd.ExecuteReaderAsync())
@@ -59,7 +59,7 @@ namespace CoreSync.Sqlite
                 //3. create triggers
                 using (var cmd = connection.CreateCommand())
                 {
-                    foreach (var table in Configuration.Tables.Where(_ => _.Columns.Any()))
+                    foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_ => _.Columns.Any()))
                     {
                         var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey);
 
@@ -82,7 +82,7 @@ END");
             }
 
             //4. Insert/Update/Delete query templates
-            foreach (var table in Configuration.Tables)
+            foreach (SqliteSyncTable table in Configuration.Tables)
             {
                 var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey).ToList();
                 var tableColumns = table.Columns.Where(_ => !_.IsPrimaryKey).ToList();
@@ -145,7 +145,7 @@ AND CT.ID > @last_sync_version))";
 
                         foreach (var item in changeSet.Items)
                         {
-                            var table = Configuration.Tables.First(_ => _.Name == item.Table.Name);
+                            var table = (SqliteSyncTable) Configuration.Tables.First(_ => _.Name == item.Table.Name);
 
                             bool syncForceWrite = false;
                             var itemChangeType = item.ChangeType;
@@ -261,7 +261,7 @@ AND CT.ID > @last_sync_version))";
                         if (sqliteAnchor.Version < minVersion - 1)
                             throw new InvalidOperationException($"Unable to get changes, version of data requested ({sqliteAnchor.Version}) is too old (min valid version {minVersion})");
 
-                        foreach (var table in Configuration.Tables.Where(_=>_.Columns.Any()))
+                        foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_=>_.Columns.Any()))
                         {
                             var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey);
 
@@ -295,13 +295,10 @@ AND CT.ID > @last_sync_version))";
             if (table.RecordType == null)
                 return r.GetValue(columnOrdinal);
 
-            foreach (var pi in table.RecordType.GetProperties())
-            {
-                if (pi.Name == columnName)
-                    return GetValueFromRecord(r, columnOrdinal, pi.PropertyType);
-            }
-
-
+            var property = table.RecordType.GetProperty(columnName);
+            if (property != null)
+                return property.PropertyType;
+            
             //fallback to getvalue
             return r.GetValue(columnOrdinal);
         }
@@ -355,7 +352,7 @@ AND CT.ID > @last_sync_version))";
                         cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
                         var version = await cmd.ExecuteLongScalarAsync();
 
-                        foreach (var table in Configuration.Tables)
+                        foreach (SqliteSyncTable table in Configuration.Tables)
                         {
                             cmd.CommandText = $@"SELECT {string.Join(", ", table.Columns.Select(_ => "[" + _.Name + "]"))} FROM [{table.Name}]";
 

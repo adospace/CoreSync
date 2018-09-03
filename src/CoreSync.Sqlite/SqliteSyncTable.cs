@@ -21,7 +21,7 @@ namespace CoreSync.Sqlite
         public bool Bidirectional { get; }
 
         /// <summary>
-        /// Schema of table (Default: dbo)
+        /// Schema of table (Default: main)
         /// </summary>
         public string Schema { get; }
 

@@ -107,17 +107,17 @@ namespace CoreSync.Tests
 
                 var remoteConfigurationBuilder =
                     new SqliteSyncConfigurationBuilder(remoteDb.ConnectionString)
-                    .Table<User>("Users")
-                    .Table<Post>("Posts")
-                    .Table<Comment>("Comments");
+                        .Table<User>("Users")
+                        .Table<Post>("Posts")
+                        .Table<Comment>("Comments");
 
                 var remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Configuration);
 
                 var localConfigurationBuilder =
                     new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
-                    .Table<User>("Users")
-                    .Table<Post>("Posts")
-                    .Table<Comment>("Comments");
+                        .Table<User>("Users")
+                        .Table<Post>("Posts")
+                        .Table<Comment>("Comments");
 
                 var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Configuration);
 
@@ -146,17 +146,17 @@ namespace CoreSync.Tests
 
                 var remoteConfigurationBuilder =
                     new SqliteSyncConfigurationBuilder(remoteDb.ConnectionString)
-                    .Table<User>("Users")
-                    .Table<Post>("Posts")
-                    .Table<Comment>("Comments");
+                        .Table<User>("Users")
+                        .Table<Post>("Posts")
+                        .Table<Comment>("Comments");
 
                 var remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Configuration);
 
                 var localConfigurationBuilder =
                     new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
-                    .Table<User>("Users")
-                    .Table<Post>("Posts")
-                    .Table<Comment>("Comments");
+                        .Table<User>("Users")
+                        .Table<Post>("Posts")
+                        .Table<Comment>("Comments");
 
                 var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Configuration);
 

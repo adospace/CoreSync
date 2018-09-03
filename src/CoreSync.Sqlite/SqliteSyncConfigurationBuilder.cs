@@ -23,7 +23,7 @@ namespace CoreSync.Sqlite
 
             name = name.Trim();
             if (_tables.Any(_ => String.CompareOrdinal(_.Name, name) == 0))
-                throw new InvalidOperationException("Table with name '{name}' already added");
+                throw new InvalidOperationException($"Table with name '{name}' already added");
 
             _tables.Add(new SqliteSyncTable(name, recordType: recordType, bidirectional: bidirectional, schema: schema));
             return this;
