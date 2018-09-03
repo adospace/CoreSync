@@ -297,7 +297,7 @@ AND CT.ID > @last_sync_version))";
 
             var property = table.RecordType.GetProperty(columnName);
             if (property != null)
-                return property.PropertyType;
+                return GetValueFromRecord(r, columnOrdinal, property.PropertyType);
             
             //fallback to getvalue
             return r.GetValue(columnOrdinal);
