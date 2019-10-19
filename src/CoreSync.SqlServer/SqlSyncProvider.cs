@@ -20,6 +20,8 @@ namespace CoreSync.SqlServer
         }
 
         bool _initialized = false;
+        private Guid _storeId;
+
         private async Task InitializeAsync()
         {
             if (_initialized)
@@ -52,6 +54,58 @@ namespace CoreSync.SqlServer
                     database.Alter();
                 }
 
+                if (!database.Tables.Contains("__CORE_SYNC_REMOTE_ANCHOR"))
+                {
+                    using (var cmd = c.CreateCommand())
+                    {
+                        cmd.CommandText = $@"CREATE TABLE [dbo].[__CORE_SYNC_REMOTE_ANCHOR](
+	[REMOTE_ID] [uniqueidentifier] NOT NULL,
+	[REMOTE_ANCHOR] [BIGINT] NOT NULL
+ CONSTRAINT [PK___CORE_SYNC_REMOTE_ANCHOR] PRIMARY KEY CLUSTERED 
+(
+	[REMOTE_ID] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+) ON [PRIMARY]";
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                if (!database.Tables.Contains("__CORE_SYNC_LOCAL_ANCHOR"))
+                {
+                    using (var cmd = c.CreateCommand())
+                    {
+                        cmd.CommandText = $@"CREATE TABLE [dbo].[__CORE_SYNC_LOCAL_ANCHOR](
+	[LOCAL_ID] [uniqueidentifier] NOT NULL,
+	[LOCAL_ANCHOR] [BIGINT] NOT NULL
+ CONSTRAINT [PK___CORE_SYNC_LOCAL_ANCHOR] PRIMARY KEY CLUSTERED 
+(
+	[LOCAL_ID] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+) ON [PRIMARY]";
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                using (var cmd = c.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT TOP 1 LOCAL_ID FROM __CORE_SYNC_LOCAL_ANCHOR";
+                    var localId = await cmd.ExecuteScalarAsync();
+                    if (localId == null)
+                    {
+                        localId = Guid.NewGuid().ToString();
+                        cmd.CommandText = $"INSERT INTO __CORE_SYNC_LOCAL_ANCHOR (LOCAL_ID, LOCAL_ANCHOR) VALUES (@localId, 0)";
+                        cmd.Parameters.Add(new SqlParameter("@localId", localId));
+                        if (1 != await cmd.ExecuteNonQueryAsync())
+                        {
+                            throw new InvalidOperationException();
+                        }
+                        cmd.Parameters.Clear();
+                    }
+
+                    _storeId = Guid.Parse((string)localId);                
+                }
+
+
                 foreach (SqlSyncTable table in Configuration.Tables)
                 {
                     var dbTable = database.Tables[table.Name];
@@ -63,7 +117,9 @@ namespace CoreSync.SqlServer
 
                     var primaryKeyIndex = dbTable.Indexes.Cast<Index>().FirstOrDefault(_ => _.IsClustered && _.IndexKeyType == IndexKeyType.DriPrimaryKey);
                     if (primaryKeyIndex == null)
+                    {
                         throw new InvalidOperationException($"Table '{table.Name}' doesn't have a primary key");
+                    }
 
                     var primaryKeyColumns = primaryKeyIndex.IndexedColumns.Cast<IndexedColumn>().ToList();
                     var allColumns = dbTable.Columns.Cast<Column>().ToList();
@@ -165,7 +221,7 @@ WHERE
 
                         tr.Commit();
 
-                        return new SyncChangeSet(new SqlSyncAnchor(version), items);
+                        return new SyncChangeSet(new SqlSyncAnchor(_storeId, version), items);
                     }
 
                 }
@@ -176,8 +232,7 @@ WHERE
         {
             Validate.NotNull(anchor, nameof(anchor));
 
-            var sqlAnchor = anchor as SqlSyncAnchor;
-            if (sqlAnchor == null)
+            if (!(anchor is SqlSyncAnchor sqlAnchor))
                 throw new ArgumentException("Incompatible anchor", nameof(anchor));
 
             await InitializeAsync();
@@ -222,7 +277,7 @@ WHERE
 
                         tr.Commit();
 
-                        return new SyncChangeSet(new SqlSyncAnchor(version), items);
+                        return new SyncChangeSet(new SqlSyncAnchor(sqlAnchor.StoreId, version), items);
                     }
 
                 }
@@ -235,6 +290,11 @@ WHERE
 
             if (!(changeSet.Anchor is SqlSyncAnchor sqlAnchor))
                 throw new ArgumentException("Incompatible anchor", nameof(changeSet));
+
+            if (sqlAnchor.StoreId != _storeId)
+            {
+                throw new ArgumentException("Invalid anchor store id");
+            }
 
             await InitializeAsync();
 
@@ -300,7 +360,7 @@ WHERE
                                     //applied the insert or another record with same values (see primary key)
                                     //is already present in table.
                                     //In any case we can't proceed
-                                    throw new InvalidSyncOperationException(new SqlSyncAnchor(sqlAnchor.Version + 1));
+                                    throw new InvalidSyncOperationException(new SqlSyncAnchor(sqlAnchor.StoreId, sqlAnchor.Version + 1));
                                 }
                                 else if (itemChangeType == ChangeType.Update ||
                                     itemChangeType == ChangeType.Delete)
@@ -335,9 +395,21 @@ WHERE
                            
                         }
 
+                        var newAnchor = new SqlSyncAnchor(sqlAnchor.StoreId, version + (atLeastOneChangeApplied ? 1 : 0));
+
+                        cmd.Parameters.Clear();
+                        cmd.CommandText = "UPDATE __CORE_SYNC_LOCAL_ANCHOR SET LOCAL_ANCHOR = @localAnchor WHERE LOCAL_ID = @localId";
+                        cmd.Parameters.AddWithValue("@localId", _storeId);
+                        cmd.Parameters.AddWithValue("@localAnchor", newAnchor.Version);
+
+                        if (1 != await cmd.ExecuteNonQueryAsync())
+                        {
+                            throw new InvalidOperationException("Unable to update LocalAnchor table");
+                        }
+
                         tr.Commit();
 
-                        return new SqlSyncAnchor(version + (atLeastOneChangeApplied ? 1 : 0));
+                        return newAnchor;
                     }
 
                 }

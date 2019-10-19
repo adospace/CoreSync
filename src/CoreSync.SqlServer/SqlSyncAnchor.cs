@@ -8,7 +8,8 @@ namespace CoreSync.SqlServer
     {
         public long Version { get; }
 
-        public SqlSyncAnchor(long version)
+        public SqlSyncAnchor(Guid storeId, long version)
+            :base(storeId)
         {
             Version = version;
         }

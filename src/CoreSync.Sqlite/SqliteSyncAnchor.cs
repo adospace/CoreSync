@@ -8,8 +8,10 @@ namespace CoreSync.Sqlite
     {
         public long Version { get; }
 
-        public SqliteSyncAnchor(long version)
+        public SqliteSyncAnchor(Guid storeId, long version)
+            : base(storeId)
         {
+
             Version = version;
         }
     }
