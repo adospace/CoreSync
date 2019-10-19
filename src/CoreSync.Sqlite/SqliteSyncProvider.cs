@@ -1,138 +1,23 @@
-﻿using System;
+﻿using JetBrains.Annotations;
+using Microsoft.Data.Sqlite;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using JetBrains.Annotations;
-using Microsoft.Data.Sqlite;
 
 namespace CoreSync.Sqlite
 {
     public class SqliteSyncProvider : ISyncProvider
     {
-        public SqliteSyncConfiguration Configuration { get; }
+        private bool _initialized = false;
+        private Guid _storeId;
+
         public SqliteSyncProvider(SqliteSyncConfiguration configuration)
         {
             Configuration = configuration;
         }
 
-        bool _initialized = false;
-        Guid _storeId;
-
-        private async Task InitializeAsync()
-        {
-            if (_initialized)
-                return;
-
-            using (var connection = new SqliteConnection(Configuration.ConnectionString))
-            {
-                await connection.OpenAsync();
-
-                //1. discover tables
-                using (var cmd = connection.CreateCommand())
-                {
-                    foreach (SqliteSyncTable table in Configuration.Tables)
-                    {
-                        cmd.CommandText = $"PRAGMA table_info('{table.Name}')";
-                        using (var reader = await cmd.ExecuteReaderAsync())
-                        {
-                            /*
-                            cid         name        type        notnull     dflt_value  pk        
-                            ----------  ----------  ----------  ----------  ----------  ----------
-                            */
-                            while (await reader.ReadAsync())
-                            {
-                                var colName = reader.GetString(1);
-                                var colType = reader.GetString(2);
-                                var pk = reader.GetBoolean(5);
-
-                                table.Columns.Add(new SqliteColumn(colName, colType, pk));
-                            }
-                        }
-                    }
-
-                    //2. create ct table
-                    cmd.CommandText = $"CREATE TABLE IF NOT EXISTS __CORE_SYNC_CT (ID INTEGER PRIMARY KEY, TBL TEXT NOT NULL, OP CHAR NOT NULL, PK TEXT NOT NULL)";
-                    await cmd.ExecuteNonQueryAsync();
-
-                    //3. create remote anchor table
-                    cmd.CommandText = $"CREATE TABLE IF NOT EXISTS __CORE_SYNC_REMOTE_ANCHOR (REMOTE_ID TEXT NOT NULL PRIMARY KEY, REMOTE_ANCHOR LONG NOT NULL)";
-                    await cmd.ExecuteNonQueryAsync();
-
-                    //4. create local anchor table
-                    cmd.CommandText = $"CREATE TABLE IF NOT EXISTS __CORE_SYNC_LOCAL_ANCHOR (LOCAL_ID TEXT NOT NULL PRIMARY KEY, LOCAL_ANCHOR LONG NOT NULL)";
-                    await cmd.ExecuteNonQueryAsync();
-
-                    cmd.CommandText = $"SELECT LOCAL_ID FROM __CORE_SYNC_LOCAL_ANCHOR LIMIT 1";
-                    var localId = await cmd.ExecuteScalarAsync();
-                    if (localId == null)
-                    {
-                        localId = Guid.NewGuid().ToString();
-                        cmd.CommandText = $"INSERT INTO __CORE_SYNC_LOCAL_ANCHOR (LOCAL_ID, LOCAL_ANCHOR) VALUES (@localId, 0)";
-                        cmd.Parameters.Add(new SqliteParameter("@localId", localId));
-                        if (1 != await cmd.ExecuteNonQueryAsync())
-                        {
-                            throw new InvalidOperationException();
-                        }
-                        cmd.Parameters.Clear();
-                    }
-
-                    _storeId = Guid.Parse((string)localId);
-
-                    //5. create triggers
-                    foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_ => _.Columns.Any()))
-                    {
-                        var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey);
-
-                        var commandTextBase = new Func<string, string>((op) => $@"CREATE TRIGGER IF NOT EXISTS [__{table.Name}_ct-{op}__] 
-AFTER {op} ON [{table.Schema}].[{table.Name}]
-FOR EACH ROW
-BEGIN
-INSERT INTO [__CORE_SYNC_CT] (TBL, OP, PK) VALUES ('{table.Schema}.{table.Name}', '{op[0]}', printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => (op == "DELETE" ? "OLD" : "NEW") + ".[" + _.Name + "]"))}));
-END");
-                        cmd.CommandText = commandTextBase("INSERT");
-                        await cmd.ExecuteNonQueryAsync();
-
-                        cmd.CommandText = commandTextBase("UPDATE");
-                        await cmd.ExecuteNonQueryAsync();
-
-                        cmd.CommandText = commandTextBase("DELETE");
-                        await cmd.ExecuteNonQueryAsync();
-                    }
-                }
-            }
-
-            //4. Insert/Update/Delete query templates
-            foreach (SqliteSyncTable table in Configuration.Tables)
-            {
-                var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey).ToList();
-                var tableColumns = table.Columns.Where(_ => !_.IsPrimaryKey).ToList();
-
-                table.InsertQuery = $@"INSERT OR IGNORE INTO [{table.Schema}].[{table.Name}] ({string.Join(", ", table.Columns.Select(_ => "[" + _.Name + "]"))}) VALUES ({string.Join(", ", table.Columns.Select(_ => "@" + _.Name.Replace(' ', '_')))});";
-
-                table.UpdateQuery = $@"UPDATE [{table.Schema}].[{table.Name}] 
-SET {string.Join(", ", tableColumns.Select(_ => "[" + _.Name + "] = @" + _.Name.Replace(' ', '_')))} 
-WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Schema}].[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))}) 
-AND (@sync_force_write = 1 OR EXISTS (SELECT * FROM [{table.Schema}].[{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK]) 
-AND CT.ID > @last_sync_version))";
-
-                table.DeleteQuery = $@"DELETE FROM [{table.Schema}].[{table.Name}] 
-WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Schema}].[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))}) 
-AND (@sync_force_write = 1 OR EXISTS (SELECT * FROM [{table.Schema}].[{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK]) 
-AND CT.ID > @last_sync_version))";
-            }
-
-            _initialized = true;
-        }
-
-        private static string TypeToPrintFormat(string type)
-        {
-            if (type == "INTEGER")
-                return "%d";
-            if (type == "TEXT")
-                return "%s";
-
-            return "%s";
-        }
+        public SqliteSyncConfiguration Configuration { get; }
 
         public async Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, [CanBeNull] Func<SyncItem, ConflictResolution> onConflictFunc = null)
         {
@@ -167,12 +52,12 @@ AND CT.ID > @last_sync_version))";
 
                         foreach (var item in changeSet.Items)
                         {
-                            var table = (SqliteSyncTable) Configuration.Tables.First(_ => _.Name == item.Table.Name);
+                            var table = (SqliteSyncTable)Configuration.Tables.First(_ => _.Name == item.Table.Name);
 
                             bool syncForceWrite = false;
                             var itemChangeType = item.ChangeType;
 
-                            retryWrite:
+                        retryWrite:
                             cmd.Parameters.Clear();
 
                             switch (itemChangeType)
@@ -180,9 +65,11 @@ AND CT.ID > @last_sync_version))";
                                 case ChangeType.Insert:
                                     cmd.CommandText = table.InsertQuery;
                                     break;
+
                                 case ChangeType.Update:
                                     cmd.CommandText = table.UpdateQuery;
                                     break;
+
                                 case ChangeType.Delete:
                                     cmd.CommandText = table.DeleteQuery;
                                     break;
@@ -234,7 +121,6 @@ AND CT.ID > @last_sync_version))";
                                     }
                                 }
                             }
-
                         }
 
                         cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
@@ -256,7 +142,6 @@ AND CT.ID > @last_sync_version))";
                     }
                 }
             }
-
         }
 
         public async Task<SyncChangeSet> GetIncreamentalChangesAsync([NotNull] SyncAnchor anchor)
@@ -288,11 +173,11 @@ AND CT.ID > @last_sync_version))";
 
                         cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
                         var minVersion = await cmd.ExecuteLongScalarAsync();
-                        
+
                         if (anchor.Version < minVersion - 1)
                             throw new InvalidOperationException($"Unable to get changes, version of data requested ({anchor.Version}) is too old (min valid version {minVersion})");
 
-                        foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_=>_.Columns.Any()))
+                        foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_ => _.Columns.Any()))
                         {
                             var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey);
 
@@ -312,57 +197,9 @@ AND CT.ID > @last_sync_version))";
                         tr.Commit();
 
                         return new SyncChangeSet(new SyncAnchor(_storeId, version), items);
-
                     }
                 }
             }
-        }
-
-        private static object GetValueFromRecord(SqliteSyncTable table, string columnName, int columnOrdinal, SqliteDataReader r)
-        {
-            if (r.IsDBNull(columnOrdinal))
-                return null;
-
-            if (table.RecordType == null)
-                return r.GetValue(columnOrdinal);
-
-            var property = table.RecordType.GetProperty(columnName);
-            if (property != null)
-                return GetValueFromRecord(r, columnOrdinal, property.PropertyType);
-            
-            //fallback to getvalue
-            return r.GetValue(columnOrdinal);
-        }
-
-        private static object GetValueFromRecord(SqliteDataReader r, int columnOrdinal, Type propertyType)
-        {
-            if (propertyType == typeof(string))
-                return r.GetString(columnOrdinal);
-            if (propertyType == typeof(DateTime))
-                return r.GetDateTime(columnOrdinal);
-            if (propertyType == typeof(int))
-                return r.GetInt32(columnOrdinal);
-            if (propertyType == typeof(bool))
-                return r.GetBoolean(columnOrdinal);
-            if (propertyType == typeof(byte))
-                return r.GetByte(columnOrdinal);
-            if (propertyType == typeof(char))
-                return r.GetChar(columnOrdinal);
-            if (propertyType == typeof(short))
-                return r.GetInt16(columnOrdinal);
-            if (propertyType == typeof(long))
-                return r.GetInt64(columnOrdinal);
-            if (propertyType == typeof(decimal))
-                return r.GetDecimal(columnOrdinal);
-            if (propertyType == typeof(double))
-                return r.GetDouble(columnOrdinal);
-            if (propertyType == typeof(float))
-                return r.GetFloat(columnOrdinal);
-
-
-            //fallback to getvalue
-            return r.GetValue(columnOrdinal);
-
         }
 
         public async Task<SyncChangeSet> GetInitialSetAsync()
@@ -404,6 +241,16 @@ AND CT.ID > @last_sync_version))";
             }
         }
 
+        public Task<SyncAnchor> GetLastAnchorForRemoteStoreAsync(Guid storeId)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<SyncAnchor> GetLocalAnchorAsync()
+        {
+            throw new NotImplementedException();
+        }
+
         private static ChangeType DetectChangeType(Dictionary<string, object> values)
         {
             if (values.ContainsKey("OP"))
@@ -412,8 +259,10 @@ AND CT.ID > @last_sync_version))";
                 {
                     case "I":
                         return ChangeType.Insert;
+
                     case "U":
                         return ChangeType.Update;
+
                     case "D":
                         return ChangeType.Delete;
                 }
@@ -421,10 +270,168 @@ AND CT.ID > @last_sync_version))";
                 throw new NotSupportedException();
             }
 
-
             return ChangeType.Insert;
         }
 
+        private static object GetValueFromRecord(SqliteSyncTable table, string columnName, int columnOrdinal, SqliteDataReader r)
+        {
+            if (r.IsDBNull(columnOrdinal))
+                return null;
 
+            if (table.RecordType == null)
+                return r.GetValue(columnOrdinal);
+
+            var property = table.RecordType.GetProperty(columnName);
+            if (property != null)
+                return GetValueFromRecord(r, columnOrdinal, property.PropertyType);
+
+            //fallback to getvalue
+            return r.GetValue(columnOrdinal);
+        }
+
+        private static object GetValueFromRecord(SqliteDataReader r, int columnOrdinal, Type propertyType)
+        {
+            if (propertyType == typeof(string))
+                return r.GetString(columnOrdinal);
+            if (propertyType == typeof(DateTime))
+                return r.GetDateTime(columnOrdinal);
+            if (propertyType == typeof(int))
+                return r.GetInt32(columnOrdinal);
+            if (propertyType == typeof(bool))
+                return r.GetBoolean(columnOrdinal);
+            if (propertyType == typeof(byte))
+                return r.GetByte(columnOrdinal);
+            if (propertyType == typeof(char))
+                return r.GetChar(columnOrdinal);
+            if (propertyType == typeof(short))
+                return r.GetInt16(columnOrdinal);
+            if (propertyType == typeof(long))
+                return r.GetInt64(columnOrdinal);
+            if (propertyType == typeof(decimal))
+                return r.GetDecimal(columnOrdinal);
+            if (propertyType == typeof(double))
+                return r.GetDouble(columnOrdinal);
+            if (propertyType == typeof(float))
+                return r.GetFloat(columnOrdinal);
+
+            //fallback to getvalue
+            return r.GetValue(columnOrdinal);
+        }
+
+        private static string TypeToPrintFormat(string type)
+        {
+            if (type == "INTEGER")
+                return "%d";
+            if (type == "TEXT")
+                return "%s";
+
+            return "%s";
+        }
+
+        private async Task InitializeAsync()
+        {
+            if (_initialized)
+                return;
+
+            using (var connection = new SqliteConnection(Configuration.ConnectionString))
+            {
+                await connection.OpenAsync();
+
+                //1. discover tables
+                using (var cmd = connection.CreateCommand())
+                {
+                    foreach (SqliteSyncTable table in Configuration.Tables)
+                    {
+                        cmd.CommandText = $"PRAGMA table_info('{table.Name}')";
+                        using (var reader = await cmd.ExecuteReaderAsync())
+                        {
+                            /*
+                            cid         name        type        notnull     dflt_value  pk
+                            ----------  ----------  ----------  ----------  ----------  ----------
+                            */
+                            while (await reader.ReadAsync())
+                            {
+                                var colName = reader.GetString(1);
+                                var colType = reader.GetString(2);
+                                var pk = reader.GetBoolean(5);
+
+                                table.Columns.Add(new SqliteColumn(colName, colType, pk));
+                            }
+                        }
+                    }
+
+                    //2. create ct table
+                    cmd.CommandText = $"CREATE TABLE IF NOT EXISTS __CORE_SYNC_CT (ID INTEGER PRIMARY KEY, TBL TEXT NOT NULL, OP CHAR NOT NULL, PK TEXT NOT NULL)";
+                    await cmd.ExecuteNonQueryAsync();
+
+                    //3. create remote anchor table
+                    cmd.CommandText = $"CREATE TABLE IF NOT EXISTS __CORE_SYNC_REMOTE_ANCHOR (REMOTE_ID TEXT NOT NULL PRIMARY KEY, REMOTE_ANCHOR LONG NOT NULL)";
+                    await cmd.ExecuteNonQueryAsync();
+
+                    //4. create local anchor table
+                    cmd.CommandText = $"CREATE TABLE IF NOT EXISTS __CORE_SYNC_LOCAL_ANCHOR (LOCAL_ID TEXT NOT NULL PRIMARY KEY, LOCAL_ANCHOR LONG NOT NULL)";
+                    await cmd.ExecuteNonQueryAsync();
+
+                    cmd.CommandText = $"SELECT LOCAL_ID FROM __CORE_SYNC_LOCAL_ANCHOR LIMIT 1";
+                    var localId = await cmd.ExecuteScalarAsync();
+                    if (localId == null)
+                    {
+                        localId = Guid.NewGuid().ToString();
+                        cmd.CommandText = $"INSERT INTO __CORE_SYNC_LOCAL_ANCHOR (LOCAL_ID, LOCAL_ANCHOR) VALUES (@localId, 0)";
+                        cmd.Parameters.Add(new SqliteParameter("@localId", localId));
+                        if (1 != await cmd.ExecuteNonQueryAsync())
+                        {
+                            throw new InvalidOperationException();
+                        }
+                        cmd.Parameters.Clear();
+                    }
+
+                    _storeId = Guid.Parse((string)localId);
+
+                    //5. create triggers
+                    foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_ => _.Columns.Any()))
+                    {
+                        var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey);
+
+                        var commandTextBase = new Func<string, string>((op) => $@"CREATE TRIGGER IF NOT EXISTS [__{table.Name}_ct-{op}__]
+AFTER {op} ON [{table.Schema}].[{table.Name}]
+FOR EACH ROW
+BEGIN
+INSERT INTO [__CORE_SYNC_CT] (TBL, OP, PK) VALUES ('{table.Schema}.{table.Name}', '{op[0]}', printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => (op == "DELETE" ? "OLD" : "NEW") + ".[" + _.Name + "]"))}));
+END");
+                        cmd.CommandText = commandTextBase("INSERT");
+                        await cmd.ExecuteNonQueryAsync();
+
+                        cmd.CommandText = commandTextBase("UPDATE");
+                        await cmd.ExecuteNonQueryAsync();
+
+                        cmd.CommandText = commandTextBase("DELETE");
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+                }
+            }
+
+            //4. Insert/Update/Delete query templates
+            foreach (SqliteSyncTable table in Configuration.Tables)
+            {
+                var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey).ToList();
+                var tableColumns = table.Columns.Where(_ => !_.IsPrimaryKey).ToList();
+
+                table.InsertQuery = $@"INSERT OR IGNORE INTO [{table.Schema}].[{table.Name}] ({string.Join(", ", table.Columns.Select(_ => "[" + _.Name + "]"))}) VALUES ({string.Join(", ", table.Columns.Select(_ => "@" + _.Name.Replace(' ', '_')))});";
+
+                table.UpdateQuery = $@"UPDATE [{table.Schema}].[{table.Name}]
+SET {string.Join(", ", tableColumns.Select(_ => "[" + _.Name + "] = @" + _.Name.Replace(' ', '_')))}
+WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Schema}].[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))})
+AND (@sync_force_write = 1 OR EXISTS (SELECT * FROM [{table.Schema}].[{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK])
+AND CT.ID > @last_sync_version))";
+
+                table.DeleteQuery = $@"DELETE FROM [{table.Schema}].[{table.Name}]
+WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Schema}].[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))})
+AND (@sync_force_write = 1 OR EXISTS (SELECT * FROM [{table.Schema}].[{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK])
+AND CT.ID > @last_sync_version))";
+            }
+
+            _initialized = true;
+        }
     }
 }

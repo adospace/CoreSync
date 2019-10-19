@@ -8,11 +8,11 @@ namespace CoreSync
 {
     public interface ISyncProvider
     {
-        //[NotNull]
-        //Task ApplyProvisionAsync();
+        [NotNull, ItemCanBeNull]
+        Task<SyncAnchor> GetLastAnchorForRemoteStoreAsync(Guid storeId);
 
-        //[NotNull]
-        //Task RemoveProvisionAsync();
+        [NotNull]
+        Task<SyncAnchor> GetLocalAnchorAsync();
 
         [NotNull, ItemNotNull]
         Task<SyncChangeSet> GetInitialSetAsync();

@@ -15,7 +15,7 @@ namespace CoreSync
             Items = items;
         }
 
-        public SyncAnchor Anchor { get; }
-        public IReadOnlyList<SyncItem> Items { get; }
+        public SyncAnchor Anchor { get; private set; }
+        public IReadOnlyList<SyncItem> Items { get; private set; }
     }
 }
