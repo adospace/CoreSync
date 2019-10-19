@@ -288,7 +288,7 @@ WHERE
                             cmd.Parameters.Add(new SqlParameter("@sync_force_write", syncForceWrite));
 
                             foreach (var valueItem in item.Values)
-                                cmd.Parameters.Add(new SqlParameter("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value));
+                                cmd.Parameters.Add(new SqlParameter("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value ?? DBNull.Value));
 
                             var affectedRows = cmd.ExecuteNonQuery();
 
