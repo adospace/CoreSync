@@ -138,10 +138,7 @@ AND CT.ID > @last_sync_version))";
         {
             Validate.NotNull(changeSet, nameof(changeSet));
 
-            if (!(changeSet.Anchor is SqliteSyncAnchor sqliteAnchor))
-                throw new ArgumentException("Incompatible anchor", nameof(changeSet));
-
-            if (sqliteAnchor.StoreId != _storeId)
+            if (changeSet.Anchor.StoreId != _storeId)
             {
                 throw new ArgumentException("Invalid anchor store id");
             }
@@ -165,8 +162,8 @@ AND CT.ID > @last_sync_version))";
                         cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
                         var minVersion = await cmd.ExecuteLongScalarAsync();
 
-                        if (sqliteAnchor.Version < minVersion - 1)
-                            throw new InvalidOperationException($"Unable to apply changes, version of data requested ({sqliteAnchor.Version}) is too old (min valid version {minVersion})");
+                        if (changeSet.Anchor.Version < minVersion - 1)
+                            throw new InvalidOperationException($"Unable to apply changes, version of data requested ({changeSet.Anchor.Version}) is too old (min valid version {minVersion})");
 
                         foreach (var item in changeSet.Items)
                         {
@@ -191,7 +188,7 @@ AND CT.ID > @last_sync_version))";
                                     break;
                             }
 
-                            cmd.Parameters.Add(new SqliteParameter("@last_sync_version", sqliteAnchor.Version));
+                            cmd.Parameters.Add(new SqliteParameter("@last_sync_version", changeSet.Anchor.Version));
                             cmd.Parameters.Add(new SqliteParameter("@sync_force_write", syncForceWrite));
 
                             foreach (var valueItem in item.Values)
@@ -207,7 +204,7 @@ AND CT.ID > @last_sync_version))";
                                     //applied the insert or another record with same values (see primary key)
                                     //is already present in table.
                                     //In any case we can't proceed
-                                    throw new InvalidSyncOperationException(new SqliteSyncAnchor(sqliteAnchor.StoreId, sqliteAnchor.Version + 1));
+                                    throw new InvalidSyncOperationException(new SyncAnchor(_storeId, changeSet.Anchor.Version + 1));
                                 }
                                 else if (itemChangeType == ChangeType.Update ||
                                     itemChangeType == ChangeType.Delete)
@@ -255,9 +252,7 @@ AND CT.ID > @last_sync_version))";
 
                         tr.Commit();
 
-                        return new SqliteSyncAnchor(sqliteAnchor.StoreId, version);
-
-
+                        return new SyncAnchor(_storeId, version);
                     }
                 }
             }
@@ -268,8 +263,10 @@ AND CT.ID > @last_sync_version))";
         {
             Validate.NotNull(anchor, nameof(anchor));
 
-            if (!(anchor is SqliteSyncAnchor sqliteAnchor))
-                throw new ArgumentException("Incompatible anchor", nameof(anchor));
+            if (anchor.StoreId != _storeId)
+            {
+                throw new ArgumentException("Invalid anchor store id");
+            }
 
             await InitializeAsync();
 
@@ -292,14 +289,14 @@ AND CT.ID > @last_sync_version))";
                         cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
                         var minVersion = await cmd.ExecuteLongScalarAsync();
                         
-                        if (sqliteAnchor.Version < minVersion - 1)
-                            throw new InvalidOperationException($"Unable to get changes, version of data requested ({sqliteAnchor.Version}) is too old (min valid version {minVersion})");
+                        if (anchor.Version < minVersion - 1)
+                            throw new InvalidOperationException($"Unable to get changes, version of data requested ({anchor.Version}) is too old (min valid version {minVersion})");
 
                         foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_=>_.Columns.Any()))
                         {
                             var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey);
 
-                            cmd.CommandText = $@"SELECT DISTINCT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Name + "]"))}, MIN(CT.OP) AS OP FROM [{table.Schema}].[{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.PK WHERE CT.Id > {sqliteAnchor.Version}";
+                            cmd.CommandText = $@"SELECT DISTINCT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Name + "]"))}, MIN(CT.OP) AS OP FROM [{table.Schema}].[{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.PK WHERE CT.Id > {anchor.Version}";
 
                             using (var r = await cmd.ExecuteReaderAsync())
                             {
@@ -314,7 +311,7 @@ AND CT.ID > @last_sync_version))";
 
                         tr.Commit();
 
-                        return new SyncChangeSet(new SqliteSyncAnchor(sqliteAnchor.StoreId, version), items);
+                        return new SyncChangeSet(new SyncAnchor(_storeId, version), items);
 
                     }
                 }
@@ -401,7 +398,7 @@ AND CT.ID > @last_sync_version))";
                         }
                         tr.Commit();
 
-                        return new SyncChangeSet(new SqliteSyncAnchor(_storeId, version), items);
+                        return new SyncChangeSet(new SyncAnchor(_storeId, version), items);
                     }
                 }
             }

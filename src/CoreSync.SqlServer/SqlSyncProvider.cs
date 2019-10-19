@@ -221,7 +221,7 @@ WHERE
 
                         tr.Commit();
 
-                        return new SyncChangeSet(new SqlSyncAnchor(_storeId, version), items);
+                        return new SyncChangeSet(new SyncAnchor(_storeId, version), items);
                     }
 
                 }
@@ -232,8 +232,10 @@ WHERE
         {
             Validate.NotNull(anchor, nameof(anchor));
 
-            if (!(anchor is SqlSyncAnchor sqlAnchor))
-                throw new ArgumentException("Incompatible anchor", nameof(anchor));
+            if (anchor.StoreId != _storeId)
+            {
+                throw new ArgumentException("Invalid anchor store id");
+            }
 
             await InitializeAsync();
 
@@ -260,10 +262,10 @@ WHERE
 
                             long minVersionForTable = (long)await cmd.ExecuteScalarAsync();
 
-                            if (sqlAnchor.Version < minVersionForTable)
-                                throw new InvalidOperationException($"Unable to get changes, version of data requested ({sqlAnchor.Version}) for table '{table.Schema}.[{table.Name}]' is too old (min valid version {minVersionForTable})");
+                            if (anchor.Version < minVersionForTable)
+                                throw new InvalidOperationException($"Unable to get changes, version of data requested ({anchor.Version}) for table '{table.Schema}.[{table.Name}]' is too old (min valid version {minVersionForTable})");
 
-                            cmd.CommandText = table.IncrementalDataQuery.Replace("@last_synchronization_version", sqlAnchor.Version.ToString());
+                            cmd.CommandText = table.IncrementalDataQuery.Replace("@last_synchronization_version", anchor.Version.ToString());
 
                             using (var r = await cmd.ExecuteReaderAsync())
                             {
@@ -277,7 +279,7 @@ WHERE
 
                         tr.Commit();
 
-                        return new SyncChangeSet(new SqlSyncAnchor(sqlAnchor.StoreId, version), items);
+                        return new SyncChangeSet(new SyncAnchor(_storeId, version), items);
                     }
 
                 }
@@ -288,10 +290,7 @@ WHERE
         {
             Validate.NotNull(changeSet, nameof(changeSet));
 
-            if (!(changeSet.Anchor is SqlSyncAnchor sqlAnchor))
-                throw new ArgumentException("Incompatible anchor", nameof(changeSet));
-
-            if (sqlAnchor.StoreId != _storeId)
+            if (changeSet.Anchor.StoreId != _storeId)
             {
                 throw new ArgumentException("Invalid anchor store id");
             }
@@ -322,8 +321,8 @@ WHERE
 
                             long minVersionForTable = (long)await cmd.ExecuteScalarAsync();
 
-                            if (sqlAnchor.Version < minVersionForTable)
-                                throw new InvalidOperationException($"Unable to get changes, version of data requested ({sqlAnchor.Version}) for table '{table.Schema}.[{table.Name}]' is too old (min valid version {minVersionForTable})");
+                            if (changeSet.Anchor.Version < minVersionForTable)
+                                throw new InvalidOperationException($"Unable to get changes, version of data requested ({changeSet.Anchor.Version}) for table '{table.Schema}.[{table.Name}]' is too old (min valid version {minVersionForTable})");
 
                             bool syncForceWrite = false;
                             var itemChangeType = item.ChangeType;
@@ -344,7 +343,7 @@ WHERE
                                     break;
                             }
 
-                            cmd.Parameters.Add(new SqlParameter("@last_sync_version", sqlAnchor.Version));
+                            cmd.Parameters.Add(new SqlParameter("@last_sync_version", changeSet.Anchor.Version));
                             cmd.Parameters.Add(new SqlParameter("@sync_force_write", syncForceWrite));
 
                             foreach (var valueItem in item.Values)
@@ -360,7 +359,7 @@ WHERE
                                     //applied the insert or another record with same values (see primary key)
                                     //is already present in table.
                                     //In any case we can't proceed
-                                    throw new InvalidSyncOperationException(new SqlSyncAnchor(sqlAnchor.StoreId, sqlAnchor.Version + 1));
+                                    throw new InvalidSyncOperationException(new SyncAnchor(_storeId, changeSet.Anchor.Version + 1));
                                 }
                                 else if (itemChangeType == ChangeType.Update ||
                                     itemChangeType == ChangeType.Delete)
@@ -395,7 +394,7 @@ WHERE
                            
                         }
 
-                        var newAnchor = new SqlSyncAnchor(sqlAnchor.StoreId, version + (atLeastOneChangeApplied ? 1 : 0));
+                        var newAnchor = new SyncAnchor(_storeId, version + (atLeastOneChangeApplied ? 1 : 0));
 
                         cmd.Parameters.Clear();
                         cmd.CommandText = "UPDATE __CORE_SYNC_LOCAL_ANCHOR SET LOCAL_ANCHOR = @localAnchor WHERE LOCAL_ID = @localId";
