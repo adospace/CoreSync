@@ -11,7 +11,7 @@ namespace CoreSync
     /// Consider for example when set of items and anchor are provided by a remote client that has 
     /// previously failed to get response from a first <see cref="ISyncProvider.ApplyChangesAsync(SyncChangeSet)"/> call.
     /// If this is the case calling code should take the candidate anchor <see cref="InvalidSyncOperationException.CandidateAnchor"/> and 
-    /// call <see cref="ISyncProvider.GetIncreamentalChangesAsync(SyncAnchor)"/> to get latest changes since first <see cref="ISyncProvider.ApplyChangesAsync(SyncChangeSet)"/> call.</remarks>
+    /// call <see cref="ISyncProvider.GetIncrementalChangesAsync(SyncAnchor)"/> to get latest changes since first <see cref="ISyncProvider.ApplyChangesAsync(SyncChangeSet)"/> call.</remarks>
     public class InvalidSyncOperationException : Exception
     {
         public InvalidSyncOperationException(SyncAnchor candidateAnchor)

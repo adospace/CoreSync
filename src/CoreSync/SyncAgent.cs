@@ -16,15 +16,15 @@ namespace CoreSync
         public ISyncProvider LocalSyncProvider { get; }
         public ISyncProvider RemoteSyncProvider { get; }
 
-        public async Task SynchronizeAsync()
-        {
-            var initialLocalSet = await LocalSyncProvider.GetInitialSetAsync();
-            var remoteLocalSet = await RemoteSyncProvider.GetInitialSetAsync();
+        //public async Task SynchronizeAsync()
+        //{
+        //    var initialLocalSet = await LocalSyncProvider.GetInitialSetAsync();
+        //    var remoteLocalSet = await RemoteSyncProvider.GetInitialSetAsync();
 
-            var remoteLocalSetAfterApplyInitialLocalSet = await RemoteSyncProvider.ApplyChangesAsync(new SyncChangeSet(remoteLocalSet.Anchor, initialLocalSet.Items));
+        //    var remoteLocalSetAfterApplyInitialLocalSet = await RemoteSyncProvider.ApplyChangesAsync(new SyncChangeSet(remoteLocalSet.TargetAnchor, initialLocalSet.Items));
 
-            //await RemoteSyncProvider.GetIncreamentalChangesAsync()
+        //    //await RemoteSyncProvider.GetIncreamentalChangesAsync()
             
-        }
+        //}
     }
 }

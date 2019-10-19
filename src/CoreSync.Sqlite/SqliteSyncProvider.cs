@@ -23,7 +23,7 @@ namespace CoreSync.Sqlite
         {
             Validate.NotNull(changeSet, nameof(changeSet));
 
-            if (changeSet.Anchor.StoreId != _storeId)
+            if (changeSet.TargetAnchor.StoreId != _storeId)
             {
                 throw new ArgumentException("Invalid anchor store id");
             }
@@ -47,8 +47,8 @@ namespace CoreSync.Sqlite
                         cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
                         var minVersion = await cmd.ExecuteLongScalarAsync();
 
-                        if (changeSet.Anchor.Version < minVersion - 1)
-                            throw new InvalidOperationException($"Unable to apply changes, version of data requested ({changeSet.Anchor.Version}) is too old (min valid version {minVersion})");
+                        if (changeSet.TargetAnchor.Version < minVersion - 1)
+                            throw new InvalidOperationException($"Unable to apply changes, version of data requested ({changeSet.TargetAnchor.Version}) is too old (min valid version {minVersion})");
 
                         foreach (var item in changeSet.Items)
                         {
@@ -75,7 +75,7 @@ namespace CoreSync.Sqlite
                                     break;
                             }
 
-                            cmd.Parameters.Add(new SqliteParameter("@last_sync_version", changeSet.Anchor.Version));
+                            cmd.Parameters.Add(new SqliteParameter("@last_sync_version", changeSet.TargetAnchor.Version));
                             cmd.Parameters.Add(new SqliteParameter("@sync_force_write", syncForceWrite));
 
                             foreach (var valueItem in item.Values)
@@ -91,7 +91,7 @@ namespace CoreSync.Sqlite
                                     //applied the insert or another record with same values (see primary key)
                                     //is already present in table.
                                     //In any case we can't proceed
-                                    throw new InvalidSyncOperationException(new SyncAnchor(_storeId, changeSet.Anchor.Version + 1));
+                                    throw new InvalidSyncOperationException(new SyncAnchor(_storeId, changeSet.TargetAnchor.Version + 1));
                                 }
                                 else if (itemChangeType == ChangeType.Update ||
                                     itemChangeType == ChangeType.Delete)
@@ -127,13 +127,18 @@ namespace CoreSync.Sqlite
                         version = await cmd.ExecuteLongScalarAsync();
 
                         cmd.Parameters.Clear();
-                        cmd.CommandText = "UPDATE __CORE_SYNC_LOCAL_ANCHOR SET LOCAL_ANCHOR = @localAnchor WHERE LOCAL_ID = @localId";
-                        cmd.Parameters.AddWithValue("@localId", _storeId.ToString());
-                        cmd.Parameters.AddWithValue("@localAnchor", version);
+                        cmd.CommandText = "UPDATE [__CORE_SYNC_REMOTE_ANCHOR] SET [VERSION] = @version WHERE [ID] = @id";
+                        cmd.Parameters.AddWithValue("@id", changeSet.SourceAnchor.StoreId.ToString());
+                        cmd.Parameters.AddWithValue("@version", version);
 
-                        if (1 != await cmd.ExecuteNonQueryAsync())
+                        if (0 == await cmd.ExecuteNonQueryAsync())
                         {
-                            throw new InvalidOperationException("Unable to update LocalAnchor table");
+                            cmd.Parameters.Clear();
+                            cmd.CommandText = "INSERT INTO [__CORE_SYNC_REMOTE_ANCHOR] ([ID], [VERSION]) VALUES (@id, @version)";
+                            cmd.Parameters.AddWithValue("@id", changeSet.SourceAnchor.StoreId.ToString());
+                            cmd.Parameters.AddWithValue("@version", version);
+
+                            await cmd.ExecuteNonQueryAsync();
                         }
 
                         tr.Commit();
@@ -144,14 +149,9 @@ namespace CoreSync.Sqlite
             }
         }
 
-        public async Task<SyncChangeSet> GetIncreamentalChangesAsync([NotNull] SyncAnchor anchor)
+        public async Task<SyncChangeSet> GetIncrementalChangesAsync([NotNull] SyncAnchor anchor)
         {
             Validate.NotNull(anchor, nameof(anchor));
-
-            if (anchor.StoreId != _storeId)
-            {
-                throw new ArgumentException("Invalid anchor store id");
-            }
 
             await InitializeAsync();
 
@@ -196,13 +196,13 @@ namespace CoreSync.Sqlite
 
                         tr.Commit();
 
-                        return new SyncChangeSet(new SyncAnchor(_storeId, version), items);
+                        return new SyncChangeSet(new SyncAnchor(_storeId, version), anchor, items);
                     }
                 }
             }
         }
 
-        public async Task<SyncChangeSet> GetInitialSetAsync()
+        public async Task<SyncChangeSet> GetInitialSetAsync(Guid otherStoreId)
         {
             await InitializeAsync();
 
@@ -235,20 +235,40 @@ namespace CoreSync.Sqlite
                         }
                         tr.Commit();
 
-                        return new SyncChangeSet(new SyncAnchor(_storeId, version), items);
+                        return new SyncChangeSet(new SyncAnchor(_storeId, version), new SyncAnchor(otherStoreId, 0), items);
                     }
                 }
             }
         }
 
-        public Task<SyncAnchor> GetLastAnchorForRemoteStoreAsync(Guid storeId)
+        public async Task<SyncAnchor> GetLastAnchorForStoreAsync(Guid otherStoreId)
         {
-            throw new NotImplementedException();
+            await InitializeAsync();
+
+            using (var c = new SqliteConnection(Configuration.ConnectionString))
+            {
+                await c.OpenAsync();
+
+                using (var cmd = c.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT [VERSION] FROM [__CORE_SYNC_REMOTE_ANCHOR] WHERE [ID] = @storeId";
+                    cmd.Parameters.AddWithValue("@storeId", otherStoreId.ToString());
+
+                    var version = await cmd.ExecuteScalarAsync();
+
+                    if (version == null)
+                        return null;
+
+                    return new SyncAnchor(otherStoreId, (long)version);
+                }
+            }
         }
 
-        public Task<SyncAnchor> GetLocalAnchorAsync()
+        public async Task<Guid> GetStoreIdAsync()
         {
-            throw new NotImplementedException();
+            await InitializeAsync();
+
+            return _storeId;
         }
 
         private static ChangeType DetectChangeType(Dictionary<string, object> values)
@@ -365,19 +385,19 @@ namespace CoreSync.Sqlite
                     await cmd.ExecuteNonQueryAsync();
 
                     //3. create remote anchor table
-                    cmd.CommandText = $"CREATE TABLE IF NOT EXISTS __CORE_SYNC_REMOTE_ANCHOR (REMOTE_ID TEXT NOT NULL PRIMARY KEY, REMOTE_ANCHOR LONG NOT NULL)";
+                    cmd.CommandText = $"CREATE TABLE IF NOT EXISTS __CORE_SYNC_REMOTE_ANCHOR (ID TEXT NOT NULL PRIMARY KEY, VERSION LONG NOT NULL)";
                     await cmd.ExecuteNonQueryAsync();
 
                     //4. create local anchor table
-                    cmd.CommandText = $"CREATE TABLE IF NOT EXISTS __CORE_SYNC_LOCAL_ANCHOR (LOCAL_ID TEXT NOT NULL PRIMARY KEY, LOCAL_ANCHOR LONG NOT NULL)";
+                    cmd.CommandText = $"CREATE TABLE IF NOT EXISTS __CORE_SYNC_LOCAL_ID (ID TEXT NOT NULL PRIMARY KEY)";
                     await cmd.ExecuteNonQueryAsync();
 
-                    cmd.CommandText = $"SELECT LOCAL_ID FROM __CORE_SYNC_LOCAL_ANCHOR LIMIT 1";
+                    cmd.CommandText = $"SELECT ID FROM __CORE_SYNC_LOCAL_ID LIMIT 1";
                     var localId = await cmd.ExecuteScalarAsync();
                     if (localId == null)
                     {
                         localId = Guid.NewGuid().ToString();
-                        cmd.CommandText = $"INSERT INTO __CORE_SYNC_LOCAL_ANCHOR (LOCAL_ID, LOCAL_ANCHOR) VALUES (@localId, 0)";
+                        cmd.CommandText = $"INSERT INTO __CORE_SYNC_LOCAL_ID (ID) VALUES (@localId)";
                         cmd.Parameters.Add(new SqliteParameter("@localId", localId));
                         if (1 != await cmd.ExecuteNonQueryAsync())
                         {
@@ -432,6 +452,24 @@ AND CT.ID > @last_sync_version))";
             }
 
             _initialized = true;
+        }
+
+        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId)
+        {
+            if (otherStoreId == Guid.Empty)
+            {
+                throw new ArgumentException("Invalid store id", nameof(otherStoreId));
+            }
+
+            var lastAnchor = await GetLastAnchorForStoreAsync(otherStoreId);
+
+            if (lastAnchor == null)
+            {
+                return await GetInitialSetAsync(otherStoreId);
+            }
+
+            return await GetIncrementalChangesAsync(lastAnchor);
+
         }
     }
 }
