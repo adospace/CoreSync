@@ -8,7 +8,7 @@
     <Description>CoreSync is a .NET standard library that provides data synchronization functions between databases. This is the SQLite provider assembly.</Description>
     <Copyright>Adolfo Marinucci</Copyright>
     <PackageProjectUrl>https://github.com/adospace/CoreSync</PackageProjectUrl>
-    <PackageLicenseUrl>https://github.com/adospace/CoreSync/blob/master/LICENSE</PackageLicenseUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/adospace/CoreSync</RepositoryUrl>
     <PackageTags>sqlite data database sync synchronization .net</PackageTags>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
