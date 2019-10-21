@@ -112,7 +112,7 @@ namespace CoreSync.SqlServer
                                         }
                                         else
                                         {
-                                            //if user wants to update forcely a delete record means
+                                            //if user wants to update forcely a deletes record means
                                             //he wants to actually insert it again in store
                                             itemChangeType = ChangeType.Insert;
                                             goto retryWrite;

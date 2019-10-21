@@ -238,6 +238,42 @@ namespace CoreSync.Tests
             }
         }
 
+        [TestMethod]
+        public async Task TestSyncAgent_Sqlite_SqlServer()
+        {
+            var localDbFile = $"{Path.GetTempPath()}TestSyncAgent_Sqlite_SqlServer_local.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using (var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}"))
+            using (var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=TestSyncAgent_Sqlite_SqlServer_Remote"))
+            {
+                await localDb.Database.EnsureDeletedAsync();
+                await remoteDb.Database.EnsureDeletedAsync();
+
+                await localDb.Database.MigrateAsync();
+                await remoteDb.Database.MigrateAsync();
+
+                var remoteConfigurationBuilder =
+                    new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                        .Table("Users")
+                        .Table("Posts")
+                        .Table("Comments");
+
+                var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Configuration);
+
+                var localConfigurationBuilder =
+                    new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                        .Table<User>("Users")
+                        .Table<Post>("Posts")
+                        .Table<Comment>("Comments");
+
+                var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Configuration);
+
+
+                await TestSyncAgent(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+            }
+        }
 
         private async Task Test1(
             BlogDbContext localDb,
@@ -259,7 +295,7 @@ namespace CoreSync.Tests
             Assert.IsNotNull(initialLocalSet.Items);
             Assert.AreEqual(0, initialLocalSet.Items.Count);
 
-            var newUser = new User() { Email = "myemail@test.com", Name = "User1", Created = DateTime.Now };
+            var newUser = new User() { Email = "myemail@test.com", Name = "User1", Created = new DateTime(2019, 1, 1) };
             remoteDb.Users.Add(newUser);
             await remoteDb.SaveChangesAsync();
 
@@ -314,6 +350,7 @@ namespace CoreSync.Tests
                 var userNotChangedInRemoteDb = await remoteDb.Users.FirstAsync(_ => _.Email == newUser.Email);
                 Assert.IsNotNull(userNotChangedInRemoteDb);
                 Assert.AreEqual(newUser.Name, userNotChangedInRemoteDb.Name);
+                Assert.AreEqual(newUser.Created, userNotChangedInRemoteDb.Created);
 
                 //ok now try apply changes but forcing any write on remote store on conflict
                 anchorAfterChangesAppliedFromLocalProvider =
@@ -337,6 +374,7 @@ namespace CoreSync.Tests
                 var userChangedInRemoteDb = await remoteDb.Users.AsNoTracking().FirstAsync(_ => _.Email == newUser.Email);
                 Assert.IsNotNull(userChangedInRemoteDb);
                 Assert.AreEqual(newUserInLocalDb.Name, userChangedInRemoteDb.Name);
+                Assert.AreEqual(newUserInLocalDb.Created, userChangedInRemoteDb.Created);
             }
 
             {
@@ -382,6 +420,7 @@ namespace CoreSync.Tests
                 var userChangedInRemoteDb = await remoteDb.Users.AsNoTracking().FirstAsync(_ => _.Email == newUser.Email);
                 Assert.IsNotNull(userChangedInRemoteDb);
                 Assert.AreEqual(newUserInLocalDb.Name, userChangedInRemoteDb.Name);
+                Assert.AreEqual(new DateTime(2019,1,1), userChangedInRemoteDb.Created);
 
             }
         }
@@ -428,6 +467,81 @@ namespace CoreSync.Tests
 
             var commentAdded = await remoteDb.Comments.FirstOrDefaultAsync(_ => _.Content == "my first comment on post");
             Assert.IsNotNull(commentAdded);
+        }
+
+        private async Task TestSyncAgent(
+            BlogDbContext localDb,
+            ISyncProvider localSyncProvider,
+            BlogDbContext remoteDb,
+            ISyncProvider remoteSyncProvider)
+        {
+            var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
+            await syncAgent.SynchronizeAsync();
+
+            //create a user on server
+            var remoteUser = new User() { Email = "user@email.com", Name = "user", Created = new DateTime(2018, 1, 1) };
+            remoteDb.Users.Add(remoteUser);
+            await remoteDb.SaveChangesAsync();
+
+            //sync with remote server
+            await syncAgent.SynchronizeAsync();
+            remoteDb = remoteDb.Refresh(); //discard any cache data in ef
+
+            //verify that new user is stored now locally too
+            var localUser = await localDb.Users.FirstAsync(_ => _.Email == "user@email.com");
+            Assert.AreEqual("user", localUser.Name);
+            Assert.AreEqual(new DateTime(2018, 1, 1), localUser.Created);
+
+            //create an article for user locally
+            var localPost = new Post() { Content = "this is my first post", Title = "First Post", Updated = DateTime.Now.Date };
+            localUser.Posts.Add(localPost);
+            await localDb.SaveChangesAsync();
+
+            //sync with remote server
+            await syncAgent.SynchronizeAsync();
+            remoteDb = remoteDb.Refresh(); //discard any cache data in ef
+
+            //verify that user on server and locally have the same post    
+            remoteUser = await remoteDb.Users.Include(_ => _.Posts).FirstOrDefaultAsync(_ => _.Email == "user@email.com");
+            Assert.AreEqual("user", remoteUser.Name);
+            Assert.AreEqual(new DateTime(2018, 1, 1), remoteUser.Created);
+            Assert.AreEqual(1, remoteUser.Posts.Count);
+            var remotePost = remoteUser.Posts[0];
+            Assert.AreEqual(localPost.Author.Name, remotePost.Author.Name);
+            Assert.AreEqual(localPost.Content, remotePost.Content);
+            Assert.AreEqual(localPost.Title, remotePost.Title);
+
+            //now make a change to post content while claps it on server
+            localPost.Content = "this is my my first post edited";
+            await localDb.SaveChangesAsync();
+
+            remotePost.Claps += 1;
+            await remoteDb.SaveChangesAsync();
+
+            //then sync
+            await syncAgent.SynchronizeAsync(conflictResolutionOnLocalStore: ConflictResolution.ForceWrite);
+            remoteDb = remoteDb.Refresh(); //discard any cache data in ef
+
+            //verify that claps is 1 on both server and local stores
+            //content is not changed because we set conflictResolutionOnLocalStore to ConflictResolution.ForceWrite
+            //so server skipped our try to update content while local store forcely write data coming from server
+            remoteUser = await remoteDb.Users.Include(_ => _.Posts).FirstAsync(_ => _.Email == "user@email.com");
+            remotePost = remoteUser.Posts[0];
+            Assert.AreEqual("user", remotePost.Author.Name);
+            Assert.AreEqual("this is my first post", remotePost.Content);
+            Assert.AreEqual(1, remotePost.Claps);
+
+            localUser = await localDb.Users.FirstAsync(_ => _.Email == "user@email.com");
+            localPost = localUser.Posts[0];
+            Assert.AreEqual("user", remotePost.Author.Name);
+            Assert.AreEqual("this is my first post", remotePost.Content);
+            Assert.AreEqual(1, remotePost.Claps);
+
+            //so to handle this scenario (when a record is often edited on multiple devices)
+            //we should take care of restoring any pending records (posts) locally
+            //for example using a PendingPosts table (not synched)
+
+            
         }
     }
 }

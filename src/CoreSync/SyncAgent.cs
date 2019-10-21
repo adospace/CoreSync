@@ -16,15 +16,25 @@ namespace CoreSync
         public ISyncProvider LocalSyncProvider { get; }
         public ISyncProvider RemoteSyncProvider { get; }
 
-        //public async Task SynchronizeAsync()
-        //{
-        //    var initialLocalSet = await LocalSyncProvider.GetInitialSetAsync();
-        //    var remoteLocalSet = await RemoteSyncProvider.GetInitialSetAsync();
+        public async Task SynchronizeAsync(
+            Func<SyncItem, ConflictResolution> remoteConflictResolutionFunc = null, 
+            Func<SyncItem, ConflictResolution> localConflictResolutionFunc = null)
+        {
+            try
+            {
+                var localStoreId = await LocalSyncProvider.GetStoreIdAsync();
+                var remoteStoreId = await RemoteSyncProvider.GetStoreIdAsync();
 
-        //    var remoteLocalSetAfterApplyInitialLocalSet = await RemoteSyncProvider.ApplyChangesAsync(new SyncChangeSet(remoteLocalSet.TargetAnchor, initialLocalSet.Items));
+                var localChangeSet = await LocalSyncProvider.GetChangesAsync(remoteStoreId);
+                var remoteChangeSet = await RemoteSyncProvider.GetChangesAsync(localStoreId);
 
-        //    //await RemoteSyncProvider.GetIncreamentalChangesAsync()
-            
-        //}
+                await RemoteSyncProvider.ApplyChangesAsync(localChangeSet, remoteConflictResolutionFunc);
+                await LocalSyncProvider.ApplyChangesAsync(remoteChangeSet, localConflictResolutionFunc);
+            }
+            catch (Exception ex)
+            {
+                throw new SynchronizationException("Unable to synchronize stores", ex);
+            }
+        }
     }
 }

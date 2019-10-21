@@ -18,5 +18,11 @@ namespace CoreSync.Tests.Data
 
             base.OnConfiguring(optionsBuilder);
         }
+
+        public override BlogDbContext Refresh()
+        {
+            Dispose();
+            return new SqlServerBlogDbContext(ConnectionString);
+        }
     }
 }
