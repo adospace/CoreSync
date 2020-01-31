@@ -1,6 +1,6 @@
 ﻿using JetBrains.Annotations;
-using Microsoft.SqlServer.Management.Common;
-using Microsoft.SqlServer.Management.Smo;
+//using Microsoft.SqlServer.Management.Common;
+//using Microsoft.SqlServer.Management.Smo;
 using System;
 using System.Collections.Generic;
 using System.Data.SqlClient;

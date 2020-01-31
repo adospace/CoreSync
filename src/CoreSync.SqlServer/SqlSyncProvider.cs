@@ -1,6 +1,6 @@
 ﻿using JetBrains.Annotations;
-using Microsoft.SqlServer.Management.Common;
-using Microsoft.SqlServer.Management.Smo;
+//using Microsoft.SqlServer.Management.Common;
+//using Microsoft.SqlServer.Management.Smo;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -162,14 +162,16 @@ namespace CoreSync.SqlServer
             {
                 await c.OpenAsync();
 
-                var server = new Server(new ServerConnection(c));
-                var database = server.Databases[0];
+                await c.EnableChangeTrakingAsync();
 
-                if (!database.ChangeTrackingEnabled)
-                {
-                    database.ChangeTrackingEnabled = true;
-                    database.Alter();
-                }
+                //var server = new Server(new ServerConnection(c));
+                //var database = server.Databases[0];
+
+                //if (!database.ChangeTrackingEnabled)
+                //{
+                //    database.ChangeTrackingEnabled = true;
+                //    database.Alter();
+                //}
             }
         }
 
@@ -321,14 +323,16 @@ namespace CoreSync.SqlServer
             {
                 await c.OpenAsync();
 
-                var server = new Server(new ServerConnection(c));
-                var database = server.Databases[0];
+                await c.DisableChangeTrakingAsync();
 
-                if (database.ChangeTrackingEnabled)
-                {
-                    database.ChangeTrackingEnabled = false;
-                    database.Alter();
-                }
+                //var server = new Server(new ServerConnection(c));
+                //var database = server.Databases[0];
+
+                //if (database.ChangeTrackingEnabled)
+                //{
+                //    database.ChangeTrackingEnabled = false;
+                //    database.Alter();
+                //}
             }
         }
 
@@ -364,32 +368,45 @@ namespace CoreSync.SqlServer
             if (string.IsNullOrWhiteSpace(connStringBuilder.InitialCatalog))
                 throw new InvalidOperationException("Invalid connection string: InitialCatalog property is missing");
 
-            using (var c = new SqlConnection(Configuration.ConnectionString))
+            using (var connection = new SqlConnection(Configuration.ConnectionString))
             {
-                await c.OpenAsync();
+                await connection.OpenAsync();
 
-                var server = new Server(new ServerConnection(c));
-                var database = server.Databases.Cast<Database>().FirstOrDefault(_ => _.Name == connStringBuilder.InitialCatalog);
 
-                if (database == null)
-                    throw new InvalidOperationException($"Unable to find database '{connStringBuilder.InitialCatalog}' in server '{connStringBuilder.DataSource}'");
+                //if (database == null)
+                //    throw new InvalidOperationException($"Unable to find database '{connStringBuilder.InitialCatalog}' in server '{connStringBuilder.DataSource}'");
 
-                if (!database.ChangeTrackingEnabled)
+                if (!await connection.GetIsChangeTrakingEnabledAsync())
                 {
-                    database.ChangeTrackingEnabled = true;
-                    database.Alter();
+                    await connection.EnableChangeTrakingAsync();
                 }
 
-                if (database.SnapshotIsolationState == SnapshotIsolationState.Disabled ||
-                    database.SnapshotIsolationState == SnapshotIsolationState.PendingOff)
+                //if (!database.ChangeTrackingEnabled)
+                //{
+                //    database.ChangeTrackingEnabled = true;
+                //    database.Alter();
+                //}
+                //var server = new Server(new ServerConnection(connection));
+                //var database = server.Databases.Cast<Database>().FirstOrDefault(_ => _.Name == connStringBuilder.InitialCatalog);
+
+                //var database = new Database(server, connStringBuilder.InitialCatalog);
+
+                //if (database.SnapshotIsolationState == SnapshotIsolationState.Disabled ||
+                //    database.SnapshotIsolationState == SnapshotIsolationState.PendingOff)
+                //{
+                //    database.SetSnapshotIsolation(true);
+                //    database.Alter();
+                //}
+
+                if (!await connection.SetSnapshotIsolationAsync())
                 {
-                    database.SetSnapshotIsolation(true);
-                    database.Alter();
+                    await connection.SetSnapshotIsolationAsync(true);
                 }
 
-                if (!database.Tables.Contains("__CORE_SYNC_REMOTE_ANCHOR"))
+                var tableNames = await connection.GetTableNamesAsync();
+                if (!tableNames.Contains("__CORE_SYNC_REMOTE_ANCHOR"))
                 {
-                    using (var cmd = c.CreateCommand())
+                    using (var cmd = connection.CreateCommand())
                     {
                         cmd.CommandText = $@"CREATE TABLE [dbo].[__CORE_SYNC_REMOTE_ANCHOR](
 	[ID] [uniqueidentifier] NOT NULL,
@@ -403,9 +420,9 @@ namespace CoreSync.SqlServer
                     }
                 }
 
-                if (!database.Tables.Contains("__CORE_SYNC_LOCAL_ID"))
+                if (!tableNames.Contains("__CORE_SYNC_LOCAL_ID"))
                 {
-                    using (var cmd = c.CreateCommand())
+                    using (var cmd = connection.CreateCommand())
                     {
                         cmd.CommandText = $@"CREATE TABLE [dbo].[__CORE_SYNC_LOCAL_ID](
 	[ID] [uniqueidentifier] NOT NULL
@@ -418,13 +435,13 @@ namespace CoreSync.SqlServer
                     }
                 }
 
-                using (var cmd = c.CreateCommand())
+                using (var cmd = connection.CreateCommand())
                 {
                     cmd.CommandText = "SELECT TOP 1 [ID] FROM [__CORE_SYNC_LOCAL_ID]";
                     var localId = await cmd.ExecuteScalarAsync();
                     if (localId == null)
                     {
-                        localId = Guid.NewGuid().ToString();
+                        localId = Guid.NewGuid();
                         cmd.CommandText = $"INSERT INTO [__CORE_SYNC_LOCAL_ID] ([ID]) VALUES (@id)";
                         cmd.Parameters.Add(new SqlParameter("@id", localId));
                         if (1 != await cmd.ExecuteNonQueryAsync())
@@ -434,59 +451,69 @@ namespace CoreSync.SqlServer
                         cmd.Parameters.Clear();
                     }
 
-                    _storeId = Guid.Parse((string)localId);
+                    _storeId = (Guid)localId;
                 }
 
                 foreach (SqlSyncTable table in Configuration.Tables)
                 {
-                    var dbTable = database.Tables[table.Name];
-                    if (!dbTable.ChangeTrackingEnabled)
+                    //var dbTable = table.Schema != null ? database.Tables[table.Name, table.Schema] : database.Tables[table.Name];
+
+                    //if (dbTable == null)
+                    //{
+                    //    throw new InvalidOperationException($"Table {table.NameWithSchema} doesn't exists?");
+                    //}
+
+                    //if (!dbTable.ChangeTrackingEnabled)
+                    //{
+                    //    dbTable.ChangeTrackingEnabled = true;
+                    //    dbTable.Alter();
+                    //}
+                    if (!await connection.GetIsChangeTrakingEnabledAsync(table))
                     {
-                        dbTable.ChangeTrackingEnabled = true;
-                        dbTable.Alter();
+                        await connection.EnableChangeTrakingAsync(table);
                     }
 
-                    var primaryKeyIndex = dbTable.Indexes.Cast<Index>().FirstOrDefault(_ => _.IsClustered && _.IndexKeyType == IndexKeyType.DriPrimaryKey);
-                    if (primaryKeyIndex == null)
+                    var primaryKeyIndexName = (await connection.GetClusteredPrimaryKeyIndexesAsync(table)).FirstOrDefault(); //dbTable.Indexes.Cast<Index>().FirstOrDefault(_ => _.IsClustered && _.IndexKeyType == IndexKeyType.DriPrimaryKey);
+                    if (primaryKeyIndexName == null)
                     {
-                        throw new InvalidOperationException($"Table '{table.Name}' doesn't have a primary key");
+                        throw new InvalidOperationException($"Table '{table.NameWithSchema}' doesn't have a primary key");
                     }
 
-                    var primaryKeyColumns = primaryKeyIndex.IndexedColumns.Cast<IndexedColumn>().ToList();
-                    var allColumns = dbTable.Columns.Cast<Column>().ToList();
-                    var tableColumns = allColumns.Where(_ => !primaryKeyColumns.Any(kc => kc.Name == _.Name)).ToList();
+                    var primaryKeyColumns = await connection.GetIndexColumnNamesAsync(table, primaryKeyIndexName); //primaryKeyIndexName.IndexedColumns.Cast<IndexedColumn>().ToList();
+                    var allColumns = await connection.GetTableColumnNamesAsync(table); //dbTable.Columns.Cast<Column>().ToList();
+                    var tableColumns = allColumns.Where(_ => !primaryKeyColumns.Any(kc => kc == _)).ToList();
 
                     table.InitialDataQuery = $@"SELECT
-                {string.Join(", ", dbTable.Columns.Cast<Column>().Select(_ => "[" + _.Name + "]"))}
+                {string.Join(", ", allColumns.Select(_ => "[" + _ + "]"))}
             FROM
-                [{table.Name}]";
+                {table.NameWithSchema}";
 
                     table.IncrementalDataQuery = $@"SELECT
-                {string.Join(", ", primaryKeyColumns.Select(_ => "CT." + _))} {(tableColumns.Any() ? ", " + string.Join(", ", tableColumns.Select(_ => "T.[" + _.Name + "]")) : string.Empty)},
+                {string.Join(", ", primaryKeyColumns.Select(_ => "CT.[" + _ + "]"))} {(tableColumns.Any() ? ", " + string.Join(", ", tableColumns.Select(_ => "T.[" + _ + "]")) : string.Empty)},
                 CT.SYS_CHANGE_OPERATION, CT.SYS_CHANGE_COLUMNS, CT.SYS_CHANGE_CONTEXT
             FROM
-                [{table.Schema}].[{table.Name}] AS T
+                {table.NameWithSchema} AS T
             RIGHT OUTER JOIN
-                CHANGETABLE(CHANGES [{table.Schema}].[{table.Name}], @last_synchronization_version) AS CT
+                CHANGETABLE(CHANGES {table.NameWithSchema}, @last_synchronization_version) AS CT
             ON
-                {string.Join(" AND ", primaryKeyColumns.Select(_ => "T." + _ + " = CT." + _))}";
+                {string.Join(" AND ", primaryKeyColumns.Select(_ => $"T.[{_}] = CT.[{_}]"))}";
 
-                    table.InsertQuery = $@"INSERT INTO {table.Schema}.[{table.Name}] ({string.Join(", ", allColumns.Select(_ => "[" + _.Name + "]"))}) SELECT {string.Join(", ", allColumns.Select(_ => "@" + _.Name.Replace(' ', '_')))} EXCEPT
-   SELECT {string.Join(", ", allColumns.Select(_ => "[" + _.Name + "]"))} FROM {table.Schema}.[{table.Name}];";
+                    table.InsertQuery = $@"INSERT INTO {table.NameWithSchema} ({string.Join(", ", allColumns.Select(_ => $"[{_}]"))}) SELECT {string.Join(", ", allColumns.Select(_ => "@" + _.Replace(' ', '_')))} EXCEPT
+   SELECT {string.Join(", ", allColumns.Select(_ => $"[{_}]"))} FROM {table.NameWithSchema};";
 
-                    table.DeleteQuery = $@"DELETE FROM {table.Schema}.[{table.Name}]
+                    table.DeleteQuery = $@"DELETE FROM {table.NameWithSchema}
 FROM
-    {table.Schema}.[{table.Name}]
-JOIN CHANGETABLE(VERSION {table.Schema}.[{table.Name}], ({string.Join(", ", primaryKeyColumns.Select(_ => "[" + _.Name + "]"))}), ({string.Join(", ", primaryKeyColumns.Select(_ => "@" + _.Name.Replace(' ', '_')))})) CT  ON {string.Join(" AND ", primaryKeyColumns.Select(_ => $"CT.[{_.Name}] = {table.Schema}.[{table.Name}].[{_.Name}]"))}
+    {table.NameWithSchema}
+JOIN CHANGETABLE(VERSION {table.NameWithSchema}, ({string.Join(", ", primaryKeyColumns.Select(_ => "[" + _ + "]"))}), ({string.Join(", ", primaryKeyColumns.Select(_ => "@" + _.Replace(' ', '_')))})) CT  ON {string.Join(" AND ", primaryKeyColumns.Select(_ => $"CT.[{_}] = {table.Schema}.[{table.Name}].[{_}]"))}
 WHERE
     @sync_force_write = 1 OR @last_sync_version >= ISNULL(CT.SYS_CHANGE_VERSION, 0)";
 
-                    table.UpdateQuery = $@"UPDATE {table.Schema}.[{table.Name}]
+                    table.UpdateQuery = $@"UPDATE {table.NameWithSchema}
 SET
-    {string.Join(", ", tableColumns.Select(_ => "[" + _.Name + "] = @" + _.Name.Replace(" ", "_")))}
+    {string.Join(", ", tableColumns.Select(_ => "[" + _ + "] = @" + _.Replace(" ", "_")))}
 FROM
-    {table.Schema}.[{table.Name}]
-JOIN CHANGETABLE(VERSION {table.Schema}.[{table.Name}], ({string.Join(", ", primaryKeyColumns.Select(_ => "[" + _.Name + "]"))}), ({string.Join(", ", primaryKeyColumns.Select(_ => "@" + _.Name.Replace(' ', '_')))})) CT ON {string.Join(" AND ", primaryKeyColumns.Select(_ => $"CT.[{_.Name}] = {table.Schema}.[{table.Name}].[{_.Name}]"))}
+    {table.NameWithSchema}
+JOIN CHANGETABLE(VERSION {table.NameWithSchema}, ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{_}]"))}), ({string.Join(", ", primaryKeyColumns.Select(_ => "@" + _.Replace(' ', '_')))})) CT ON {string.Join(" AND ", primaryKeyColumns.Select(_ => $"CT.[{_}] = {table.Schema}.[{table.Name}].[{_}]"))}
 WHERE
     @sync_force_write = 1 OR @last_sync_version >= ISNULL(CT.SYS_CHANGE_VERSION, 0)";
                 }

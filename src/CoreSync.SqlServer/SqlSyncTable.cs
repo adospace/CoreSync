@@ -25,6 +25,7 @@ namespace CoreSync.SqlServer
         /// </summary>
         public string Schema { get; }
 
+        public string NameWithSchema => $"{(Schema == null ? string.Empty : "[" + Schema + "].")}[{Name}]";
 
         internal string InitialDataQuery { get; set; }
 
