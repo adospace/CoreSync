@@ -1,6 +1,4 @@
 ﻿using JetBrains.Annotations;
-//using Microsoft.SqlServer.Management.Common;
-//using Microsoft.SqlServer.Management.Smo;
 using System;
 using System.Collections.Generic;
 using System.Data.SqlClient;
@@ -25,7 +23,7 @@ namespace CoreSync.SqlServer
 
             name = name.Trim();
             if (_tables.Any(_ => String.CompareOrdinal(_.Name, name) == 0))
-                throw new InvalidOperationException("Table with name '{name}' already added");
+                throw new InvalidOperationException($"Table with name '{name}' already added");
 
             _tables.Add(new SqlSyncTable(name, bidirectional, schema));
             return this;

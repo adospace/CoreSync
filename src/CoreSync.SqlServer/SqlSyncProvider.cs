@@ -1,6 +1,4 @@
 ﻿using JetBrains.Annotations;
-//using Microsoft.SqlServer.Management.Common;
-//using Microsoft.SqlServer.Management.Smo;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -163,15 +161,6 @@ namespace CoreSync.SqlServer
                 await c.OpenAsync();
 
                 await c.EnableChangeTrakingAsync();
-
-                //var server = new Server(new ServerConnection(c));
-                //var database = server.Databases[0];
-
-                //if (!database.ChangeTrackingEnabled)
-                //{
-                //    database.ChangeTrackingEnabled = true;
-                //    database.Alter();
-                //}
             }
         }
 
@@ -324,15 +313,6 @@ namespace CoreSync.SqlServer
                 await c.OpenAsync();
 
                 await c.DisableChangeTrakingAsync();
-
-                //var server = new Server(new ServerConnection(c));
-                //var database = server.Databases[0];
-
-                //if (database.ChangeTrackingEnabled)
-                //{
-                //    database.ChangeTrackingEnabled = false;
-                //    database.Alter();
-                //}
             }
         }
 
@@ -372,31 +352,10 @@ namespace CoreSync.SqlServer
             {
                 await connection.OpenAsync();
 
-
-                //if (database == null)
-                //    throw new InvalidOperationException($"Unable to find database '{connStringBuilder.InitialCatalog}' in server '{connStringBuilder.DataSource}'");
-
                 if (!await connection.GetIsChangeTrakingEnabledAsync())
                 {
                     await connection.EnableChangeTrakingAsync();
                 }
-
-                //if (!database.ChangeTrackingEnabled)
-                //{
-                //    database.ChangeTrackingEnabled = true;
-                //    database.Alter();
-                //}
-                //var server = new Server(new ServerConnection(connection));
-                //var database = server.Databases.Cast<Database>().FirstOrDefault(_ => _.Name == connStringBuilder.InitialCatalog);
-
-                //var database = new Database(server, connStringBuilder.InitialCatalog);
-
-                //if (database.SnapshotIsolationState == SnapshotIsolationState.Disabled ||
-                //    database.SnapshotIsolationState == SnapshotIsolationState.PendingOff)
-                //{
-                //    database.SetSnapshotIsolation(true);
-                //    database.Alter();
-                //}
 
                 if (!await connection.SetSnapshotIsolationAsync())
                 {
@@ -456,18 +415,6 @@ namespace CoreSync.SqlServer
 
                 foreach (SqlSyncTable table in Configuration.Tables)
                 {
-                    //var dbTable = table.Schema != null ? database.Tables[table.Name, table.Schema] : database.Tables[table.Name];
-
-                    //if (dbTable == null)
-                    //{
-                    //    throw new InvalidOperationException($"Table {table.NameWithSchema} doesn't exists?");
-                    //}
-
-                    //if (!dbTable.ChangeTrackingEnabled)
-                    //{
-                    //    dbTable.ChangeTrackingEnabled = true;
-                    //    dbTable.Alter();
-                    //}
                     if (!await connection.GetIsChangeTrakingEnabledAsync(table))
                     {
                         await connection.EnableChangeTrakingAsync(table);
