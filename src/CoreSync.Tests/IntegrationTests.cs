@@ -45,10 +45,10 @@ namespace CoreSync.Tests
                 var localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Configuration);
 
 
-                //await Test1(localDb,
-                //    localSyncProvider, 
-                //    remoteDb,
-                //    remoteSyncProvider);
+                await Test1(localDb,
+                    localSyncProvider,
+                    remoteDb,
+                    remoteSyncProvider);
             }
         }
 
@@ -80,10 +80,10 @@ namespace CoreSync.Tests
 
                 var localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Configuration);
 
-                //await Test2(localDb,
-                //    localSyncProvider,
-                //    remoteDb,
-                //    remoteSyncProvider);
+                await Test2(localDb,
+                    localSyncProvider,
+                    remoteDb,
+                    remoteSyncProvider);
             }
         }
 
@@ -122,7 +122,7 @@ namespace CoreSync.Tests
                 var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Configuration);
 
 
-                //await Test1(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+                await Test1(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
             }
         }
 
@@ -160,7 +160,7 @@ namespace CoreSync.Tests
                 var localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Configuration);
 
 
-                //await Test1(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+                await Test1(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
             }
         }
 
@@ -198,7 +198,7 @@ namespace CoreSync.Tests
 
                 var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Configuration);
 
-                //await Test2(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+                await Test2(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
             }
         }
 
@@ -235,7 +235,7 @@ namespace CoreSync.Tests
                 var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Configuration);
 
 
-                //await Test1(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+                await Test1(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
             }
         }
 
@@ -341,7 +341,7 @@ namespace CoreSync.Tests
             await remoteSyncProvider.ApplyChangesAsync(initialLocalSet);
             await localSyncProvider.SaveVersionForStoreAsync(remoteStoreId, initialLocalSet.SourceAnchor.Version);
 
-            var changeSetAfterUserAdd = await remoteSyncProvider.GetChangesForStoreAsync(remoteStoreId);
+            var changeSetAfterUserAdd = await remoteSyncProvider.GetChangesForStoreAsync(localStoreId);
             Assert.IsNotNull(changeSetAfterUserAdd);
             Assert.IsNotNull(changeSetAfterUserAdd.Items);
             Assert.AreEqual(1, changeSetAfterUserAdd.Items.Count);
@@ -363,7 +363,7 @@ namespace CoreSync.Tests
 
             {
                 //after saved changes version should be updated at 2 as well
-                var changeSetAfterUserEdit = await remoteSyncProvider.GetChangesForStoreAsync(remoteStoreId);
+                var changeSetAfterUserEdit = await remoteSyncProvider.GetChangesForStoreAsync(localStoreId);
                 Assert.IsNotNull(changeSetAfterUserEdit);
                 Assert.IsNotNull(changeSetAfterUserEdit.Items);
                 Assert.AreEqual(1, changeSetAfterUserEdit.Items.Count);
@@ -431,7 +431,10 @@ namespace CoreSync.Tests
                 remoteDb.Users.Remove(newUser);
                 await remoteDb.SaveChangesAsync();
 
-                var newUserInLocalDb = await localDb.Users.FirstAsync(_ => _.Email == newUser.Email);
+                var userInLocalDbDeletedOnRemoteDb = await localDb.Users.FirstAsync(_ => _.Email == newUser.Email);
+                userInLocalDbDeletedOnRemoteDb.Name = "modified name of a remote delete record";
+                await localDb.SaveChangesAsync();
+
                 var localChangeSet = await localSyncProvider.GetChangesForStoreAsync(remoteStoreId);
                 Assert.IsNotNull(localChangeSet);
 
@@ -456,8 +459,8 @@ namespace CoreSync.Tests
                     {
                         //assert that conflict occurred on item we just got from local db
                         Assert.IsNotNull(item);
-                        Assert.AreEqual(newUserInLocalDb.Email, item.Values["Email"]);
-                        Assert.AreEqual(newUserInLocalDb.Name, item.Values["Name"]);
+                        Assert.AreEqual(userInLocalDbDeletedOnRemoteDb.Email, item.Values["Email"]);
+                        Assert.AreEqual(userInLocalDbDeletedOnRemoteDb.Name, item.Values["Name"]);
                         Assert.AreEqual(ChangeType.Update, item.ChangeType);
 
                         //force write in remote store
@@ -471,7 +474,7 @@ namespace CoreSync.Tests
                 //and local db changes should be applied to remote db
                 var userChangedInRemoteDb = await remoteDb.Users.AsNoTracking().FirstAsync(_ => _.Email == newUser.Email);
                 Assert.IsNotNull(userChangedInRemoteDb);
-                Assert.AreEqual(newUserInLocalDb.Name, userChangedInRemoteDb.Name);
+                Assert.AreEqual(userInLocalDbDeletedOnRemoteDb.Name, userChangedInRemoteDb.Name);
                 Assert.AreEqual(new DateTime(2019, 1, 1), userChangedInRemoteDb.Created);
 
             }
@@ -505,7 +508,7 @@ namespace CoreSync.Tests
             await localSyncProvider.SaveVersionForStoreAsync(remoteStoreId, localChangeSet.SourceAnchor.Version);
 
 
-            var changeSetAfterApplyChangesToRemoteDb = await remoteSyncProvider.GetChangesForStoreAsync(remoteStoreId);
+            var changeSetAfterApplyChangesToRemoteDb = await remoteSyncProvider.GetChangesForStoreAsync(localStoreId);
             Assert.IsNotNull(changeSetAfterApplyChangesToRemoteDb);
             Assert.AreEqual(0, changeSetAfterApplyChangesToRemoteDb.Items.Count);
 

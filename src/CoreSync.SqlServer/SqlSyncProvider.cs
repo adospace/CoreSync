@@ -383,7 +383,7 @@ namespace CoreSync.SqlServer
 
                     var version = await cmd.ExecuteScalarAsync();
 
-                    if (version == null)
+                    if (version == null || version == DBNull.Value)
                         return new SyncAnchor(otherStoreId, 0);
 
                     return new SyncAnchor(otherStoreId, (long)version);
