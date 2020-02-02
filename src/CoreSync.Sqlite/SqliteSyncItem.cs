@@ -4,10 +4,13 @@ using System.Text;
 
 namespace CoreSync.Sqlite
 {
-    internal class SqliteSyncItem : SyncItem
+    public class SqliteSyncItem : SyncItem
     {
-        internal SqliteSyncItem(SqliteSyncTable table, ChangeType changeType, Dictionary<string, object> values) :
-            base(table, changeType, values)
+        public SqliteSyncItem()
+        { }
+
+        public SqliteSyncItem(SqliteSyncTable table, ChangeType changeType, Dictionary<string, object> values) :
+            base(table.Name, changeType, values)
         {
         }
 

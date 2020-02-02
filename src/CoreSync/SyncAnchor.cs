@@ -2,8 +2,11 @@
 
 namespace CoreSync
 {
-    public sealed class SyncAnchor
+    public class SyncAnchor
     {
+        public SyncAnchor()
+        { }
+
         public SyncAnchor(Guid storeId, long version)
         {
             if (storeId == Guid.Empty)
@@ -19,8 +22,8 @@ namespace CoreSync
             Version = version;
         }
 
-        public Guid StoreId { get; private set; }
-        public long Version { get; private set; }
+        public Guid StoreId { get; set; }
+        public long Version { get; set; }
 
         public override string ToString()
         {

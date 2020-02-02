@@ -6,23 +6,28 @@ namespace CoreSync
 {
     public abstract class SyncItem
     {
-        protected SyncItem(SyncTable table, ChangeType changeType, Dictionary<string, object> values)
+        public SyncItem()
+        { 
+        
+        }
+
+        public SyncItem(string tableName, ChangeType changeType, Dictionary<string, object> values)
         {
-            Validate.NotNull(table, nameof(table));
+            Validate.NotNullOrEmptyOrWhiteSpace(tableName, nameof(tableName));
             Validate.NotNull(values, nameof(values));
 
-            Table = table;
+            TableName = tableName;
             ChangeType = changeType;
             Values = values;
         }
 
-        public SyncTable Table { get; }
-        public ChangeType ChangeType { get; }
-        public Dictionary<string, object> Values { get; }
+        public string TableName { get; set; }
+        public ChangeType ChangeType { get; set; }
+        public Dictionary<string, object> Values { get; set; }
 
         public override string ToString()
         {
-            return $"{ChangeType} on {Table.Name}";
+            return $"{ChangeType} on {TableName}";
         }
     }
 }

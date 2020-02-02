@@ -4,10 +4,14 @@ using System.Text;
 
 namespace CoreSync.SqlServer
 {
-    internal class SqlSyncItem : SyncItem
+    public class SqlSyncItem : SyncItem
     {
-        internal SqlSyncItem(SqlSyncTable table, ChangeType changeType, Dictionary<string, object> values) :
-            base(table, changeType, values)
+        public SqlSyncItem()
+        { 
+        }
+
+        public SqlSyncItem(SqlSyncTable table, ChangeType changeType, Dictionary<string, object> values) :
+            base(table.Name, changeType, values)
         {
         }
 

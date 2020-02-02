@@ -7,7 +7,7 @@ namespace CoreSync
 {
     public static class SyncProviderExtenstions
     {
-        public static Task<SyncAnchor> ApplyChangesAsync(this ISyncProvider provider, SyncChangeSet changeSet, ConflictResolution updateResultion, ConflictResolution deleteResolution)
+        public static Task ApplyChangesAsync(this ISyncProvider provider, SyncChangeSet changeSet, ConflictResolution updateResultion, ConflictResolution deleteResolution)
         {
             Validate.NotNull(provider, nameof(provider));
 

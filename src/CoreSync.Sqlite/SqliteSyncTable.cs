@@ -5,13 +5,11 @@ namespace CoreSync.Sqlite
 {
     public class SqliteSyncTable : SyncTable
     {
-        internal SqliteSyncTable(string name, Type recordType = null, bool bidirectional = true, string schema = "dbo") : base(name)
+        internal SqliteSyncTable(string name, Type recordType = null, bool bidirectional = true) : base(name)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
-            Validate.NotNullOrEmptyOrWhiteSpace(schema, nameof(schema));
 
             Bidirectional = bidirectional;
-            Schema = schema;
             RecordType = recordType;
         }
 
@@ -19,11 +17,6 @@ namespace CoreSync.Sqlite
         /// Bidirectional vs upload-only table synchronization (not supported yet)
         /// </summary>
         public bool Bidirectional { get; }
-
-        /// <summary>
-        /// Schema of table (Default: main)
-        /// </summary>
-        public string Schema { get; }
 
         /// <summary>
         /// Record type can be useful to cast back to correct types record values 

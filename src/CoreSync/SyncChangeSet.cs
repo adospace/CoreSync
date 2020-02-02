@@ -6,6 +6,9 @@ namespace CoreSync
 {
     public class SyncChangeSet
     {
+        public SyncChangeSet()
+        { }
+
         public SyncChangeSet(SyncAnchor sourceAnchor, SyncAnchor targetAnchor, IReadOnlyList<SyncItem> items)
         {
             Validate.NotNull(sourceAnchor, nameof(sourceAnchor));
@@ -17,8 +20,8 @@ namespace CoreSync
             Items = items;
         }
 
-        public SyncAnchor SourceAnchor { get; private set; }
-        public SyncAnchor TargetAnchor { get; private set; }
-        public IReadOnlyList<SyncItem> Items { get; private set; }
+        public SyncAnchor SourceAnchor { get; set; }
+        public SyncAnchor TargetAnchor { get; set; }
+        public IReadOnlyList<SyncItem> Items { get; set; }
     }
 }

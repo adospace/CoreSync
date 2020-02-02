@@ -26,10 +26,10 @@ namespace CoreSync.SqlServer
 
             await InitializeAsync();
 
-            if (changeSet.TargetAnchor.StoreId != _storeId)
-            {
-                throw new InvalidOperationException("ChangeSet doesn't target this store");
-            }
+            //if (changeSet.Anchor.StoreId != _storeId)
+            //{
+            //    throw new InvalidOperationException("ChangeSet doesn't target this store");
+            //}
 
             using (var c = new SqlConnection(Configuration.ConnectionString))
             {
@@ -44,19 +44,19 @@ namespace CoreSync.SqlServer
                         cmd.CommandText = "SELECT CHANGE_TRACKING_CURRENT_VERSION()";
 
                         long version = (long)await cmd.ExecuteScalarAsync();
-                        bool atLeastOneChangeApplied = false;
+                        //bool atLeastOneChangeApplied = false;
 
                         foreach (var item in changeSet.Items)
                         {
-                            var table = (SqlSyncTable)Configuration.Tables.First(_ => _.Name == item.Table.Name);
+                            var table = (SqlSyncTable)Configuration.Tables.First(_ => _.Name == item.TableName);
 
                             cmd.Parameters.Clear();
                             cmd.CommandText = $"SELECT CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID('{table.Schema}.[{table.Name}]'))";
 
                             long minVersionForTable = (long)await cmd.ExecuteScalarAsync();
 
-                            if (changeSet.TargetAnchor.Version < minVersionForTable)
-                                throw new InvalidOperationException($"Unable to apply changes, version of data to apply ({changeSet.TargetAnchor.Version}) for table '{table.Schema}.[{table.Name}]' is too old (min valid version {minVersionForTable})");
+                            if (changeSet.SourceAnchor.Version < minVersionForTable)
+                                throw new InvalidOperationException($"Unable to apply changes, version of data to apply ({changeSet.SourceAnchor.Version}) for table '{table.Schema}.[{table.Name}]' is too old (min valid version {minVersionForTable})");
 
                             bool syncForceWrite = false;
                             var itemChangeType = item.ChangeType;
@@ -79,6 +79,7 @@ namespace CoreSync.SqlServer
                                     break;
                             }
 
+                            cmd.Parameters.Add(new SqlParameter("@sync_client_id_binary", changeSet.SourceAnchor.StoreId.ToByteArray()));
                             cmd.Parameters.Add(new SqlParameter("@last_sync_version", changeSet.TargetAnchor.Version));
                             cmd.Parameters.Add(new SqlParameter("@sync_force_write", syncForceWrite));
 
@@ -95,7 +96,7 @@ namespace CoreSync.SqlServer
                                     //applied the insert or another record with same values (see primary key)
                                     //is already present in table.
                                     //In any case we can't proceed
-                                    throw new InvalidSyncOperationException(new SyncAnchor(_storeId, changeSet.TargetAnchor.Version + 1));
+                                    throw new InvalidSyncOperationException(new SyncAnchor(_storeId, version + 1));
                                 }
                                 else if (itemChangeType == ChangeType.Update ||
                                     itemChangeType == ChangeType.Delete)
@@ -125,36 +126,98 @@ namespace CoreSync.SqlServer
                                     }
                                 }
                             }
-                            else
-                                atLeastOneChangeApplied = true;
+                            //else
+                            //    atLeastOneChangeApplied = true;
                         }
 
-                        var newAnchor = new SyncAnchor(_storeId, version + (atLeastOneChangeApplied ? 1 : 0));
-
+                        //cmd.CommandText = "SELECT CHANGE_TRACKING_CURRENT_VERSION()";
+                        //cmd.Parameters.Clear();
+                        //version = (long)await cmd.ExecuteScalarAsync() + (atLeastOneChangeApplied ? 1 : 0);
+                        cmd.CommandText = $"UPDATE [__CORE_SYNC_REMOTE_ANCHOR] SET [REMOTE_VERSION] = @version WHERE [ID] = @id";
                         cmd.Parameters.Clear();
-                        cmd.CommandText = "UPDATE [__CORE_SYNC_REMOTE_ANCHOR] SET [VERSION] = @version WHERE [ID] = @id";
-                        cmd.Parameters.AddWithValue("@id", changeSet.SourceAnchor.StoreId);
-                        cmd.Parameters.AddWithValue("@version", newAnchor.Version);
+                        cmd.Parameters.AddWithValue("@id", changeSet.SourceAnchor.StoreId.ToString());
+                        cmd.Parameters.AddWithValue("@version", changeSet.SourceAnchor.Version);
 
                         if (0 == await cmd.ExecuteNonQueryAsync())
                         {
-                            cmd.Parameters.Clear();
-                            cmd.CommandText = "INSERT INTO [__CORE_SYNC_REMOTE_ANCHOR] ([ID], [VERSION]) VALUES (@id, @version)";
-                            cmd.Parameters.AddWithValue("@id", changeSet.SourceAnchor.StoreId);
-                            cmd.Parameters.AddWithValue("@version", newAnchor.Version);
+                            cmd.CommandText = "INSERT INTO [__CORE_SYNC_REMOTE_ANCHOR] ([ID], [REMOTE_VERSION]) VALUES (@id, @version)";
 
                             await cmd.ExecuteNonQueryAsync();
                         }
 
                         tr.Commit();
 
-                        return newAnchor;
+                        return new SyncAnchor(_storeId, version);
                     }
                 }
             }
         }
 
-        public async Task ApplyProvisionAsync()
+        //public async Task SaveLocalVersionForStoreAsync(Guid otherStoreId, long version)
+        //{
+        //    await InitializeAsync();
+
+        //    using (var c = new SqlConnection(Configuration.ConnectionString))
+        //    {
+        //        await c.OpenAsync();
+
+        //        using (var cmd = new SqlCommand())
+        //        {
+        //            using (var tr = c.BeginTransaction(IsolationLevel.Snapshot))
+        //            {
+        //                cmd.Connection = c;
+        //                cmd.Transaction = tr;
+
+        //                cmd.CommandText = "UPDATE [__CORE_SYNC_REMOTE_ANCHOR] SET [LOCAL_VERSION] = @local_version WHERE [ID] = @id";
+        //                cmd.Parameters.AddWithValue("@id", otherStoreId);
+        //                cmd.Parameters.AddWithValue("@local_version", version);
+
+        //                if (0 == await cmd.ExecuteNonQueryAsync())
+        //                {
+        //                    cmd.CommandText = "INSERT INTO [__CORE_SYNC_REMOTE_ANCHOR] ([ID], [LOCAL_VERSION]) VALUES (@id, @local_version)";
+
+        //                    await cmd.ExecuteNonQueryAsync();
+        //                }
+
+        //                tr.Commit();
+        //            }
+        //        }
+        //    }
+        //}
+
+        public async Task SaveVersionForStoreAsync(Guid otherStoreId, long version)
+        {
+            await InitializeAsync();
+
+            using (var c = new SqlConnection(Configuration.ConnectionString))
+            {
+                await c.OpenAsync();
+
+                using (var cmd = new SqlCommand())
+                {
+                    using (var tr = c.BeginTransaction())
+                    {
+                        cmd.Connection = c;
+                        cmd.Transaction = tr;
+                        cmd.CommandText = $"UPDATE [__CORE_SYNC_REMOTE_ANCHOR] SET [LOCAL_VERSION] = @version WHERE [ID] = @id";
+                        cmd.Parameters.AddWithValue("@id", otherStoreId.ToString());
+                        cmd.Parameters.AddWithValue("@version", version);
+
+                        if (0 == await cmd.ExecuteNonQueryAsync())
+                        {
+                            cmd.CommandText = "INSERT INTO [__CORE_SYNC_REMOTE_ANCHOR] ([ID], [LOCAL_VERSION]) VALUES (@id, @version)";
+
+                            await cmd.ExecuteNonQueryAsync();
+                        }
+
+                        tr.Commit();
+                    }
+                }
+            }
+        }
+
+
+        private async Task ApplyProvisionAsync()
         {
             using (var c = new SqlConnection(Configuration.ConnectionString))
             {
@@ -164,26 +227,29 @@ namespace CoreSync.SqlServer
             }
         }
 
-        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId)
+        //public async Task<SyncChangeSet> GetChangesAsync(SyncAnchor lastAnchor)
+        //{
+        //    //if (otherStoreId == Guid.Empty)
+        //    //{
+        //    //    throw new ArgumentException("Invalid store id", nameof(otherStoreId));
+        //    //}
+
+        //    //var lastAnchor = await GetLastAnchorForStoreAsync(otherStoreId);
+
+        //    //if (lastAnchor == null)
+        //    //{
+        //    //    return await GetInitialSetAsync(otherStoreId);
+        //    //}
+
+        //    return await GetIncrementalChangesAsync(lastAnchor);
+        //}
+
+        //private async Task<SyncChangeSet> GetIncrementalChangesAsync(SyncAnchor otherStoreAnchor)
+        public async Task<SyncChangeSet> GetChangesForStoreAsync(Guid otherStoreId)
         {
-            if (otherStoreId == Guid.Empty)
-            {
-                throw new ArgumentException("Invalid store id", nameof(otherStoreId));
-            }
+            //Validate.NotNull(otherStoreAnchor, nameof(otherStoreAnchor));
 
-            var lastAnchor = await GetLastAnchorForStoreAsync(otherStoreId);
-
-            if (lastAnchor == null)
-            {
-                return await GetInitialSetAsync(otherStoreId);
-            }
-
-            return await GetIncrementalChangesAsync(lastAnchor);
-        }
-
-        private async Task<SyncChangeSet> GetIncrementalChangesAsync(SyncAnchor otherStoreAnchor)
-        {
-            Validate.NotNull(otherStoreAnchor, nameof(otherStoreAnchor));
+            long fromVersion = (await GetLastLocalAnchorForStoreAsync(otherStoreId)).Version;
 
             await InitializeAsync();
 
@@ -210,53 +276,13 @@ namespace CoreSync.SqlServer
 
                             long minVersionForTable = (long)await cmd.ExecuteScalarAsync();
 
-                            if (otherStoreAnchor.Version < minVersionForTable)
-                                throw new InvalidOperationException($"Unable to get changes, version of data requested ({otherStoreAnchor.Version}) for table '{table.Schema}.[{table.Name}]' is too old (min valid version {minVersionForTable})");
+                            if (fromVersion < minVersionForTable)
+                                throw new InvalidOperationException($"Unable to get changes, version of data requested ({fromVersion}) for table '{table.Schema}.[{table.Name}]' is too old (min valid version {minVersionForTable})");
 
-                            cmd.CommandText = table.IncrementalDataQuery.Replace("@last_synchronization_version", otherStoreAnchor.Version.ToString());
-
-                            using (var r = await cmd.ExecuteReaderAsync())
-                            {
-                                while (await r.ReadAsync())
-                                {
-                                    var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => r.GetValue(_));
-                                    items.Add(new SqlSyncItem(table, DetectChangeType(values), values));
-                                }
-                            }
-                        }
-
-                        tr.Commit();
-
-                        return new SyncChangeSet(new SyncAnchor(_storeId, version), otherStoreAnchor, items);
-                    }
-                }
-            }
-        }
-
-        private async Task<SyncChangeSet> GetInitialSetAsync(Guid otherStoreId)
-        {
-            await InitializeAsync();
-
-            using (var c = new SqlConnection(Configuration.ConnectionString))
-            {
-                await c.OpenAsync();
-
-                using (var cmd = new SqlCommand())
-                {
-                    var items = new List<SqlSyncItem>();
-
-                    using (var tr = c.BeginTransaction(IsolationLevel.Snapshot))
-                    {
-                        cmd.Connection = c;
-                        cmd.Transaction = tr;
-
-                        cmd.CommandText = "SELECT CHANGE_TRACKING_CURRENT_VERSION()";
-
-                        long version = (long)await cmd.ExecuteScalarAsync();
-
-                        foreach (SqlSyncTable table in Configuration.Tables)
-                        {
-                            cmd.CommandText = table.InitialDataQuery;
+                            cmd.CommandText = table.IncrementalDataQuery;//.Replace("@last_synchronization_version", fromVersion.ToString());
+                            cmd.Parameters.Clear();
+                            cmd.Parameters.AddWithValue("@last_sync_version", fromVersion);
+                            cmd.Parameters.AddWithValue("@sync_client_id_binary", otherStoreId.ToByteArray());
 
                             using (var r = await cmd.ExecuteReaderAsync())
                             {
@@ -270,13 +296,56 @@ namespace CoreSync.SqlServer
 
                         tr.Commit();
 
-                        return new SyncChangeSet(new SyncAnchor(_storeId, version), new SyncAnchor(otherStoreId, 0), items);
+                        return new SyncChangeSet(new SyncAnchor(_storeId, version), await GetLastRemoteAnchorForStoreAsync(otherStoreId), items);
                     }
                 }
             }
         }
 
-        private async Task<SyncAnchor> GetLastAnchorForStoreAsync(Guid otherStoreId)
+        //private async Task<SyncChangeSet> GetInitialSetAsync(Guid otherStoreId)
+        //{
+        //    await InitializeAsync();
+
+        //    using (var c = new SqlConnection(Configuration.ConnectionString))
+        //    {
+        //        await c.OpenAsync();
+
+        //        using (var cmd = new SqlCommand())
+        //        {
+        //            var items = new List<SqlSyncItem>();
+
+        //            using (var tr = c.BeginTransaction(IsolationLevel.Snapshot))
+        //            {
+        //                cmd.Connection = c;
+        //                cmd.Transaction = tr;
+
+        //                cmd.CommandText = "SELECT CHANGE_TRACKING_CURRENT_VERSION()";
+
+        //                long version = (long)await cmd.ExecuteScalarAsync();
+
+        //                foreach (SqlSyncTable table in Configuration.Tables)
+        //                {
+        //                    cmd.CommandText = table.InitialDataQuery;
+
+        //                    using (var r = await cmd.ExecuteReaderAsync())
+        //                    {
+        //                        while (await r.ReadAsync())
+        //                        {
+        //                            var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => r.GetValue(_));
+        //                            items.Add(new SqlSyncItem(table, DetectChangeType(values), values));
+        //                        }
+        //                    }
+        //                }
+
+        //                tr.Commit();
+
+        //                return new SyncChangeSet(new SyncAnchor(_storeId, version), items);
+        //            }
+        //        }
+        //    }
+        //}
+
+        private async Task<SyncAnchor> GetLastLocalAnchorForStoreAsync(Guid otherStoreId)
         {
             await InitializeAsync();
 
@@ -286,13 +355,36 @@ namespace CoreSync.SqlServer
 
                 using (var cmd = c.CreateCommand())
                 {
-                    cmd.CommandText = "SELECT [VERSION] FROM [dbo].[__CORE_SYNC_REMOTE_ANCHOR] WHERE [ID] = @storeId";
+                    cmd.CommandText = "SELECT [LOCAL_VERSION] FROM [dbo].[__CORE_SYNC_REMOTE_ANCHOR] WHERE [ID] = @storeId";
                     cmd.Parameters.AddWithValue("@storeId", otherStoreId);
 
                     var version = await cmd.ExecuteScalarAsync();
 
+                    if (version == null || version == DBNull.Value)
+                        return new SyncAnchor(_storeId, 0);
+
+                    return new SyncAnchor(_storeId, (long)version);
+                }
+            }
+        }
+
+        private async Task<SyncAnchor> GetLastRemoteAnchorForStoreAsync(Guid otherStoreId)
+        {
+            await InitializeAsync();
+
+            using (var c = new SqlConnection(Configuration.ConnectionString))
+            {
+                await c.OpenAsync();
+
+                using (var cmd = c.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT [REMOTE_VERSION] FROM [__CORE_SYNC_REMOTE_ANCHOR] WHERE [ID] = @storeId";
+                    cmd.Parameters.AddWithValue("@storeId", otherStoreId.ToString());
+
+                    var version = await cmd.ExecuteScalarAsync();
+
                     if (version == null)
-                        return null;
+                        return new SyncAnchor(otherStoreId, 0);
 
                     return new SyncAnchor(otherStoreId, (long)version);
                 }
@@ -306,7 +398,7 @@ namespace CoreSync.SqlServer
             return _storeId;
         }
 
-        public async Task RemoveProvisionAsync()
+        private async Task RemoveProvisionAsync()
         {
             using (var c = new SqlConnection(Configuration.ConnectionString))
             {
@@ -369,7 +461,8 @@ namespace CoreSync.SqlServer
                     {
                         cmd.CommandText = $@"CREATE TABLE [dbo].[__CORE_SYNC_REMOTE_ANCHOR](
 	[ID] [uniqueidentifier] NOT NULL,
-	[VERSION] [BIGINT] NOT NULL
+	[LOCAL_VERSION] [BIGINT] NULL,
+    [REMOTE_VERSION] [BIGINT] NULL
  CONSTRAINT [PK___CORE_SYNC_REMOTE_ANCHOR] PRIMARY KEY CLUSTERED
 (
 	[ID] ASC
@@ -441,21 +534,22 @@ namespace CoreSync.SqlServer
             FROM
                 {table.NameWithSchema} AS T
             RIGHT OUTER JOIN
-                CHANGETABLE(CHANGES {table.NameWithSchema}, @last_synchronization_version) AS CT
+                CHANGETABLE(CHANGES {table.NameWithSchema}, @last_sync_version) AS CT
             ON
-                {string.Join(" AND ", primaryKeyColumns.Select(_ => $"T.[{_}] = CT.[{_}]"))}";
+                {string.Join(" AND ", primaryKeyColumns.Select(_ => $"T.[{_}] = CT.[{_}]"))}
+            WHERE (CT.SYS_CHANGE_CONTEXT IS NULL OR CT.SYS_CHANGE_CONTEXT <> @sync_client_id_binary)";
 
-                    table.InsertQuery = $@"INSERT INTO {table.NameWithSchema} ({string.Join(", ", allColumns.Select(_ => $"[{_}]"))}) SELECT {string.Join(", ", allColumns.Select(_ => "@" + _.Replace(' ', '_')))} EXCEPT
+                    table.InsertQuery = $@"WITH CHANGE_TRACKING_CONTEXT (@sync_client_id_binary) INSERT INTO {table.NameWithSchema} ({string.Join(", ", allColumns.Select(_ => $"[{_}]"))}) SELECT {string.Join(", ", allColumns.Select(_ => "@" + _.Replace(' ', '_')))} EXCEPT
    SELECT {string.Join(", ", allColumns.Select(_ => $"[{_}]"))} FROM {table.NameWithSchema};";
 
-                    table.DeleteQuery = $@"DELETE FROM {table.NameWithSchema}
+                    table.DeleteQuery = $@"WITH CHANGE_TRACKING_CONTEXT (@sync_client_id_binary) DELETE FROM {table.NameWithSchema}
 FROM
     {table.NameWithSchema}
 JOIN CHANGETABLE(VERSION {table.NameWithSchema}, ({string.Join(", ", primaryKeyColumns.Select(_ => "[" + _ + "]"))}), ({string.Join(", ", primaryKeyColumns.Select(_ => "@" + _.Replace(' ', '_')))})) CT  ON {string.Join(" AND ", primaryKeyColumns.Select(_ => $"CT.[{_}] = {table.Schema}.[{table.Name}].[{_}]"))}
 WHERE
     @sync_force_write = 1 OR @last_sync_version >= ISNULL(CT.SYS_CHANGE_VERSION, 0)";
 
-                    table.UpdateQuery = $@"UPDATE {table.NameWithSchema}
+                    table.UpdateQuery = $@"WITH CHANGE_TRACKING_CONTEXT (@sync_client_id_binary) UPDATE {table.NameWithSchema}
 SET
     {string.Join(", ", tableColumns.Select(_ => "[" + _ + "] = @" + _.Replace(" ", "_")))}
 FROM
