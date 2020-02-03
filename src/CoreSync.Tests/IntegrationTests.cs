@@ -338,8 +338,8 @@ namespace CoreSync.Tests
             await remoteDb.SaveChangesAsync();
 
             //applying local (empty) change set should not have consequences
-            await remoteSyncProvider.ApplyChangesAsync(initialLocalSet);
-            await localSyncProvider.SaveVersionForStoreAsync(remoteStoreId, initialLocalSet.SourceAnchor.Version);
+            //await remoteSyncProvider.ApplyChangesAsync(initialLocalSet);
+            //await localSyncProvider.SaveVersionForStoreAsync(remoteStoreId, initialLocalSet.SourceAnchor.Version);
 
             var changeSetAfterUserAdd = await remoteSyncProvider.GetChangesForStoreAsync(localStoreId);
             Assert.IsNotNull(changeSetAfterUserAdd);
@@ -593,11 +593,12 @@ namespace CoreSync.Tests
             Assert.AreEqual("this is my first post", remotePost.Content);
             Assert.AreEqual(1, remotePost.Claps);
 
-            localUser = await localDb.Users.FirstAsync(_ => _.Email == "user@email.com");
+            localDb = localDb.Refresh();
+            localUser = await localDb.Users.Include(_ => _.Posts).FirstAsync(_ => _.Email == "user@email.com");
             localPost = localUser.Posts[0];
-            Assert.AreEqual("user", remotePost.Author.Name);
-            Assert.AreEqual("this is my first post", remotePost.Content);
-            Assert.AreEqual(1, remotePost.Claps);
+            Assert.AreEqual("user", localPost.Author.Name);
+            Assert.AreEqual("this is my first post", localPost.Content);
+            Assert.AreEqual(1, localPost.Claps);
 
             //so to handle this scenario (when a record is often edited on multiple devices)
             //we should take care of restoring any pending records (posts) locally

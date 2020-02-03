@@ -23,15 +23,7 @@ namespace CoreSync.Sqlite
         {
             Validate.NotNull(changeSet, nameof(changeSet));
 
-            //if (changeSet.Anchor.StoreId != _storeId)
-            //{
-            //    throw new ArgumentException("Invalid anchor store id");
-            //}
             await InitializeAsync();
-
-            //if (changeSet.Items.Count == 0)
-            //    return;
-
 
             using (var c = new SqliteConnection(Configuration.ConnectionString))
             {
@@ -324,7 +316,7 @@ namespace CoreSync.Sqlite
 
                     var version = await cmd.ExecuteScalarAsync();
 
-                    if (version == null)
+                    if (version == null || version == DBNull.Value)
                         return new SyncAnchor(otherStoreId, 0);
 
                     return new SyncAnchor(otherStoreId, (long)version);
@@ -511,13 +503,11 @@ VALUES ({string.Join(", ", table.Columns.Select(_ => "@" + _.Name.Replace(' ', '
                 table.UpdateQuery = $@"UPDATE [{table.Name}]
 SET {string.Join(", ", tableColumns.Select(_ => "[" + _.Name + "] = @" + _.Name.Replace(' ', '_')))}
 WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))})
-AND (@sync_force_write = 1 OR EXISTS (SELECT * FROM [{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK])
-AND CT.ID > @last_sync_version))";
+AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.Name} AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK]) <= @last_sync_version))";
 
                 table.DeleteQuery = $@"DELETE FROM [{table.Name}]
 WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))})
-AND (@sync_force_write = 1 OR EXISTS (SELECT * FROM [{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK])
-AND CT.ID > @last_sync_version))";
+AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.Name} AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK]) <= @last_sync_version))";
             }
 
             _initialized = true;

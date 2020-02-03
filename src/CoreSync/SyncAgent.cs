@@ -25,16 +25,16 @@ namespace CoreSync
                 var localStoreId = await LocalSyncProvider.GetStoreIdAsync();
                 var remoteStoreId = await RemoteSyncProvider.GetStoreIdAsync();
 
+                //var anchorForRemoteStore = await RemoteSyncProvider.GetLastRemoteAnchorForStoreAsync(localStoreId);
                 var localChangeSet = await LocalSyncProvider.GetChangesForStoreAsync(remoteStoreId);
                 await RemoteSyncProvider.ApplyChangesAsync(localChangeSet, remoteConflictResolutionFunc);
                 await LocalSyncProvider.SaveVersionForStoreAsync(remoteStoreId, localChangeSet.SourceAnchor.Version);
-                
 
+
+                //var anchorForLocalStore = await LocalSyncProvider.GetLastRemoteAnchorForStoreAsync(remoteStoreId);
                 var remoteChangeSet = await RemoteSyncProvider.GetChangesForStoreAsync(localStoreId);
                 await LocalSyncProvider.ApplyChangesAsync(remoteChangeSet, localConflictResolutionFunc);
                 await RemoteSyncProvider.SaveVersionForStoreAsync(localStoreId, remoteChangeSet.SourceAnchor.Version);
-
-
             }
             catch (Exception ex)
             {
