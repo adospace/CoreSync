@@ -31,6 +31,8 @@ namespace CoreSync.SqlServer
 
         internal string IncrementalDataQuery { get; set; }
 
+        internal string IncrementalDeletesQuery { get; set; }
+
         internal string InsertQuery { get; set; }
 
         internal string UpdateQuery { get; set; }

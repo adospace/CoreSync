@@ -218,7 +218,7 @@ namespace CoreSync.SqlServer
 
                         foreach (SqlSyncTable table in Configuration.Tables)
                         {
-                            cmd.CommandText = table.IncrementalDataQuery;//.Replace("@last_synchronization_version", fromVersion.ToString());
+                            cmd.CommandText = table.IncrementalDataQuery;
                             cmd.Parameters.Clear();
                             cmd.Parameters.AddWithValue("@version", fromVersion);
                             cmd.Parameters.AddWithValue("@sourceId", otherStoreId);
@@ -231,7 +231,18 @@ namespace CoreSync.SqlServer
                                     items.Add(new SqlSyncItem(table, DetectChangeType(values), values));
                                 }
                             }
-                        }
+
+                            cmd.CommandText = table.IncrementalDeletesQuery;
+                            using (var r = await cmd.ExecuteReaderAsync())
+                            {
+                                while (await r.ReadAsync())
+                                {
+                                    var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => r.GetValue(_));
+                                    items.Add(new SqlSyncItem(table, ChangeType.Delete, values));
+                                }
+                            }
+
+                       }
 
                         tr.Commit();
 
@@ -453,8 +464,10 @@ END");
                             await cmd.ExecuteNonQueryAsync();
                         }
 
-                        table.IncrementalDataQuery = $@"SELECT DISTINCT { string.Join(",", allColumns.Select(_ => "T.[" + _ + "]"))}, CT.OP AS OP FROM [{ table.Name}] AS T 
-INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK] WHERE CT.Id > @version AND(CT.SRC IS NULL OR CT.SRC != @sourceId)";
+                        table.IncrementalDataQuery = $@"SELECT { string.Join(",", allColumns.Select(_ => "T.[" + _ + "]"))}, CT.OP AS OP FROM {table.NameWithSchema} AS T 
+INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK] WHERE CT.ID > @version AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
+
+                        table.IncrementalDeletesQuery = $@"SELECT PK AS [{primaryKeyColumns[0]}] FROM __CORE_SYNC_CT WHERE ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
 
                         //SET CONTEXT_INFO @sync_client_id_binary;
                         table.InsertQuery = $@" 

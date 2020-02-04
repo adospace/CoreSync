@@ -213,9 +213,9 @@ namespace CoreSync.Sqlite
 
                         foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_ => _.Columns.Any()))
                         {
-                            var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey);
+                            var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey).ToList();
 
-                            cmd.CommandText = $@"SELECT DISTINCT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Name + "]"))}, MIN(CT.OP) AS OP FROM [{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.PK WHERE CT.Id > @version AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
+                            cmd.CommandText = $@"SELECT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Name + "]"))}, CT.OP AS OP FROM [{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.PK WHERE CT.Id > @version AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
                             cmd.Parameters.Clear();
                             cmd.Parameters.AddWithValue("@version", fromVersion);
                             cmd.Parameters.AddWithValue("@sourceId", otherStoreId.ToString());
@@ -227,6 +227,16 @@ namespace CoreSync.Sqlite
                                     var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
                                     if (values["OP"] != null)
                                         items.Add(new SqliteSyncItem(table, DetectChangeType(values), values));
+                                }
+                            }
+
+                            cmd.CommandText = $@"SELECT PK AS [{primaryKeyColumns[0].Name}] FROM [__CORE_SYNC_CT] WHERE TBL = '{table.Name}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
+                            using (var r = await cmd.ExecuteReaderAsync())
+                            {
+                                while (await r.ReadAsync())
+                                {
+                                    var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
+                                    items.Add(new SqliteSyncItem(table, ChangeType.Delete, values));
                                 }
                             }
                         }

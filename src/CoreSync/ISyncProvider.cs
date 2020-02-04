@@ -8,18 +8,6 @@ namespace CoreSync
 {
     public interface ISyncProvider
     {
-        //[NotNull, ItemCanBeNull]
-        //Task<SyncAnchor> GetLastAnchorForStoreAsync(Guid otherStoreId);
-
-        //[NotNull]
-        //Task<SyncAnchor> GetLocalAnchorAsync();
-
-        //[NotNull, ItemNotNull]
-        //Task<SyncChangeSet> GetInitialSetAsync(Guid otherStoreId);
-
-        //[NotNull, ItemNotNull]
-        //Task<SyncChangeSet> GetIncrementalChangesAsync([NotNull] SyncAnchor anchor);
-
         [NotNull]
         Task<Guid> GetStoreIdAsync();
 
@@ -30,8 +18,5 @@ namespace CoreSync
         Task<SyncChangeSet> GetChangesForStoreAsync(Guid otherStoreId);
 
         Task SaveVersionForStoreAsync(Guid otherStoreId, long version);
-
-        //[NotNull, ItemNotNull]
-        //Task<SyncAnchor> GetLastAnchorForStoreAsync(Guid otherStoreId);
     }
 }
