@@ -5,24 +5,20 @@ namespace CoreSync.Sqlite
 {
     public class SqliteSyncTable : SyncTable
     {
-        internal SqliteSyncTable(string name, Type recordType = null, bool bidirectional = true) : base(name)
+        internal SqliteSyncTable(string name, Type recordType = null, SyncDirection syncDirection = SyncDirection.UploadAndDownload) : base(name, syncDirection)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
 
-            Bidirectional = bidirectional;
             RecordType = recordType;
         }
-
-        /// <summary>
-        /// Bidirectional vs upload-only table synchronization (not supported yet)
-        /// </summary>
-        public bool Bidirectional { get; }
 
         /// <summary>
         /// Record type can be useful to cast back to correct types record values 
         /// when are read from Sqlite database
         /// </summary>
         public Type RecordType { get; }
+        public string SelectIncrementalAddsOrUpdates { get; internal set; }
+        public string SelectIncrementalDeletes { get; internal set; }
 
         /// <summary>
         /// Table columns (discovered)

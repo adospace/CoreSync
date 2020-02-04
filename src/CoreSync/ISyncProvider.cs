@@ -15,7 +15,7 @@ namespace CoreSync
         Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, [CanBeNull] Func<SyncItem, ConflictResolution> onConflictFunc = null);
 
         [NotNull, ItemNotNull]
-        Task<SyncChangeSet> GetChangesForStoreAsync(Guid otherStoreId);
+        Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncDirection syncDirection = SyncDirection.UploadAndDownload);
 
         Task SaveVersionForStoreAsync(Guid otherStoreId, long version);
     }

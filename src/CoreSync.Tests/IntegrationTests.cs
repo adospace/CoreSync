@@ -3,6 +3,7 @@ using CoreSync.SqlServer;
 using CoreSync.Tests.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Shouldly;
 using System;
 using System.IO;
 using System.Linq;
@@ -360,8 +361,8 @@ namespace CoreSync.Tests
             var localStoreId = await localSyncProvider.GetStoreIdAsync();
             var remoteStoreId = await remoteSyncProvider.GetStoreIdAsync();
 
-            var initialLocalSet = await localSyncProvider.GetChangesForStoreAsync(remoteStoreId);
-            var initialRemoteSet = await remoteSyncProvider.GetChangesForStoreAsync(localStoreId);
+            var initialLocalSet = await localSyncProvider.GetChangesAsync(remoteStoreId);
+            var initialRemoteSet = await remoteSyncProvider.GetChangesAsync(localStoreId);
 
             Assert.IsNotNull(initialRemoteSet);
             Assert.IsNotNull(initialRemoteSet.Items);
@@ -379,7 +380,7 @@ namespace CoreSync.Tests
             //await remoteSyncProvider.ApplyChangesAsync(initialLocalSet);
             //await localSyncProvider.SaveVersionForStoreAsync(remoteStoreId, initialLocalSet.SourceAnchor.Version);
 
-            var changeSetAfterUserAdd = await remoteSyncProvider.GetChangesForStoreAsync(localStoreId);
+            var changeSetAfterUserAdd = await remoteSyncProvider.GetChangesAsync(localStoreId);
             Assert.IsNotNull(changeSetAfterUserAdd);
             Assert.IsNotNull(changeSetAfterUserAdd.Items);
             Assert.AreEqual(1, changeSetAfterUserAdd.Items.Count);
@@ -401,7 +402,7 @@ namespace CoreSync.Tests
 
             {
                 //after saved changes version should be updated at 2 as well
-                var changeSetAfterUserEdit = await remoteSyncProvider.GetChangesForStoreAsync(localStoreId);
+                var changeSetAfterUserEdit = await remoteSyncProvider.GetChangesAsync(localStoreId);
                 Assert.IsNotNull(changeSetAfterUserEdit);
                 Assert.IsNotNull(changeSetAfterUserEdit.Items);
                 Assert.AreEqual(1, changeSetAfterUserEdit.Items.Count);
@@ -418,7 +419,7 @@ namespace CoreSync.Tests
                 await localDb.SaveChangesAsync();
 
                 //get changes from local db
-                var localChangeSet = await localSyncProvider.GetChangesForStoreAsync(remoteStoreId);
+                var localChangeSet = await localSyncProvider.GetChangesAsync(remoteStoreId);
                 Assert.IsNotNull(localChangeSet);
 
                 //try to apply changes to remote provider
@@ -473,7 +474,7 @@ namespace CoreSync.Tests
                 userInLocalDbDeletedOnRemoteDb.Name = "modified name of a remote delete record";
                 await localDb.SaveChangesAsync();
 
-                var localChangeSet = await localSyncProvider.GetChangesForStoreAsync(remoteStoreId);
+                var localChangeSet = await localSyncProvider.GetChangesAsync(remoteStoreId);
                 Assert.IsNotNull(localChangeSet);
 
                 //try to apply changes to remote provider
@@ -533,11 +534,11 @@ namespace CoreSync.Tests
             await localDb.SaveChangesAsync();
 
             //let's apply changes from local db to remote db
-            var localChangeSet = await localSyncProvider.GetChangesForStoreAsync(remoteStoreId);
+            var localChangeSet = await localSyncProvider.GetChangesAsync(remoteStoreId);
             Assert.IsNotNull(localChangeSet);
             Assert.AreEqual(2, localChangeSet.Items.Count);
 
-            var remoteChangeSet = await remoteSyncProvider.GetChangesForStoreAsync(localStoreId);
+            var remoteChangeSet = await remoteSyncProvider.GetChangesAsync(localStoreId);
             Assert.IsNotNull(remoteChangeSet);
             Assert.AreEqual(0, remoteChangeSet.Items.Count);
 
@@ -546,7 +547,7 @@ namespace CoreSync.Tests
             await localSyncProvider.SaveVersionForStoreAsync(remoteStoreId, localChangeSet.SourceAnchor.Version);
 
 
-            var changeSetAfterApplyChangesToRemoteDb = await remoteSyncProvider.GetChangesForStoreAsync(localStoreId);
+            var changeSetAfterApplyChangesToRemoteDb = await remoteSyncProvider.GetChangesAsync(localStoreId);
             Assert.IsNotNull(changeSetAfterApplyChangesToRemoteDb);
             Assert.AreEqual(0, changeSetAfterApplyChangesToRemoteDb.Items.Count);
 
@@ -558,7 +559,7 @@ namespace CoreSync.Tests
             newUserLocal.Posts[0].Updated = new DateTime(2018, 3, 2);
             await localDb.SaveChangesAsync();
 
-            localChangeSet = await localSyncProvider.GetChangesForStoreAsync(remoteStoreId);
+            localChangeSet = await localSyncProvider.GetChangesAsync(remoteStoreId);
             Assert.IsNotNull(localChangeSet);
 
             anchorAfterApplyChanges = await remoteSyncProvider.ApplyChangesAsync(localChangeSet);
@@ -771,6 +772,32 @@ namespace CoreSync.Tests
             localUser = await localDb.Users.Include(_ => _.Posts).FirstAsync(_ => _.Email == "user@email.com");
             Assert.AreEqual(1, localUser.Posts.Count);
 
+
+            remoteUser2.Posts.Add(new Post()
+            { 
+                Content = "Post add to remote user while user is delete on local db",
+                Updated = DateTime.Now
+            });
+            remoteUser2.Name = "edited name";
+            await remoteDb.SaveChangesAsync();
+
+            localDb.Users.Remove(localUser2);
+            await localDb.SaveChangesAsync();
+
+            await syncAgent.SynchronizeAsync(conflictResolutionOnLocalStore: ConflictResolution.ForceWrite);
+
+            remoteDb = remoteDb.Refresh();
+            localDb = localDb.Refresh();
+
+            //ensure that local db updated (local user 2 is present)
+            localUser2 = await localDb.Users.Include(_ => _.Posts).FirstAsync(_ => _.Email == "user2@email.com");
+            localUser2.Posts.Count.ShouldBe(1);
+            localUser2.Posts[0].Content.ShouldBe("Post add to remote user while user is delete on local db");
+
+            //ensure that remote db is updated
+            remoteUser2 = await remoteDb.Users.Include(_ => _.Posts).FirstAsync(_ => _.Email == "user2@email.com");
+            remoteUser2.Posts.Count.ShouldBe(1);
+            remoteUser2.Posts[0].Content.ShouldBe("Post add to remote user while user is delete on local db");
         }
 
     }

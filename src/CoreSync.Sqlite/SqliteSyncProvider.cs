@@ -183,7 +183,7 @@ namespace CoreSync.Sqlite
             }
         }
 
-        public async Task<SyncChangeSet> GetChangesForStoreAsync(Guid otherStoreId)
+        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncDirection syncDirection)
         {
             long fromVersion = (await GetLastLocalAnchorForStoreAsync(otherStoreId)).Version;
 
@@ -213,9 +213,12 @@ namespace CoreSync.Sqlite
 
                         foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_ => _.Columns.Any()))
                         {
-                            var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey).ToList();
+                            if (table.SyncDirection != SyncDirection.UploadAndDownload &&
+                                table.SyncDirection != syncDirection)
+                                continue;
 
-                            cmd.CommandText = $@"SELECT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Name + "]"))}, CT.OP AS OP FROM [{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.PK WHERE CT.Id > @version AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
+
+                            cmd.CommandText = table.SelectIncrementalAddsOrUpdates;
                             cmd.Parameters.Clear();
                             cmd.Parameters.AddWithValue("@version", fromVersion);
                             cmd.Parameters.AddWithValue("@sourceId", otherStoreId.ToString());
@@ -230,7 +233,7 @@ namespace CoreSync.Sqlite
                                 }
                             }
 
-                            cmd.CommandText = $@"SELECT PK AS [{primaryKeyColumns[0].Name}] FROM [__CORE_SYNC_CT] WHERE TBL = '{table.Name}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
+                            cmd.CommandText = table.SelectIncrementalDeletes;
                             using (var r = await cmd.ExecuteReaderAsync())
                             {
                                 while (await r.ReadAsync())
@@ -506,6 +509,10 @@ END");
             {
                 var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey).ToList();
                 var tableColumns = table.Columns.Where(_ => !_.IsPrimaryKey).ToList();
+
+                table.SelectIncrementalAddsOrUpdates = $@"SELECT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Name + "]"))}, CT.OP AS OP FROM [{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.PK WHERE CT.Id > @version AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
+
+                table.SelectIncrementalDeletes = $@"SELECT PK AS [{primaryKeyColumns[0].Name}] FROM [__CORE_SYNC_CT] WHERE TBL = '{table.Name}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
 
                 table.InsertQuery = $@"INSERT OR IGNORE INTO [{table.Name}] ({string.Join(", ", table.Columns.Select(_ => "[" + _.Name + "]"))}) 
 VALUES ({string.Join(", ", table.Columns.Select(_ => "@" + _.Name.Replace(' ', '_')))});";

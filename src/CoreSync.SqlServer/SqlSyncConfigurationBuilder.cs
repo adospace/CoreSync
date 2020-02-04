@@ -10,14 +10,14 @@ namespace CoreSync.SqlServer
     public class SqlSyncConfigurationBuilder
     {
         private readonly string _connectionString;
-        private List<SqlSyncTable> _tables = new List<SqlSyncTable>();
+        private readonly List<SqlSyncTable> _tables = new List<SqlSyncTable>();
 
         public SqlSyncConfigurationBuilder(string connectionString)
         {
             _connectionString = connectionString;
         }
 
-        public SqlSyncConfigurationBuilder Table([NotNull] string name, bool bidirectional = true, string schema = "dbo")
+        public SqlSyncConfigurationBuilder Table([NotNull] string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = "dbo")
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
 
@@ -25,7 +25,7 @@ namespace CoreSync.SqlServer
             if (_tables.Any(_ => String.CompareOrdinal(_.Name, name) == 0))
                 throw new InvalidOperationException($"Table with name '{name}' already added");
 
-            _tables.Add(new SqlSyncTable(name, bidirectional, schema));
+            _tables.Add(new SqlSyncTable(name, syncDirection, schema));
             return this;
         }
 

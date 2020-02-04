@@ -186,10 +186,8 @@ namespace CoreSync.SqlServer
             }
         }
 
-        public async Task<SyncChangeSet> GetChangesForStoreAsync(Guid otherStoreId)
+        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncDirection syncDirection)
         {
-            //Validate.NotNull(otherStoreAnchor, nameof(otherStoreAnchor));
-
             long fromVersion = (await GetLastLocalAnchorForStoreAsync(otherStoreId)).Version;
 
             await InitializeAsync();
@@ -218,6 +216,10 @@ namespace CoreSync.SqlServer
 
                         foreach (SqlSyncTable table in Configuration.Tables)
                         {
+                            if (table.SyncDirection != SyncDirection.UploadAndDownload &&
+                                table.SyncDirection != syncDirection)
+                                continue;
+
                             cmd.CommandText = table.IncrementalDataQuery;
                             cmd.Parameters.Clear();
                             cmd.Parameters.AddWithValue("@version", fromVersion);
@@ -470,8 +472,7 @@ INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns
                         table.IncrementalDeletesQuery = $@"SELECT PK AS [{primaryKeyColumns[0]}] FROM __CORE_SYNC_CT WHERE ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
 
                         //SET CONTEXT_INFO @sync_client_id_binary;
-                        table.InsertQuery = $@" 
-BEGIN TRY 
+                        table.InsertQuery = $@"BEGIN TRY 
 INSERT INTO {table.NameWithSchema} ({string.Join(", ", allColumns.Select(_ => "[" + _ + "]"))}) 
 VALUES ({string.Join(", ", allColumns.Select(_ => "@" + _.Replace(' ', '_')))});
 END TRY  
@@ -479,18 +480,23 @@ BEGIN CATCH
 END CATCH";
 
                         //SET CONTEXT_INFO @sync_client_id_binary; 
-                        table.DeleteQuery = $@"
+                        table.DeleteQuery = $@"BEGIN TRY 
 DELETE FROM {table.Name}
 WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_}] = @{_.Replace(' ', '_')}"))})
-AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.NameWithSchema} AS T INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK]) <= @last_sync_version)";
+AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.NameWithSchema} AS T INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK]) <= @last_sync_version)
+END TRY  
+BEGIN CATCH  
+END CATCH";
 
                         //SET CONTEXT_INFO @sync_client_id_binary; 
-                        table.UpdateQuery = $@"
+                        table.UpdateQuery = $@"BEGIN TRY 
 UPDATE {table.NameWithSchema}
 SET {string.Join(", ", tableColumns.Select(_ => "[" + _ + "] = @" + _.Replace(' ', '_')))}
 WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"{table.NameWithSchema}.[{_}] = @{_.Replace(' ', '_')}"))})
-AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.NameWithSchema} AS T INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK]) <= @last_sync_version)";
-
+AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.NameWithSchema} AS T INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK]) <= @last_sync_version)
+END TRY  
+BEGIN CATCH  
+END CATCH";
 
                     }
                 }

@@ -6,19 +6,12 @@ namespace CoreSync.SqlServer
 {
     public class SqlSyncTable : SyncTable
     {
-        internal SqlSyncTable(string name, bool bidirectional = true, string schema = "dbo") : base(name)
+        internal SqlSyncTable(string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = "dbo") : base(name, syncDirection)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
             Validate.NotNullOrEmptyOrWhiteSpace(schema, nameof(schema));
-
-            Bidirectional = bidirectional;
             Schema = schema;
         }
-
-        /// <summary>
-        /// Bidirectional vs upload-only table synchronization (not supported yet)
-        /// </summary>
-        public bool Bidirectional { get; }
 
         /// <summary>
         /// Schema of table (Default: dbo)
