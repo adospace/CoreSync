@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 namespace CoreSync
@@ -18,12 +19,12 @@ namespace CoreSync
 
             TableName = tableName;
             ChangeType = changeType;
-            Values = values;
+            Values = values.ToDictionary(_ => _.Key, _ => new SyncItemValue(_.Value));
         }
 
         public string TableName { get; set; }
         public ChangeType ChangeType { get; set; }
-        public Dictionary<string, object> Values { get; set; }
+        public Dictionary<string, SyncItemValue> Values { get; set; }
 
         public override string ToString()
         {

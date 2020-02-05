@@ -87,7 +87,7 @@ namespace CoreSync.SqlServer
 
                             foreach (var valueItem in item.Values)
                             {
-                                cmd.Parameters.Add(new SqlParameter("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value ?? DBNull.Value));
+                                cmd.Parameters.Add(new SqlParameter("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value.Value ?? DBNull.Value));
                             }
 
                             var affectedRows = cmd.ExecuteNonQuery();
@@ -232,7 +232,8 @@ namespace CoreSync.SqlServer
                                 while (await r.ReadAsync())
                                 {
                                     var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => r.GetValue(_));
-                                    items.Add(new SqlSyncItem(table, DetectChangeType(values), values));
+                                    items.Add(new SqlSyncItem(table, DetectChangeType(values), 
+                                        values.Where(_ => _.Key != "__OP").ToDictionary(_ => _.Key, _ => _.Value == DBNull.Value ? null : _.Value)));
                                 }
                             }
 
@@ -311,7 +312,7 @@ namespace CoreSync.SqlServer
 
         private ChangeType DetectChangeType(Dictionary<string, object> values)
         {
-            if (values.TryGetValue("OP", out var syncChangeOperation))
+            if (values.TryGetValue("__OP", out var syncChangeOperation))
             {
                 switch (syncChangeOperation.ToString())
                 {
@@ -429,8 +430,14 @@ namespace CoreSync.SqlServer
 
                         if (primaryKeyColumns.Length != 1)
                         {
-                            throw new NotSupportedException();
+                            throw new NotSupportedException($"Table '{table.Name}' has more than one column as primary key");
                         }
+
+                        if (allColumns.Any(_ => string.CompareOrdinal(_, "__OP") == 0))
+                        {
+                            throw new NotSupportedException($"Table '{table.Name}' has one column with reserved name '__OP'");
+                        }
+
 
                         var existsTriggerCommand = new Func<string, string>((op) => $@"select COUNT(*) from sys.objects where schema_id=SCHEMA_ID('{table.Schema}') AND type='TR' and name='__{table.Name}_ct-{op}__'");
                         var createTriggerCommand = new Func<string, string>((op) => $@"CREATE TRIGGER [__{table.Name}_ct-{op}__]
@@ -468,7 +475,7 @@ END");
                             await cmd.ExecuteNonQueryAsync();
                         }
 
-                        table.IncrementalDataQuery = $@"SELECT DISTINCT { string.Join(",", allColumns.Select(_ => "T.[" + _ + "]"))}, CT.OP AS OP FROM {table.NameWithSchema} AS T 
+                        table.IncrementalDataQuery = $@"SELECT DISTINCT { string.Join(",", allColumns.Select(_ => "T.[" + _ + "]"))}, CT.OP AS __OP FROM {table.NameWithSchema} AS T 
 INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK] WHERE CT.ID > @version AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
 
                         table.IncrementalDeletesQuery = $@"SELECT PK AS [{primaryKeyColumns[0]}] FROM __CORE_SYNC_CT WHERE ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";

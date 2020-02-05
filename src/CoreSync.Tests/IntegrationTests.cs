@@ -385,8 +385,8 @@ namespace CoreSync.Tests
             Assert.IsNotNull(changeSetAfterUserAdd.Items);
             Assert.AreEqual(1, changeSetAfterUserAdd.Items.Count);
             Assert.AreEqual(ChangeType.Insert, changeSetAfterUserAdd.Items[0].ChangeType);
-            Assert.AreEqual(newUser.Email, changeSetAfterUserAdd.Items[0].Values["Email"]);
-            Assert.AreEqual(newUser.Name, changeSetAfterUserAdd.Items[0].Values["Name"]);
+            Assert.AreEqual(newUser.Email, changeSetAfterUserAdd.Items[0].Values["Email"].Value);
+            Assert.AreEqual(newUser.Name, changeSetAfterUserAdd.Items[0].Values["Name"].Value);
 
             var finalLocalAnchor = await localSyncProvider.ApplyChangesAsync(changeSetAfterUserAdd);
             Assert.IsNotNull(finalLocalAnchor);
@@ -406,9 +406,9 @@ namespace CoreSync.Tests
                 Assert.IsNotNull(changeSetAfterUserEdit);
                 Assert.IsNotNull(changeSetAfterUserEdit.Items);
                 Assert.AreEqual(1, changeSetAfterUserEdit.Items.Count);
-                Assert.AreEqual(newUser.Email, changeSetAfterUserEdit.Items[0].Values["Email"]);
-                Assert.AreEqual(newUser.Name, changeSetAfterUserEdit.Items[0].Values["Name"]);
-                Assert.AreEqual(newUser.Created, changeSetAfterUserEdit.Items[0].Values["Created"]);
+                Assert.AreEqual(newUser.Email, changeSetAfterUserEdit.Items[0].Values["Email"].Value);
+                Assert.AreEqual(newUser.Name, changeSetAfterUserEdit.Items[0].Values["Name"].Value);
+                Assert.AreEqual(newUser.Created, changeSetAfterUserEdit.Items[0].Values["Created"].Value);
             }
 
             {
@@ -444,8 +444,8 @@ namespace CoreSync.Tests
                     {
                         //assert that conflict occurred on item we just got from local db
                         Assert.IsNotNull(item);
-                        Assert.AreEqual(newUserInLocalDb.Email, item.Values["Email"]);
-                        Assert.AreEqual(newUserInLocalDb.Name, item.Values["Name"]);
+                        Assert.AreEqual(newUserInLocalDb.Email, item.Values["Email"].Value);
+                        Assert.AreEqual(newUserInLocalDb.Name, item.Values["Name"].Value);
                         Assert.AreEqual(ChangeType.Update, item.ChangeType);
 
                         //force write in remote store
@@ -498,8 +498,8 @@ namespace CoreSync.Tests
                     {
                         //assert that conflict occurred on item we just got from local db
                         Assert.IsNotNull(item);
-                        Assert.AreEqual(userInLocalDbDeletedOnRemoteDb.Email, item.Values["Email"]);
-                        Assert.AreEqual(userInLocalDbDeletedOnRemoteDb.Name, item.Values["Name"]);
+                        Assert.AreEqual(userInLocalDbDeletedOnRemoteDb.Email, item.Values["Email"].Value);
+                        Assert.AreEqual(userInLocalDbDeletedOnRemoteDb.Name, item.Values["Name"].Value);
                         Assert.AreEqual(ChangeType.Update, item.ChangeType);
 
                         //force write in remote store

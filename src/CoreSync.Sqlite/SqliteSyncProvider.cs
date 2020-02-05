@@ -74,7 +74,7 @@ namespace CoreSync.Sqlite
                             cmd.Parameters.Add(new SqliteParameter("@sync_force_write", syncForceWrite));
 
                             foreach (var valueItem in item.Values)
-                                cmd.Parameters.Add(new SqliteParameter("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value ?? DBNull.Value));
+                                cmd.Parameters.Add(new SqliteParameter("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value.Value ?? DBNull.Value));
 
                             var affectedRows = cmd.ExecuteNonQuery();
 
@@ -228,8 +228,8 @@ namespace CoreSync.Sqlite
                                 while (await r.ReadAsync())
                                 {
                                     var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
-                                    if (values["OP"] != null)
-                                        items.Add(new SqliteSyncItem(table, DetectChangeType(values), values));
+                                    items.Add(new SqliteSyncItem(table, DetectChangeType(values),
+                                        values.Where(_ => _.Key != "__OP").ToDictionary(_ => _.Key, _ => _.Value == DBNull.Value ? null : _.Value)));
                                 }
                             }
 
@@ -346,9 +346,9 @@ namespace CoreSync.Sqlite
 
         private static ChangeType DetectChangeType(Dictionary<string, object> values)
         {
-            if (values.ContainsKey("OP"))
+            if (values.TryGetValue("__OP", out var syncChangeOperation))
             {
-                switch ((string)values["OP"])
+                switch (syncChangeOperation.ToString())
                 {
                     case "I":
                         return ChangeType.Insert;
@@ -358,9 +358,10 @@ namespace CoreSync.Sqlite
 
                     case "D":
                         return ChangeType.Delete;
-                }
 
-                throw new NotSupportedException();
+                    default:
+                        throw new NotSupportedException();
+                }
             }
 
             return ChangeType.Insert;
@@ -448,6 +449,11 @@ namespace CoreSync.Sqlite
                                 var colType = reader.GetString(2);
                                 var pk = reader.GetBoolean(5);
 
+                                if (string.CompareOrdinal(colName, "__OP") == 0)
+                                {
+                                    throw new NotSupportedException($"Unable to synchronize table '{table.Name}': one column has a reserved name '__OP'");
+                                }
+
                                 table.Columns.Add(new SqliteColumn(colName, colType, pk));
                             }
                         }
@@ -510,7 +516,7 @@ END");
                 var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey).ToList();
                 var tableColumns = table.Columns.Where(_ => !_.IsPrimaryKey).ToList();
 
-                table.SelectIncrementalAddsOrUpdates = $@"SELECT DISTINCT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Name + "]"))}, CT.OP AS OP FROM [{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.PK WHERE CT.Id > @version AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
+                table.SelectIncrementalAddsOrUpdates = $@"SELECT DISTINCT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Name + "]"))}, CT.OP AS __OP FROM [{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.PK WHERE CT.Id > @version AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
 
                 table.SelectIncrementalDeletes = $@"SELECT PK AS [{primaryKeyColumns[0].Name}] FROM [__CORE_SYNC_CT] WHERE TBL = '{table.Name}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
 
