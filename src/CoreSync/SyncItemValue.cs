@@ -35,6 +35,8 @@ namespace CoreSync
                 Type = SyncItemValueType.Float;
             else if (value is Guid)
                 Type = SyncItemValueType.Guid;
+            else if (value is long)
+                Type = SyncItemValueType.Int64;
             else
                 throw new NotSupportedException();
         }

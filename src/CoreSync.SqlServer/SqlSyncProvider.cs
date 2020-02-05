@@ -476,17 +476,28 @@ END");
                         }
 
                         table.IncrementalDataQuery = $@"SELECT DISTINCT { string.Join(",", allColumns.Select(_ => "T.[" + _ + "]"))}, CT.OP AS __OP FROM {table.NameWithSchema} AS T 
-INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK] WHERE CT.ID > @version AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
+INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK] WHERE CT.ID > @version AND CT.TBL = '{table.NameWithSchema}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
 
                         table.IncrementalDeletesQuery = $@"SELECT PK AS [{primaryKeyColumns[0]}] FROM __CORE_SYNC_CT WHERE ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
 
+                        cmd.CommandText = $@"SELECT COUNT(*) FROM SYS.IDENTITY_COLUMNS WHERE OBJECT_NAME(OBJECT_ID) = @tablename AND OBJECT_SCHEMA_NAME(object_id) = @schemaname";
+                        cmd.Parameters.Clear();
+                        cmd.Parameters.AddWithValue("@tablename", table.Name);
+                        cmd.Parameters.AddWithValue("@schemaname", table.Schema);
+
+                        var hasTableIdentityColumn = ((int)await cmd.ExecuteScalarAsync() == 1);
+
+                        cmd.Parameters.Clear();
+
                         //SET CONTEXT_INFO @sync_client_id_binary;
-                        table.InsertQuery = $@"BEGIN TRY 
+                        table.InsertQuery = $@"{(hasTableIdentityColumn ? $"SET IDENTITY_INSERT {table.NameWithSchema} ON" : string.Empty)}
+BEGIN TRY 
 INSERT INTO {table.NameWithSchema} ({string.Join(", ", allColumns.Select(_ => "[" + _ + "]"))}) 
 VALUES ({string.Join(", ", allColumns.Select(_ => "@" + _.Replace(' ', '_')))});
 END TRY  
 BEGIN CATCH  
-END CATCH";
+END CATCH
+{(hasTableIdentityColumn ? $"SET IDENTITY_INSERT {table.NameWithSchema} OFF" : string.Empty)}";
 
                         //SET CONTEXT_INFO @sync_client_id_binary; 
                         table.DeleteQuery = $@"BEGIN TRY 

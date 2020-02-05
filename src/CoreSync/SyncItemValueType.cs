@@ -12,6 +12,8 @@ namespace CoreSync
 
         Int32,
 
+        Int64,
+
         Float,
 
         Double,
