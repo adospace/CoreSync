@@ -86,7 +86,9 @@ namespace CoreSync.SqlServer
                             cmd.Parameters.Add(new SqlParameter("@sync_force_write", syncForceWrite));
 
                             foreach (var valueItem in item.Values)
+                            {
                                 cmd.Parameters.Add(new SqlParameter("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value ?? DBNull.Value));
+                            }
 
                             var affectedRows = cmd.ExecuteNonQuery();
 
@@ -430,8 +432,8 @@ namespace CoreSync.SqlServer
                             throw new NotSupportedException();
                         }
 
-                        var existsTriggerCommand = new Func<string, string>((op) => $@"select COUNT(*) from sys.objects where schema_id=SCHEMA_ID('dbo') AND type='TR' and name='__{table.Name}_ct-{op}__'");
-                        var commandTextBase = new Func<string, string>((op) => $@"CREATE TRIGGER [__{table.Name}_ct-{op}__]
+                        var existsTriggerCommand = new Func<string, string>((op) => $@"select COUNT(*) from sys.objects where schema_id=SCHEMA_ID('{table.Schema}') AND type='TR' and name='__{table.Name}_ct-{op}__'");
+                        var createTriggerCommand = new Func<string, string>((op) => $@"CREATE TRIGGER [__{table.Name}_ct-{op}__]
 ON {table.NameWithSchema}
 AFTER {op}
 AS
@@ -448,25 +450,25 @@ END");
                         cmd.CommandText = existsTriggerCommand("INSERT");
                         if (((int)await cmd.ExecuteScalarAsync()) == 0)
                         {
-                            cmd.CommandText = commandTextBase("INSERT");
+                            cmd.CommandText = createTriggerCommand("INSERT");
                             await cmd.ExecuteNonQueryAsync();
                         }
 
                         cmd.CommandText = existsTriggerCommand("UPDATE");
                         if (((int)await cmd.ExecuteScalarAsync()) == 0)
                         {
-                            cmd.CommandText = commandTextBase("UPDATE");
+                            cmd.CommandText = createTriggerCommand("UPDATE");
                             await cmd.ExecuteNonQueryAsync();
                         }
 
                         cmd.CommandText = existsTriggerCommand("DELETE");
                         if (((int)await cmd.ExecuteScalarAsync()) == 0)
                         {
-                            cmd.CommandText = commandTextBase("DELETE");
+                            cmd.CommandText = createTriggerCommand("DELETE");
                             await cmd.ExecuteNonQueryAsync();
                         }
 
-                        table.IncrementalDataQuery = $@"SELECT { string.Join(",", allColumns.Select(_ => "T.[" + _ + "]"))}, CT.OP AS OP FROM {table.NameWithSchema} AS T 
+                        table.IncrementalDataQuery = $@"SELECT DISTINCT { string.Join(",", allColumns.Select(_ => "T.[" + _ + "]"))}, CT.OP AS OP FROM {table.NameWithSchema} AS T 
 INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK] WHERE CT.ID > @version AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
 
                         table.IncrementalDeletesQuery = $@"SELECT PK AS [{primaryKeyColumns[0]}] FROM __CORE_SYNC_CT WHERE ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";

@@ -4,7 +4,7 @@ using System.Text;
 
 namespace CoreSync
 {
-    public abstract class SyncItem
+    public class SyncItem
     {
         public SyncItem()
         { 

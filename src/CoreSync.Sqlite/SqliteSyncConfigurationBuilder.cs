@@ -29,10 +29,11 @@ namespace CoreSync.Sqlite
             return this;
         }
 
-        public SqliteSyncConfigurationBuilder Table<T>([NotNull] string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload)
+        public SqliteSyncConfigurationBuilder Table<T>(string name = null, SyncDirection syncDirection = SyncDirection.UploadAndDownload)
         {
-            return Table(name, typeof(T), syncDirection);
+            return Table(name ?? typeof(T).Name, typeof(T), syncDirection);
         }
+
 
         public SqliteSyncConfiguration Configuration
         {

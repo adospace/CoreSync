@@ -510,7 +510,7 @@ END");
                 var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey).ToList();
                 var tableColumns = table.Columns.Where(_ => !_.IsPrimaryKey).ToList();
 
-                table.SelectIncrementalAddsOrUpdates = $@"SELECT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Name + "]"))}, CT.OP AS OP FROM [{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.PK WHERE CT.Id > @version AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
+                table.SelectIncrementalAddsOrUpdates = $@"SELECT DISTINCT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Name + "]"))}, CT.OP AS OP FROM [{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.PK WHERE CT.Id > @version AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
 
                 table.SelectIncrementalDeletes = $@"SELECT PK AS [{primaryKeyColumns[0].Name}] FROM [__CORE_SYNC_CT] WHERE TBL = '{table.Name}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
 
