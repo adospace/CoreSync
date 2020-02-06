@@ -490,69 +490,90 @@ namespace CoreSync.Sqlite
                     //5. create triggers
                     foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_ => _.Columns.Any()))
                     {
-                        var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey);
+                        var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey).ToArray();
+                        var tableColumns = table.Columns.Where(_ => !_.IsPrimaryKey).ToArray();
 
-                        var commandTextBase = new Func<string, string>((op) => $@"CREATE TRIGGER IF NOT EXISTS [__{table.Name}_ct-{op}__]
-AFTER {op} ON [{table.Name}]
-FOR EACH ROW
-BEGIN
-INSERT INTO [__CORE_SYNC_CT] (TBL, OP, PK) VALUES ('{table.Name}', '{op[0]}', printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => (op == "DELETE" ? "OLD" : "NEW") + ".[" + _.Name + "]"))}));
-END");
-                        cmd.CommandText = commandTextBase("INSERT");
-                        await cmd.ExecuteNonQueryAsync();
+                        if (table.SyncDirection == SyncDirection.DownloadOnly ||
+                            table.SyncDirection == SyncDirection.UploadAndDownload)
+                        {
+                            await SetupTableForDownloadChanges(table, cmd, primaryKeyColumns, tableColumns);
+                        }
+                        else
+                        {
+                            await SetupTableForUploadOnly(table, cmd, primaryKeyColumns, tableColumns);
+                        }
 
-                        cmd.CommandText = commandTextBase("UPDATE");
-                        await cmd.ExecuteNonQueryAsync();
-
-                        cmd.CommandText = commandTextBase("DELETE");
-                        await cmd.ExecuteNonQueryAsync();
                     }
                 }
-            }
-
-            //4. Insert/Update/Delete query templates
-            foreach (SqliteSyncTable table in Configuration.Tables)
-            {
-                var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey).ToList();
-                var tableColumns = table.Columns.Where(_ => !_.IsPrimaryKey).ToList();
-
-                table.SelectIncrementalAddsOrUpdates = $@"SELECT DISTINCT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Name + "]"))}, CT.OP AS __OP 
-FROM [{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.PK WHERE CT.ID > @version AND CT.TBL = '{table.Name}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
-
-                table.SelectIncrementalDeletes = $@"SELECT PK AS [{primaryKeyColumns[0].Name}] FROM [__CORE_SYNC_CT] WHERE TBL = '{table.Name}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
-
-                table.InsertQuery = $@"INSERT OR IGNORE INTO [{table.Name}] ({string.Join(", ", table.Columns.Select(_ => "[" + _.Name + "]"))}) 
-VALUES ({string.Join(", ", table.Columns.Select(_ => "@" + _.Name.Replace(' ', '_')))});";
-
-                table.UpdateQuery = $@"UPDATE [{table.Name}]
-SET {string.Join(", ", tableColumns.Select(_ => "[" + _.Name + "] = @" + _.Name.Replace(' ', '_')))}
-WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))})
-AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.Name} AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK]) <= @last_sync_version))";
-
-                table.DeleteQuery = $@"DELETE FROM [{table.Name}]
-WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))})
-AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.Name} AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK]) <= @last_sync_version))";
             }
 
             _initialized = true;
         }
 
-        //public async Task<SyncChangeSet> GetChangesAsync(SyncAnchor lastAnchor)
-        //{
-        //    //if (otherStoreId == Guid.Empty)
-        //    //{
-        //    //    throw new ArgumentException("Invalid store id", nameof(otherStoreId));
-        //    //}
+        private async Task SetupTableForDownloadChanges(SqliteSyncTable table, SqliteCommand cmd, SqliteColumn[] primaryKeyColumns, SqliteColumn[] tableColumns)
+        {
+                var commandTextBase = new Func<string, string>((op) => $@"CREATE TRIGGER IF NOT EXISTS [__{table.Name}_ct-{op}__]
+    AFTER {op} ON [{table.Name}]
+    FOR EACH ROW
+    BEGIN
+    INSERT INTO [__CORE_SYNC_CT] (TBL, OP, PK) VALUES ('{table.Name}', '{op[0]}', printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => (op == "DELETE" ? "OLD" : "NEW") + ".[" + _.Name + "]"))}));
+    END");
+                cmd.CommandText = commandTextBase("INSERT");
+                await cmd.ExecuteNonQueryAsync();
 
-        //    //var lastAnchor = await GetLastAnchorForStoreAsync(otherStoreId);
+                cmd.CommandText = commandTextBase("UPDATE");
+                await cmd.ExecuteNonQueryAsync();
 
-        //    //if (lastAnchor == null)
-        //    //{
-        //    //    return await GetInitialSetAsync(otherStoreId);
-        //    //}
+                cmd.CommandText = commandTextBase("DELETE");
+                await cmd.ExecuteNonQueryAsync();
 
-        //    return await GetIncrementalChangesAsync(lastAnchor);
+                //4. Insert/Update/Delete query templates
+                table.SelectIncrementalAddsOrUpdates = $@"SELECT DISTINCT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Name + "]"))}, CT.OP AS __OP 
+            FROM [{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.PK WHERE CT.ID > @version AND CT.TBL = '{table.Name}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
 
-        //}
+                table.SelectIncrementalDeletes = $@"SELECT PK AS [{primaryKeyColumns[0].Name}] FROM [__CORE_SYNC_CT] WHERE TBL = '{table.Name}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
+
+                table.InsertQuery = $@"INSERT OR IGNORE INTO [{table.Name}] ({string.Join(", ", table.Columns.Select(_ => "[" + _.Name + "]"))}) 
+            VALUES ({string.Join(", ", table.Columns.Select(_ => "@" + _.Name.Replace(' ', '_')))});";
+
+                table.UpdateQuery = $@"UPDATE [{table.Name}]
+            SET {string.Join(", ", tableColumns.Select(_ => "[" + _.Name + "] = @" + _.Name.Replace(' ', '_')))}
+            WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))})
+            AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.Name} AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK] AND CT.TBL = '{table.Name}') <= @last_sync_version))";
+
+                table.DeleteQuery = $@"DELETE FROM [{table.Name}]
+            WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))})
+            AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.Name} AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK] AND CT.TBL = '{table.Name}') <= @last_sync_version))";
+        }
+
+        private async Task SetupTableForUploadOnly(SqliteSyncTable table, SqliteCommand cmd, SqliteColumn[] primaryKeyColumns, SqliteColumn[] tableColumns)
+        {
+            var commandTextBase = new Func<string, string>((op) => $@"CREATE TRIGGER IF NOT EXISTS [__{table.Name}_ct-{op}__]
+    AFTER {op} ON [{table.Name}]
+    FOR EACH ROW
+    BEGIN
+    INSERT INTO [__CORE_SYNC_CT] (TBL, OP, PK) VALUES ('{table.Name}', '{op[0]}', printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => (op == "DELETE" ? "OLD" : "NEW") + ".[" + _.Name + "]"))}));
+    END");
+
+            cmd.CommandText = commandTextBase("UPDATE");
+            await cmd.ExecuteNonQueryAsync();
+
+            cmd.CommandText = commandTextBase("DELETE");
+            await cmd.ExecuteNonQueryAsync();
+
+            //4. Insert/Update/Delete query templates
+            table.InsertQuery = $@"INSERT OR IGNORE INTO [{table.Name}] ({string.Join(", ", table.Columns.Select(_ => "[" + _.Name + "]"))}) 
+            VALUES ({string.Join(", ", table.Columns.Select(_ => "@" + _.Name.Replace(' ', '_')))});";
+
+            table.UpdateQuery = $@"UPDATE [{table.Name}]
+            SET {string.Join(", ", tableColumns.Select(_ => "[" + _.Name + "] = @" + _.Name.Replace(' ', '_')))}
+            WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))})
+            AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.Name} AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK] AND CT.TBL = '{table.Name}') <= @last_sync_version))";
+
+            table.DeleteQuery = $@"DELETE FROM [{table.Name}]
+            WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))})
+            AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.Name} AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK] AND CT.TBL = '{table.Name}') <= @last_sync_version))";
+        }
+
     }
 }
