@@ -12,12 +12,20 @@ namespace CoreSync.Sqlite
         private bool _initialized = false;
         private Guid _storeId;
 
-        public SqliteSyncProvider(SqliteSyncConfiguration configuration)
+        public SqliteSyncProvider(SqliteSyncConfiguration configuration, ProviderMode providerMode = ProviderMode.Bidirectional)
         {
             Configuration = configuration;
+            ProviderMode = providerMode;
+
+            if (configuration.Tables.Any(_ => _.SyncDirection != SyncDirection.UploadAndDownload) &&
+                providerMode == ProviderMode.Bidirectional)
+            {
+                throw new InvalidOperationException("One or more table with sync direction different from Bidirectional: please must specify the provider mode to Local or Remote");
+            }
         }
 
         public SqliteSyncConfiguration Configuration { get; }
+        public ProviderMode ProviderMode { get; }
 
         public async Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, [CanBeNull] Func<SyncItem, ConflictResolution> onConflictFunc = null)
         {
@@ -493,16 +501,16 @@ namespace CoreSync.Sqlite
                         var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey).ToArray();
                         var tableColumns = table.Columns.Where(_ => !_.IsPrimaryKey).ToArray();
 
-                        if (table.SyncDirection == SyncDirection.DownloadOnly ||
-                            table.SyncDirection == SyncDirection.UploadAndDownload)
+                        if (table.SyncDirection == SyncDirection.UploadAndDownload ||
+                            (table.SyncDirection == SyncDirection.UploadOnly && ProviderMode == ProviderMode.Local) ||
+                            (table.SyncDirection == SyncDirection.DownloadOnly && ProviderMode == ProviderMode.Remote))
                         {
-                            await SetupTableForDownloadChanges(table, cmd, primaryKeyColumns, tableColumns);
+                            await SetupTableForFullChangeDetection(table, cmd, primaryKeyColumns, tableColumns);
                         }
                         else
                         {
-                            await SetupTableForUploadOnly(table, cmd, primaryKeyColumns, tableColumns);
+                            await SetupTableForUpdatesOrDeletesOnly(table, cmd, primaryKeyColumns, tableColumns);
                         }
-
                     }
                 }
             }
@@ -510,7 +518,7 @@ namespace CoreSync.Sqlite
             _initialized = true;
         }
 
-        private async Task SetupTableForDownloadChanges(SqliteSyncTable table, SqliteCommand cmd, SqliteColumn[] primaryKeyColumns, SqliteColumn[] tableColumns)
+        private async Task SetupTableForFullChangeDetection(SqliteSyncTable table, SqliteCommand cmd, SqliteColumn[] primaryKeyColumns, SqliteColumn[] tableColumns)
         {
                 var commandTextBase = new Func<string, string>((op) => $@"CREATE TRIGGER IF NOT EXISTS [__{table.Name}_ct-{op}__]
     AFTER {op} ON [{table.Name}]
@@ -546,7 +554,7 @@ namespace CoreSync.Sqlite
             AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.Name} AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK] AND CT.TBL = '{table.Name}') <= @last_sync_version))";
         }
 
-        private async Task SetupTableForUploadOnly(SqliteSyncTable table, SqliteCommand cmd, SqliteColumn[] primaryKeyColumns, SqliteColumn[] tableColumns)
+        private async Task SetupTableForUpdatesOrDeletesOnly(SqliteSyncTable table, SqliteCommand cmd, SqliteColumn[] primaryKeyColumns, SqliteColumn[] tableColumns)
         {
             var commandTextBase = new Func<string, string>((op) => $@"CREATE TRIGGER IF NOT EXISTS [__{table.Name}_ct-{op}__]
     AFTER {op} ON [{table.Name}]

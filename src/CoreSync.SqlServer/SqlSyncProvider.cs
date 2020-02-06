@@ -13,12 +13,20 @@ namespace CoreSync.SqlServer
         private bool _initialized = false;
         private Guid _storeId;
 
-        public SqlSyncProvider(SqlSyncConfiguration configuration)
+        public SqlSyncProvider(SqlSyncConfiguration configuration, ProviderMode providerMode = ProviderMode.Bidirectional)
         {
             Configuration = configuration;
+            ProviderMode = providerMode;
+
+            if (configuration.Tables.Any(_ => _.SyncDirection != SyncDirection.UploadAndDownload) &&
+                providerMode == ProviderMode.Bidirectional)
+            {
+                throw new InvalidOperationException("One or more table with sync direction different from Bidirectional: please must specify the provider mode to Local or Remote");
+            }
         }
 
         public SqlSyncConfiguration Configuration { get; }
+        public ProviderMode ProviderMode { get; }
 
         public async Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, Func<SyncItem, ConflictResolution> onConflictFunc = null)
         {
@@ -438,14 +446,15 @@ namespace CoreSync.SqlServer
                             throw new NotSupportedException($"Table '{table.Name}' has one column with reserved name '__OP'");
                         }
 
-                        if (table.SyncDirection == SyncDirection.DownloadOnly ||
-                            table.SyncDirection == SyncDirection.UploadAndDownload)
+                        if (table.SyncDirection == SyncDirection.UploadAndDownload ||
+                            (table.SyncDirection == SyncDirection.UploadOnly && ProviderMode == ProviderMode.Local) ||
+                            (table.SyncDirection == SyncDirection.DownloadOnly && ProviderMode == ProviderMode.Remote))
                         {
-                            await SetupTableForDownloadChanges(table, cmd, allColumns, primaryKeyColumns, tableColumns);
+                            await SetupTableForFullChangeDetection(table, cmd, allColumns, primaryKeyColumns, tableColumns);
                         }
                         else
                         {
-                            await SetupTableForUploadOnly(table, cmd, allColumns, primaryKeyColumns, tableColumns);
+                            await SetupTableForUpdatesOrDeletesOnly(table, cmd, allColumns, primaryKeyColumns, tableColumns);
                         }
 
 
@@ -456,7 +465,7 @@ namespace CoreSync.SqlServer
             _initialized = true;
         }
 
-        private async Task SetupTableForDownloadChanges(SqlSyncTable table, SqlCommand cmd, string[] allColumns, string[] primaryKeyColumns, string[] tableColumns)
+        private async Task SetupTableForFullChangeDetection(SqlSyncTable table, SqlCommand cmd, string[] allColumns, string[] primaryKeyColumns, string[] tableColumns)
         {
             var existsTriggerCommand = new Func<string, string>((op) => $@"select COUNT(*) from sys.objects where schema_id=SCHEMA_ID('{table.Schema}') AND type='TR' and name='__{table.Name}_ct-{op}__'");
             var createTriggerCommand = new Func<string, string>((op) => $@"CREATE TRIGGER [__{table.Name}_ct-{op}__]
@@ -539,7 +548,7 @@ END CATCH";
 
         }
 
-        private async Task SetupTableForUploadOnly(SqlSyncTable table, SqlCommand cmd, string[] allColumns, string[] primaryKeyColumns, string[] tableColumns)
+        private async Task SetupTableForUpdatesOrDeletesOnly(SqlSyncTable table, SqlCommand cmd, string[] allColumns, string[] primaryKeyColumns, string[] tableColumns)
         {
             var existsTriggerCommand = new Func<string, string>((op) => $@"select COUNT(*) from sys.objects where schema_id=SCHEMA_ID('{table.Schema}') AND type='TR' and name='__{table.Name}_ct-{op}__'");
             var createTriggerCommand = new Func<string, string>((op) => $@"CREATE TRIGGER [__{table.Name}_ct-{op}__]
