@@ -619,5 +619,74 @@ END CATCH";
 
         }
 
+        public async Task RemoveProvisionAsync()
+        {
+            var connStringBuilder = new SqlConnectionStringBuilder(Configuration.ConnectionString);
+            if (string.IsNullOrWhiteSpace(connStringBuilder.InitialCatalog))
+                throw new InvalidOperationException("Invalid connection string: InitialCatalog property is missing");
+
+            using (var connection = new SqlConnection(Configuration.ConnectionString))
+            {
+                await connection.OpenAsync();
+
+                var tableNames = await connection.GetTableNamesAsync();
+                if (tableNames.Contains("__CORE_SYNC_CT"))
+                {
+                    using (var cmd = connection.CreateCommand())
+                    {
+                        cmd.CommandText = $@"DROP TABLE [dbo].[__CORE_SYNC_CT]";
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                if (tableNames.Contains("__CORE_SYNC_REMOTE_ANCHOR"))
+                {
+                    using (var cmd = connection.CreateCommand())
+                    {
+                        cmd.CommandText = $@"DROP TABLE [dbo].[__CORE_SYNC_REMOTE_ANCHOR]";
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                if (!tableNames.Contains("__CORE_SYNC_LOCAL_ID"))
+                {
+                    using (var cmd = connection.CreateCommand())
+                    {
+                        cmd.CommandText = $@"DROP TABLE [dbo].[__CORE_SYNC_LOCAL_ID]";
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                using (var cmd = connection.CreateCommand())
+                {
+                    foreach (SqlSyncTable table in Configuration.Tables)
+                    {
+                        var existsTriggerCommand = new Func<string, string>((op) => $@"select COUNT(*) from sys.objects where schema_id=SCHEMA_ID('{table.Schema}') AND type='TR' and name='__{table.Name}_ct-{op}__'");
+                        var dropTriggerCommand = new Func<string, string>((op) => $@"DROP TRIGGER [__{table.Name}_ct-{op}__]");
+
+                        cmd.CommandText = existsTriggerCommand("INSERT");
+                        if (((int)await cmd.ExecuteScalarAsync()) == 1)
+                        {
+                            cmd.CommandText = dropTriggerCommand("INSERT");
+                            await cmd.ExecuteNonQueryAsync();
+                        }
+
+                        cmd.CommandText = existsTriggerCommand("UPDATE");
+                        if (((int)await cmd.ExecuteScalarAsync()) == 1)
+                        {
+                            cmd.CommandText = dropTriggerCommand("UPDATE");
+                            await cmd.ExecuteNonQueryAsync();
+                        }
+
+                        cmd.CommandText = existsTriggerCommand("DELETE");
+                        if (((int)await cmd.ExecuteScalarAsync()) == 1)
+                        {
+                            cmd.CommandText = dropTriggerCommand("DELETE");
+                            await cmd.ExecuteNonQueryAsync();
+                        }
+                    }
+                }
+            }
+        }
     }
 }

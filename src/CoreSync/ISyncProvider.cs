@@ -18,5 +18,7 @@ namespace CoreSync
         Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncDirection syncDirection = SyncDirection.UploadAndDownload);
 
         Task SaveVersionForStoreAsync(Guid otherStoreId, long version);
+
+        Task RemoveProvisionAsync();
     }
 }

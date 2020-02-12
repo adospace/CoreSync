@@ -583,5 +583,68 @@ namespace CoreSync.Sqlite
             AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.Name} AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK] AND CT.TBL = '{table.Name}') <= @last_sync_version))";
         }
 
+        public async Task RemoveProvisionAsync()
+        {
+            using (var connection = new SqliteConnection(Configuration.ConnectionString))
+            {
+                await connection.OpenAsync();
+
+                //1. discover tables
+                using (var cmd = connection.CreateCommand())
+                {
+                    foreach (SqliteSyncTable table in Configuration.Tables)
+                    {
+                        cmd.CommandText = $"PRAGMA table_info('{table.Name}')";
+                        using (var reader = await cmd.ExecuteReaderAsync())
+                        {
+                            /*
+                            cid         name        type        notnull     dflt_value  pk
+                            ----------  ----------  ----------  ----------  ----------  ----------
+                            */
+                            while (await reader.ReadAsync())
+                            {
+                                var colName = reader.GetString(1);
+                                var colType = reader.GetString(2);
+                                var pk = reader.GetBoolean(5);
+
+                                if (string.CompareOrdinal(colName, "__OP") == 0)
+                                {
+                                    throw new NotSupportedException($"Unable to synchronize table '{table.Name}': one column has a reserved name '__OP'");
+                                }
+
+                                table.Columns.Add(new SqliteColumn(colName, colType, pk));
+                            }
+                        }
+                    }
+
+                    //2. drop ct table
+                    cmd.CommandText = $"DROP TABLE IF EXISTS __CORE_SYNC_CT";
+                    await cmd.ExecuteNonQueryAsync();
+
+                    //3. drop remote anchor table
+                    cmd.CommandText = $"DROP TABLE IF EXISTS __CORE_SYNC_REMOTE_ANCHOR";
+                    await cmd.ExecuteNonQueryAsync();
+
+                    //4. drop local anchor table
+                    cmd.CommandText = $"DROP TABLE IF EXISTS __CORE_SYNC_LOCAL_ID";
+                    await cmd.ExecuteNonQueryAsync();
+
+                    //5. drop triggers
+                    foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_ => _.Columns.Any()))
+                    {
+                        var commandTextBase = new Func<string, string>((op) => $@"DROP TRIGGER IF EXISTS [__{table.Name}_ct-{op}__]");
+                        cmd.CommandText = commandTextBase("INSERT");
+                        await cmd.ExecuteNonQueryAsync();
+
+                        cmd.CommandText = commandTextBase("UPDATE");
+                        await cmd.ExecuteNonQueryAsync();
+
+                        cmd.CommandText = commandTextBase("DELETE");
+                        await cmd.ExecuteNonQueryAsync();
+
+                    }
+                }
+            }
+        }
     }
 }
