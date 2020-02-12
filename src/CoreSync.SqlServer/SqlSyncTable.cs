@@ -20,6 +20,8 @@ namespace CoreSync.SqlServer
 
         public string NameWithSchema => $"{(Schema == null ? string.Empty : "[" + Schema + "].")}[{Name}]";
 
+        internal string[] PrimaryColumnNames { get; set; }
+
         /// <summary>
         /// Table columns (discovered)
         /// </summary>

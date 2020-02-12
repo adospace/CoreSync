@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace CoreSync.Sqlite
 {
@@ -17,6 +18,8 @@ namespace CoreSync.Sqlite
         /// when are read from Sqlite database
         /// </summary>
         public Type RecordType { get; }
+
+        public IEnumerable<string> PrimaryColumnNames => Columns.Where(_ => _.IsPrimaryKey).Select(_ => _.Name);
 
         /// <summary>
         /// Table columns (discovered)

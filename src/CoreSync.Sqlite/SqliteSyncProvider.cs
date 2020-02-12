@@ -78,6 +78,7 @@ namespace CoreSync.Sqlite
 
                             cmd.Parameters.Add(new SqliteParameter("@last_sync_version", changeSet.TargetAnchor.Version));
                             cmd.Parameters.Add(new SqliteParameter("@sync_force_write", syncForceWrite));
+                            cmd.Parameters.Add(new SqliteParameter("@compoundPrimaryKey", string.Join("-", table.PrimaryColumnNames.Select(_ => item.Values[_].Value.ToString()))));
 
                             foreach (var valueItem in item.Values)
                                 cmd.Parameters.Add(new SqliteParameter("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value.Value ?? DBNull.Value));
@@ -461,11 +462,11 @@ namespace CoreSync.Sqlite
                         table.UpdateQuery = $@"UPDATE [{table.Name}]
             SET {string.Join(", ", tableColumns.Select(_ => "[" + _.Name + "] = @" + _.Name.Replace(' ', '_')))}
             WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))})
-            AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.Name} AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK] AND CT.TBL = '{table.Name}') <= @last_sync_version))";
+            AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK = @compoundPrimaryKey AND TBL = '{table.Name}') <= @last_sync_version)";
 
                         table.DeleteQuery = $@"DELETE FROM [{table.Name}]
             WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))})
-            AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.Name} AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK] AND CT.TBL = '{table.Name}') <= @last_sync_version))";
+            AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK = @compoundPrimaryKey AND TBL = '{table.Name}') <= @last_sync_version)";
 
                     }
                 }
@@ -515,7 +516,7 @@ namespace CoreSync.Sqlite
     AFTER {op} ON [{table.Name}]
     FOR EACH ROW
     BEGIN
-    INSERT INTO [__CORE_SYNC_CT] (TBL, OP, PK) VALUES ('{table.Name}', '{op[0]}', printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => (op == "DELETE" ? "OLD" : "NEW") + ".[" + _.Name + "]"))}));
+    INSERT INTO [__CORE_SYNC_CT] (TBL, OP, PK) VALUES ('{table.Name}', '{op[0]}', printf('{string.Join("-", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => (op == "DELETE" ? "OLD" : "NEW") + ".[" + _.Name + "]"))}));
     END");
             cmd.CommandText = commandTextBase("INSERT");
             await cmd.ExecuteNonQueryAsync();
@@ -538,7 +539,7 @@ namespace CoreSync.Sqlite
     AFTER {op} ON [{table.Name}]
     FOR EACH ROW
     BEGIN
-    INSERT INTO [__CORE_SYNC_CT] (TBL, OP, PK) VALUES ('{table.Name}', '{op[0]}', printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => (op == "DELETE" ? "OLD" : "NEW") + ".[" + _.Name + "]"))}));
+    INSERT INTO [__CORE_SYNC_CT] (TBL, OP, PK) VALUES ('{table.Name}', '{op[0]}', printf('{string.Join("-", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => (op == "DELETE" ? "OLD" : "NEW") + ".[" + _.Name + "]"))}));
     END");
 
             cmd.CommandText = commandTextBase("UPDATE");

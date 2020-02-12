@@ -91,6 +91,7 @@ namespace CoreSync.SqlServer
 
                             cmd.Parameters.Add(new SqlParameter("@last_sync_version", changeSet.TargetAnchor.Version));
                             cmd.Parameters.Add(new SqlParameter("@sync_force_write", syncForceWrite));
+                            cmd.Parameters.Add(new SqlParameter("@compoundPrimaryKey", string.Join("-", table.PrimaryColumnNames.Select(_ => item.Values[_].Value.ToString()))));
 
                             foreach (var valueItem in item.Values)
                             {
@@ -456,14 +457,16 @@ namespace CoreSync.SqlServer
 
                         var primaryKeyColumns = await connection.GetIndexColumnNamesAsync(table, primaryKeyIndexName);
                         table.Columns = (await connection.GetTableColumnsAsync(table)).ToDictionary(_ => _.Item1, _ => new SqlColumn(_.Item1, _.Item2));
+                        table.PrimaryColumnNames = primaryKeyColumns;
+
                         var allColumns = table.Columns.Keys;
 
                         var tableColumns = allColumns.Where(_ => !primaryKeyColumns.Any(kc => kc == _)).ToArray();
 
-                        if (primaryKeyColumns.Length != 1)
-                        {
-                            throw new NotSupportedException($"Table '{table.Name}' has more than one column as primary key");
-                        }
+                        //if (primaryKeyColumns.Length != 1)
+                        //{
+                        //    throw new NotSupportedException($"Table '{table.Name}' has more than one column as primary key");
+                        //}
 
                         if (allColumns.Any(_ => string.CompareOrdinal(_, "__OP") == 0))
                         {
@@ -492,8 +495,8 @@ END CATCH
                         //SET CONTEXT_INFO @sync_client_id_binary; 
                         table.DeleteQuery = $@"BEGIN TRY 
 DELETE FROM {table.Name}
-WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_}] = @{_.Replace(' ', '_')}"))})
-AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.NameWithSchema} AS T INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK] AND CT.TBL = '{table.NameWithSchema}') <= @last_sync_version)
+WHERE ({string.Join(" AND ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_}] = @{_.Replace(' ', '_')}"))})
+AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK = @compoundPrimaryKey AND TBL = '{table.NameWithSchema}') <= @last_sync_version)
 END TRY  
 BEGIN CATCH  
 END CATCH";
@@ -502,8 +505,8 @@ END CATCH";
                         table.UpdateQuery = $@"BEGIN TRY 
 UPDATE {table.NameWithSchema}
 SET {string.Join(", ", tableColumns.Select(_ => "[" + _ + "] = @" + _.Replace(' ', '_')))}
-WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"{table.NameWithSchema}.[{_}] = @{_.Replace(' ', '_')}"))})
-AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.NameWithSchema} AS T INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK] AND CT.TBL = '{table.NameWithSchema}') <= @last_sync_version)
+WHERE ({string.Join(" AND ", primaryKeyColumns.Select(_ => $"[{_}] = @{_.Replace(' ', '_')}"))})
+AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK = @compoundPrimaryKey AND TBL = '{table.NameWithSchema}') <= @last_sync_version)
 END TRY  
 BEGIN CATCH  
 END CATCH";
@@ -542,10 +545,10 @@ END CATCH";
                         var allColumns = (await connection.GetTableColumnsAsync(table)).Select(_=>_.Item1).ToArray();
                         var tableColumns = allColumns.Where(_ => !primaryKeyColumns.Any(kc => kc == _)).ToArray();
 
-                        if (primaryKeyColumns.Length != 1)
-                        {
-                            throw new NotSupportedException($"Table '{table.Name}' has more than one column as primary key");
-                        }
+                        //if (primaryKeyColumns.Length != 1)
+                        //{
+                        //    throw new NotSupportedException($"Table '{table.Name}' has more than one column as primary key");
+                        //}
 
                         if (allColumns.Any(_ => string.CompareOrdinal(_, "__OP") == 0))
                         {
@@ -580,7 +583,7 @@ BEGIN
 	SET NOCOUNT ON;
 
 	INSERT INTO [__CORE_SYNC_CT](TBL, OP, PK, SRC) 
-	SELECT '{table.NameWithSchema}', '{op[0]}' , {(op == "DELETE" ? "DELETED" : "INSERTED")}.{primaryKeyColumns[0]}, CONTEXT_INFO()  
+	SELECT '{table.NameWithSchema}', '{op[0]}' , FORMATMESSAGE('{string.Join("-", Enumerable.Range(1, primaryKeyColumns.Length).Select(_=>"%s"))}', {string.Join(", ", primaryKeyColumns.Select(_=>($"CONVERT(varchar(256), {(op == "DELETE" ? "DELETED" : "INSERTED")}{$".[{_}]"})")))}), CONTEXT_INFO()  
 	FROM {(op == "DELETE" ? "DELETED" : "INSERTED")}
 END");
 
@@ -624,7 +627,7 @@ BEGIN
 	SET NOCOUNT ON;
 
 	INSERT INTO [__CORE_SYNC_CT](TBL, OP, PK, SRC) 
-	SELECT '{table.NameWithSchema}', '{op[0]}' , {(op == "DELETE" ? "DELETED" : "INSERTED")}.{primaryKeyColumns[0]}, CONTEXT_INFO()  
+	SELECT '{table.NameWithSchema}', '{op[0]}' , FORMATMESSAGE('{string.Join("-", Enumerable.Range(1, primaryKeyColumns.Length).Select(_ => "%s"))}', {string.Join(", ", primaryKeyColumns.Select(_ => ($"CONVERT(varchar(256), {(op == "DELETE" ? "DELETED" : "INSERTED")}{$".[{_}]"})")))}), CONTEXT_INFO()  
 	FROM {(op == "DELETE" ? "DELETED" : "INSERTED")}
 END");
 

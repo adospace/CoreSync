@@ -867,6 +867,12 @@ namespace CoreSync.Tests
 
             await remoteDb.SaveChangesAsync();
 
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            remoteUser.Posts.Add(new Post() { Content = "This is a third post created before sync of the client but after applying provision to remote db", Title = "Initial post 3 of user 1", Claps = 3, Stars = 1 });
+
+            await remoteDb.SaveChangesAsync();
+
             var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
             await syncAgent.InitializeAsync();
 
@@ -876,7 +882,7 @@ namespace CoreSync.Tests
             localUser.Name.ShouldBe("User created before sync");
 
             var localUserPosts = localUser.Posts.OrderBy(_ => _.Claps).ToList();
-            localUserPosts.Count().ShouldBe(2);
+            localUserPosts.Count().ShouldBe(3);
             localUserPosts[0].Content.ShouldBe("This is a post created before sync of the client");
             localUserPosts[0].Title.ShouldBe("Initial post of user 1");
             localUserPosts[0].Claps.ShouldBe(1);
@@ -887,9 +893,14 @@ namespace CoreSync.Tests
             localUserPosts[1].Claps.ShouldBe(2);
             localUserPosts[1].Stars.ShouldBe(1);
 
+            localUserPosts[2].Content.ShouldBe("This is a third post created before sync of the client but after applying provision to remote db");
+            localUserPosts[2].Title.ShouldBe("Initial post 3 of user 1");
+            localUserPosts[2].Claps.ShouldBe(3);
+            localUserPosts[2].Stars.ShouldBe(1);
+
             await syncAgent.SynchronizeAsync();
 
-            localUser.Posts.Add(new Post() { Content = "Post created on local db after first sync", Title = "Post created on local db", Claps = 3});
+            localUser.Posts.Add(new Post() { Content = "Post created on local db after first sync", Title = "Post created on local db", Claps = 4});
             localUserPosts[0].Title = "Post edited on local db";
 
             await localDb.SaveChangesAsync();
@@ -899,7 +910,7 @@ namespace CoreSync.Tests
             remoteDb = remoteDb.Refresh();
 
             var remoteUserPosts = remoteDb.Posts.OrderBy(_ => _.Claps).ToList();
-            remoteUserPosts.Count().ShouldBe(3);
+            remoteUserPosts.Count().ShouldBe(4);
             remoteUserPosts[0].Content.ShouldBe("This is a post created before sync of the client");
             //even if edited on localdb post that was synched as initial snapshot can't be modified on server
             remoteUserPosts[0].Title.ShouldBe("Initial post of user 1");
@@ -911,10 +922,15 @@ namespace CoreSync.Tests
             remoteUserPosts[1].Claps.ShouldBe(2);
             remoteUserPosts[1].Stars.ShouldBe(1);
 
-            remoteUserPosts[2].Content.ShouldBe("Post created on local db after first sync");
-            remoteUserPosts[2].Title.ShouldBe("Post created on local db");
+            remoteUserPosts[2].Content.ShouldBe("This is a third post created before sync of the client but after applying provision to remote db");
+            remoteUserPosts[2].Title.ShouldBe("Initial post 3 of user 1");
             remoteUserPosts[2].Claps.ShouldBe(3);
-            remoteUserPosts[2].Stars.ShouldBe(0);
+            remoteUserPosts[2].Stars.ShouldBe(1);
+
+            remoteUserPosts[3].Content.ShouldBe("Post created on local db after first sync");
+            remoteUserPosts[3].Title.ShouldBe("Post created on local db");
+            remoteUserPosts[3].Claps.ShouldBe(4);
+            remoteUserPosts[3].Stars.ShouldBe(0);
         }
 
     }
