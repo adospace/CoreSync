@@ -20,9 +20,9 @@ namespace CoreSync.SqlServer
 
         public string NameWithSchema => $"{(Schema == null ? string.Empty : "[" + Schema + "].")}[{Name}]";
 
-        internal string InitialDataQuery { get; set; }
+        internal string InitialSnapshotQuery { get; set; }
 
-        internal string IncrementalDataQuery { get; set; }
+        internal string IncrementalAddOrUpdatesQuery { get; set; }
 
         internal string IncrementalDeletesQuery { get; set; }
 

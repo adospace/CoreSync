@@ -226,7 +226,7 @@ namespace CoreSync.Sqlite
                                 continue;
 
 
-                            cmd.CommandText = table.SelectIncrementalAddsOrUpdates;
+                            cmd.CommandText = table.IncrementalAddOrUpdatesQuery;
                             cmd.Parameters.Clear();
                             cmd.Parameters.AddWithValue("@version", fromVersion);
                             cmd.Parameters.AddWithValue("@sourceId", otherStoreId.ToString());
@@ -241,7 +241,7 @@ namespace CoreSync.Sqlite
                                 }
                             }
 
-                            cmd.CommandText = table.SelectIncrementalDeletes;
+                            cmd.CommandText = table.IncrementalDeletesQuery;
                             using (var r = await cmd.ExecuteReaderAsync())
                             {
                                 while (await r.ReadAsync())
@@ -536,10 +536,10 @@ namespace CoreSync.Sqlite
                 await cmd.ExecuteNonQueryAsync();
 
                 //4. Insert/Update/Delete query templates
-                table.SelectIncrementalAddsOrUpdates = $@"SELECT DISTINCT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Name + "]"))}, CT.OP AS __OP 
+                table.IncrementalAddOrUpdatesQuery = $@"SELECT DISTINCT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Name + "]"))}, CT.OP AS __OP 
             FROM [{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.PK WHERE CT.ID > @version AND CT.TBL = '{table.Name}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
 
-                table.SelectIncrementalDeletes = $@"SELECT PK AS [{primaryKeyColumns[0].Name}] FROM [__CORE_SYNC_CT] WHERE TBL = '{table.Name}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
+                table.IncrementalDeletesQuery = $@"SELECT PK AS [{primaryKeyColumns[0].Name}] FROM [__CORE_SYNC_CT] WHERE TBL = '{table.Name}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
 
                 table.InsertQuery = $@"INSERT OR IGNORE INTO [{table.Name}] ({string.Join(", ", table.Columns.Select(_ => "[" + _.Name + "]"))}) 
             VALUES ({string.Join(", ", table.Columns.Select(_ => "@" + _.Name.Replace(' ', '_')))});";

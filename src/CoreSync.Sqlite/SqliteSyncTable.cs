@@ -17,14 +17,18 @@ namespace CoreSync.Sqlite
         /// when are read from Sqlite database
         /// </summary>
         public Type RecordType { get; }
-        public string SelectIncrementalAddsOrUpdates { get; internal set; }
-        public string SelectIncrementalDeletes { get; internal set; }
 
         /// <summary>
         /// Table columns (discovered)
         /// </summary>
         internal List<SqliteColumn> Columns { get; set; } = new List<SqliteColumn>();
 
+        internal string InitialSnapshotQuery { get; set; }
+        
+        internal string IncrementalAddOrUpdatesQuery { get; set; }
+        
+        internal string IncrementalDeletesQuery { get; set; }
+        
         internal string InsertQuery { get; set; }
 
         internal string UpdateQuery { get; set; }

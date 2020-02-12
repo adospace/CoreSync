@@ -230,7 +230,7 @@ namespace CoreSync.SqlServer
                                 table.SyncDirection != syncDirection)
                                 continue;
 
-                            cmd.CommandText = table.IncrementalDataQuery;
+                            cmd.CommandText = table.IncrementalAddOrUpdatesQuery;
                             cmd.Parameters.Clear();
                             cmd.Parameters.AddWithValue("@version", fromVersion);
                             cmd.Parameters.AddWithValue("@sourceId", otherStoreId);
@@ -503,7 +503,7 @@ END");
                 await cmd.ExecuteNonQueryAsync();
             }
 
-            table.IncrementalDataQuery = $@"SELECT DISTINCT { string.Join(",", allColumns.Select(_ => "T.[" + _ + "]"))}, CT.OP AS __OP FROM {table.NameWithSchema} AS T 
+            table.IncrementalAddOrUpdatesQuery = $@"SELECT DISTINCT { string.Join(",", allColumns.Select(_ => "T.[" + _ + "]"))}, CT.OP AS __OP FROM {table.NameWithSchema} AS T 
 INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK] WHERE CT.ID > @version AND CT.TBL = '{table.NameWithSchema}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
 
             table.IncrementalDeletesQuery = $@"SELECT PK AS [{primaryKeyColumns[0]}] FROM __CORE_SYNC_CT WHERE ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
