@@ -20,6 +20,11 @@ namespace CoreSync.SqlServer
 
         public string NameWithSchema => $"{(Schema == null ? string.Empty : "[" + Schema + "].")}[{Name}]";
 
+        /// <summary>
+        /// Table columns (discovered)
+        /// </summary>
+        internal Dictionary<string, SqlColumn> Columns { get; set; } = new Dictionary<string, SqlColumn>();
+
         internal string InitialSnapshotQuery { get; set; }
 
         internal string IncrementalAddOrUpdatesQuery { get; set; }

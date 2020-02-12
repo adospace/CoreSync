@@ -26,9 +26,18 @@ namespace CoreSync
         public ChangeType ChangeType { get; set; }
         public Dictionary<string, SyncItemValue> Values { get; set; }
 
-        public override string ToString()
+        public override string ToString() => $"{ChangeType} on {TableName}: {{{GetValuesAsJson()}}}";
+
+        private string GetValuesAsJson() => string.Join(", ", Values.OrderBy(_ => _.Key).Select(_ => $"\"{_.Key}\": {GetValueAsJson(_.Value)}"));
+
+        private static string GetValueAsJson(SyncItemValue syncItemValue)
         {
-            return $"{ChangeType} on {TableName}";
+            if (syncItemValue.Type == SyncItemValueType.Null)
+                return "null";
+            if (syncItemValue.Type == SyncItemValueType.String)
+                return $"\"{syncItemValue.Value}\"";
+            
+            return syncItemValue.Value.ToString();
         }
     }
 }

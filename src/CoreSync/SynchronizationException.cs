@@ -1,12 +1,25 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Runtime.Serialization;
 using System.Text;
 
 namespace CoreSync
 {
     public class SynchronizationException : Exception
     {
-        internal SynchronizationException(string message, Exception innerException) : base(message, innerException)
+        public SynchronizationException()
+        {
+        }
+
+        public SynchronizationException(string message) : base(message)
+        {
+        }
+
+        internal SynchronizationException(string message, Exception innerException) : base($"{message}({innerException.Message})", innerException)
+        {
+        }
+
+        protected SynchronizationException(SerializationInfo info, StreamingContext context) : base(info, context)
         {
         }
     }

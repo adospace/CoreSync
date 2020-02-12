@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Data.SqlClient;
 using System.Text;
 using System.Threading.Tasks;
@@ -154,17 +155,20 @@ WHERE
             }
         }
 
-        public static async Task<string[]> GetTableColumnNamesAsync(this SqlConnection connection, SqlSyncTable syncTable)
+        public static async Task<(string, SqlDbType)[]> GetTableColumnsAsync(this SqlConnection connection, SqlSyncTable syncTable)
         {
-            var cmdText = $@"SELECT name FROM sys.columns WHERE object_id = OBJECT_ID('{syncTable.NameWithSchema}')";
+            var cmdText = $@"SELECT COLUMN_NAME, DATA_TYPE 
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE 
+     TABLE_NAME = '{syncTable.Name}' AND TABLE_SCHEMA = '{syncTable.Schema}'";
             using (var cmd = new SqlCommand(cmdText, connection))
             {
                 using (var reader = await cmd.ExecuteReaderAsync())
                 {
-                    var listOfColumnNames = new List<string>();
+                    var listOfColumnNames = new List<(string, SqlDbType)>();
                     while (await reader.ReadAsync())
                     {
-                        listOfColumnNames.Add(reader.GetString(0));
+                        listOfColumnNames.Add((reader.GetString(0), (SqlDbType)Enum.Parse(typeof(SqlDbType), reader.GetString(1), true)));
                     }
 
                     return listOfColumnNames.ToArray();

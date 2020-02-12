@@ -37,6 +37,7 @@ namespace CoreSync.Tests
                     .Table("Comments");
 
                 var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Configuration);
+                await remoteSyncProvider.ApplyProvisionAsync();
 
                 var localConfigurationBuilder =
                     new SqlSyncConfigurationBuilder(localDb.ConnectionString)
@@ -45,6 +46,7 @@ namespace CoreSync.Tests
                     .Table("Comments");
 
                 var localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Configuration);
+                await localSyncProvider.ApplyProvisionAsync();
 
 
                 await Test1(localDb,
@@ -73,6 +75,7 @@ namespace CoreSync.Tests
                     .Table("Comments");
 
                 var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Configuration);
+                await remoteSyncProvider.ApplyProvisionAsync();
 
                 var localConfigurationBuilder =
                     new SqlSyncConfigurationBuilder(localDb.ConnectionString)
@@ -81,6 +84,7 @@ namespace CoreSync.Tests
                     .Table("Comments");
 
                 var localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Configuration);
+                await localSyncProvider.ApplyProvisionAsync();
 
                 await Test2(localDb,
                     localSyncProvider,
@@ -114,6 +118,7 @@ namespace CoreSync.Tests
                         .Table<Comment>("Comments");
 
                 var remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Configuration);
+                await remoteSyncProvider.ApplyProvisionAsync();
 
                 var localConfigurationBuilder =
                     new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
@@ -122,6 +127,7 @@ namespace CoreSync.Tests
                         .Table<Comment>("Comments");
 
                 var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Configuration);
+                await localSyncProvider.ApplyProvisionAsync();
 
 
                 await Test1(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
@@ -151,6 +157,7 @@ namespace CoreSync.Tests
                         .Table<Comment>("Comments");
 
                 var remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Configuration);
+                await remoteSyncProvider.ApplyProvisionAsync();
 
                 var localConfigurationBuilder =
                     new SqlSyncConfigurationBuilder(localDb.ConnectionString)
@@ -160,6 +167,7 @@ namespace CoreSync.Tests
 
 
                 var localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Configuration);
+                await localSyncProvider.ApplyProvisionAsync();
 
 
                 await Test1(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
@@ -191,6 +199,7 @@ namespace CoreSync.Tests
                         .Table<Comment>("Comments");
 
                 var remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Configuration);
+                await remoteSyncProvider.ApplyProvisionAsync();
 
                 var localConfigurationBuilder =
                     new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
@@ -199,6 +208,7 @@ namespace CoreSync.Tests
                         .Table<Comment>("Comments");
 
                 var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Configuration);
+                await localSyncProvider.ApplyProvisionAsync();
 
                 await Test2(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
             }
@@ -227,6 +237,7 @@ namespace CoreSync.Tests
                         .Table("Comments");
 
                 var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Configuration);
+                await remoteSyncProvider.ApplyProvisionAsync();
 
                 var localConfigurationBuilder =
                     new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
@@ -235,6 +246,7 @@ namespace CoreSync.Tests
                         .Table<Comment>("Comments");
 
                 var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Configuration);
+                await localSyncProvider.ApplyProvisionAsync();
 
 
                 await Test1(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
@@ -264,6 +276,7 @@ namespace CoreSync.Tests
                         .Table("Comments");
 
                 var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Configuration);
+                await remoteSyncProvider.ApplyProvisionAsync();
 
                 var localConfigurationBuilder =
                     new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
@@ -272,6 +285,7 @@ namespace CoreSync.Tests
                         .Table<Comment>("Comments");
 
                 var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Configuration);
+                await localSyncProvider.ApplyProvisionAsync();
 
 
                 //await Test2(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
@@ -349,6 +363,43 @@ namespace CoreSync.Tests
 
 
                 await TestSyncAgentMultipleRecordsOnSameTable(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+            }
+        }
+
+        [TestMethod]
+        public async Task TestSyncAgent_Sqlite_SqlServer_WithInitialData()
+        {
+            var localDbFile = $"{Path.GetTempPath()}TestSyncAgent_Sqlite_SqlServer_WithInitialData.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using (var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}"))
+            using (var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=TestSyncAgent_Sqlite_SqlServer_WithInitialData"))
+            {
+                await localDb.Database.EnsureDeletedAsync();
+                await remoteDb.Database.EnsureDeletedAsync();
+
+                await localDb.Database.MigrateAsync();
+                await remoteDb.Database.MigrateAsync();
+
+                var remoteConfigurationBuilder =
+                    new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                        .Table("Users")
+                        .Table("Posts")
+                        .Table("Comments");
+
+                var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Configuration, ProviderMode.Remote);
+
+                var localConfigurationBuilder =
+                    new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                        .Table<User>("Users")
+                        .Table<Post>("Posts")
+                        .Table<Comment>("Comments");
+
+                var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Configuration, ProviderMode.Local);
+
+
+                await TestSyncAgentWithInitialData(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
             }
         }
 
@@ -577,6 +628,7 @@ namespace CoreSync.Tests
             ISyncProvider remoteSyncProvider)
         {
             var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
+            await syncAgent.InitializeAsync();
             await syncAgent.SynchronizeAsync();
 
             //create a user on server
@@ -653,6 +705,7 @@ namespace CoreSync.Tests
             ISyncProvider remoteSyncProvider)
         {
             var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
+            await syncAgent.InitializeAsync();
             await syncAgent.SynchronizeAsync();
 
             //create a user on server
@@ -798,6 +851,70 @@ namespace CoreSync.Tests
             remoteUser2 = await remoteDb.Users.Include(_ => _.Posts).FirstAsync(_ => _.Email == "user2@email.com");
             remoteUser2.Posts.Count.ShouldBe(1);
             remoteUser2.Posts[0].Content.ShouldBe("Post add to remote user while user is delete on local db");
+        }
+
+        private async Task TestSyncAgentWithInitialData(
+            BlogDbContext localDb,
+            ISyncProvider localSyncProvider,
+            BlogDbContext remoteDb,
+            ISyncProvider remoteSyncProvider)
+        {
+            User remoteUser;
+            remoteDb.Users.Add(remoteUser = new User() { Email = "user@test.com", Name = "User created before sync", Created = DateTime.Now });
+
+            remoteUser.Posts.Add(new Post() { Content = "This is a post created before sync of the client", Title = "Initial post of user 1", Claps = 1, Stars = 10 });
+            remoteUser.Posts.Add(new Post() { Content = "This is a second post created before sync of the client", Title = "Initial post 2 of user 1", Claps = 2, Stars = 1 });
+
+            await remoteDb.SaveChangesAsync();
+
+            var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
+            await syncAgent.InitializeAsync();
+
+            var localUser = await localDb.Users.Include(_=>_.Posts).FirstOrDefaultAsync(_ => _.Email == "user@test.com");
+            localUser.ShouldNotBeNull();
+            localUser.Email.ShouldBe("user@test.com");
+            localUser.Name.ShouldBe("User created before sync");
+
+            var localUserPosts = localUser.Posts.OrderBy(_ => _.Claps).ToList();
+            localUserPosts.Count().ShouldBe(2);
+            localUserPosts[0].Content.ShouldBe("This is a post created before sync of the client");
+            localUserPosts[0].Title.ShouldBe("Initial post of user 1");
+            localUserPosts[0].Claps.ShouldBe(1);
+            localUserPosts[0].Stars.ShouldBe(10);
+
+            localUserPosts[1].Content.ShouldBe("This is a second post created before sync of the client");
+            localUserPosts[1].Title.ShouldBe("Initial post 2 of user 1");
+            localUserPosts[1].Claps.ShouldBe(2);
+            localUserPosts[1].Stars.ShouldBe(1);
+
+            await syncAgent.SynchronizeAsync();
+
+            localUser.Posts.Add(new Post() { Content = "Post created on local db after first sync", Title = "Post created on local db", Claps = 3});
+            localUserPosts[0].Title = "Post edited on local db";
+
+            await localDb.SaveChangesAsync();
+
+            await syncAgent.SynchronizeAsync();
+
+            remoteDb = remoteDb.Refresh();
+
+            var remoteUserPosts = remoteDb.Posts.OrderBy(_ => _.Claps).ToList();
+            remoteUserPosts.Count().ShouldBe(3);
+            remoteUserPosts[0].Content.ShouldBe("This is a post created before sync of the client");
+            //even if edited on localdb post that was synched as initial snapshot can't be modified on server
+            remoteUserPosts[0].Title.ShouldBe("Initial post of user 1");
+            remoteUserPosts[0].Claps.ShouldBe(1);
+            remoteUserPosts[0].Stars.ShouldBe(10);
+
+            remoteUserPosts[1].Content.ShouldBe("This is a second post created before sync of the client");
+            remoteUserPosts[1].Title.ShouldBe("Initial post 2 of user 1");
+            remoteUserPosts[1].Claps.ShouldBe(2);
+            remoteUserPosts[1].Stars.ShouldBe(1);
+
+            remoteUserPosts[2].Content.ShouldBe("Post created on local db after first sync");
+            remoteUserPosts[2].Title.ShouldBe("Post created on local db");
+            remoteUserPosts[2].Claps.ShouldBe(3);
+            remoteUserPosts[2].Stars.ShouldBe(0);
         }
 
     }

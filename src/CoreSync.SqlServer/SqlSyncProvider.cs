@@ -32,7 +32,7 @@ namespace CoreSync.SqlServer
         {
             Validate.NotNull(changeSet, nameof(changeSet));
 
-            await InitializeAsync();
+            //await InitializeAsync();
 
             using (var c = new SqlConnection(Configuration.ConnectionString))
             {
@@ -40,7 +40,7 @@ namespace CoreSync.SqlServer
 
                 using (var cmd = new SqlCommand())
                 {
-                    using (var tr = c.BeginTransaction())// IsolationLevel.Snapshot))
+                    using (var tr = c.BeginTransaction())
                     {
                         cmd.Connection = c;
                         cmd.Transaction = tr;
@@ -89,16 +89,28 @@ namespace CoreSync.SqlServer
                                     break;
                             }
 
-                            //cmd.Parameters.Add(new SqlParameter("@sync_client_id_binary", changeSet.SourceAnchor.StoreId.ToByteArray()));
                             cmd.Parameters.Add(new SqlParameter("@last_sync_version", changeSet.TargetAnchor.Version));
                             cmd.Parameters.Add(new SqlParameter("@sync_force_write", syncForceWrite));
 
                             foreach (var valueItem in item.Values)
                             {
-                                cmd.Parameters.Add(new SqlParameter("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value.Value ?? DBNull.Value));
+                                cmd.Parameters.Add(new SqlParameter("@" + valueItem.Key.Replace(" ", "_"), table.Columns[valueItem.Key].DbType)
+                                {
+                                    Value = ConvertToSqlType(valueItem.Value, table.Columns[valueItem.Key].DbType)
+                                });
+                                //cmd.Parameters.AddWithValue("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value.Value ?? DBNull.Value);
                             }
 
-                            var affectedRows = cmd.ExecuteNonQuery();
+                            int affectedRows;
+
+                            try
+                            {
+                                affectedRows = cmd.ExecuteNonQuery();
+                            }
+                            catch (Exception ex)
+                            {
+                                throw new InvalidOperationException($"Unable to process sync item {item}", ex);
+                            }                            
 
                             if (affectedRows == 0)
                             {
@@ -138,13 +150,8 @@ namespace CoreSync.SqlServer
                                     }
                                 }
                             }
-                            //else
-                            //    atLeastOneChangeApplied = true;
                         }
 
-                        //cmd.CommandText = "SELECT CHANGE_TRACKING_CURRENT_VERSION()";
-                        //cmd.Parameters.Clear();
-                        //version = (long)await cmd.ExecuteScalarAsync() + (atLeastOneChangeApplied ? 1 : 0);
                         cmd.CommandText = $"UPDATE [__CORE_SYNC_REMOTE_ANCHOR] SET [REMOTE_VERSION] = @version WHERE [ID] = @id";
                         cmd.Parameters.Clear();
                         cmd.Parameters.AddWithValue("@id", changeSet.SourceAnchor.StoreId.ToString());
@@ -165,9 +172,21 @@ namespace CoreSync.SqlServer
             }
         }
 
+        private static object ConvertToSqlType(SyncItemValue value, SqlDbType dbType)
+        {
+            if (value.Value == null)
+                return DBNull.Value;
+
+            if (dbType == SqlDbType.UniqueIdentifier &&
+                value.Value is string)
+                return Guid.Parse(value.Value.ToString());
+
+            return value.Value;
+        }
+
         public async Task SaveVersionForStoreAsync(Guid otherStoreId, long version)
         {
-            await InitializeAsync();
+            //await InitializeAsync();
 
             using (var c = new SqlConnection(Configuration.ConnectionString))
             {
@@ -200,7 +219,7 @@ namespace CoreSync.SqlServer
         {
             long fromVersion = (await GetLastLocalAnchorForStoreAsync(otherStoreId)).Version;
 
-            await InitializeAsync();
+            //await InitializeAsync();
 
             using (var c = new SqlConnection(Configuration.ConnectionString))
             {
@@ -267,7 +286,7 @@ namespace CoreSync.SqlServer
 
         private async Task<SyncAnchor> GetLastLocalAnchorForStoreAsync(Guid otherStoreId)
         {
-            await InitializeAsync();
+            //await InitializeAsync();
 
             using (var c = new SqlConnection(Configuration.ConnectionString))
             {
@@ -290,7 +309,7 @@ namespace CoreSync.SqlServer
 
         private async Task<SyncAnchor> GetLastRemoteAnchorForStoreAsync(Guid otherStoreId)
         {
-            await InitializeAsync();
+            //await InitializeAsync();
 
             using (var c = new SqlConnection(Configuration.ConnectionString))
             {
@@ -423,7 +442,94 @@ namespace CoreSync.SqlServer
                     }
 
                     _storeId = (Guid)localId;
+                }
 
+                using (var cmd = connection.CreateCommand())
+                {
+                    foreach (SqlSyncTable table in Configuration.Tables)
+                    {
+                        var primaryKeyIndexName = (await connection.GetClusteredPrimaryKeyIndexesAsync(table)).FirstOrDefault();
+                        if (primaryKeyIndexName == null)
+                        {
+                            throw new InvalidOperationException($"Table '{table.NameWithSchema}' doesn't have a primary key");
+                        }
+
+                        var primaryKeyColumns = await connection.GetIndexColumnNamesAsync(table, primaryKeyIndexName);
+                        table.Columns = (await connection.GetTableColumnsAsync(table)).ToDictionary(_ => _.Item1, _ => new SqlColumn(_.Item1, _.Item2));
+                        var allColumns = table.Columns.Keys;
+
+                        var tableColumns = allColumns.Where(_ => !primaryKeyColumns.Any(kc => kc == _)).ToArray();
+
+                        if (primaryKeyColumns.Length != 1)
+                        {
+                            throw new NotSupportedException($"Table '{table.Name}' has more than one column as primary key");
+                        }
+
+                        if (allColumns.Any(_ => string.CompareOrdinal(_, "__OP") == 0))
+                        {
+                            throw new NotSupportedException($"Table '{table.Name}' has one column with reserved name '__OP'");
+                        }
+
+                        cmd.CommandText = $@"SELECT COUNT(*) FROM SYS.IDENTITY_COLUMNS WHERE OBJECT_NAME(OBJECT_ID) = @tablename AND OBJECT_SCHEMA_NAME(object_id) = @schemaname";
+                        cmd.Parameters.Clear();
+                        cmd.Parameters.AddWithValue("@tablename", table.Name);
+                        cmd.Parameters.AddWithValue("@schemaname", table.Schema);
+
+                        var hasTableIdentityColumn = ((int)await cmd.ExecuteScalarAsync() == 1);
+                        
+                        table.InitialSnapshotQuery = $@"SELECT * FROM {table.NameWithSchema}";
+
+                        //SET CONTEXT_INFO @sync_client_id_binary;
+                        table.InsertQuery = $@"{(hasTableIdentityColumn ? $"SET IDENTITY_INSERT {table.NameWithSchema} ON" : string.Empty)}
+BEGIN TRY 
+INSERT INTO {table.NameWithSchema} ({string.Join(", ", allColumns.Select(_ => "[" + _ + "]"))}) 
+VALUES ({string.Join(", ", allColumns.Select(_ => "@" + _.Replace(' ', '_')))});
+END TRY  
+BEGIN CATCH  
+END CATCH
+{(hasTableIdentityColumn ? $"SET IDENTITY_INSERT {table.NameWithSchema} OFF" : string.Empty)}";
+
+                        //SET CONTEXT_INFO @sync_client_id_binary; 
+                        table.DeleteQuery = $@"BEGIN TRY 
+DELETE FROM {table.Name}
+WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_}] = @{_.Replace(' ', '_')}"))})
+AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.NameWithSchema} AS T INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK] AND CT.TBL = '{table.NameWithSchema}') <= @last_sync_version)
+END TRY  
+BEGIN CATCH  
+END CATCH";
+
+                        //SET CONTEXT_INFO @sync_client_id_binary; 
+                        table.UpdateQuery = $@"BEGIN TRY 
+UPDATE {table.NameWithSchema}
+SET {string.Join(", ", tableColumns.Select(_ => "[" + _ + "] = @" + _.Replace(' ', '_')))}
+WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"{table.NameWithSchema}.[{_}] = @{_.Replace(' ', '_')}"))})
+AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.NameWithSchema} AS T INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK] AND CT.TBL = '{table.NameWithSchema}') <= @last_sync_version)
+END TRY  
+BEGIN CATCH  
+END CATCH";
+
+                    }
+                }
+            }
+
+            _initialized = true;
+        }
+
+        public async Task ApplyProvisionAsync()
+        {
+            await InitializeAsync();
+
+            var connStringBuilder = new SqlConnectionStringBuilder(Configuration.ConnectionString);
+            if (string.IsNullOrWhiteSpace(connStringBuilder.InitialCatalog))
+                throw new InvalidOperationException("Invalid connection string: InitialCatalog property is missing");
+
+            using (var connection = new SqlConnection(Configuration.ConnectionString))
+            {
+                await connection.OpenAsync();
+
+                var tableNames = await connection.GetTableNamesAsync();
+                using (var cmd = connection.CreateCommand())
+                {
                     foreach (SqlSyncTable table in Configuration.Tables)
                     {
                         var primaryKeyIndexName = (await connection.GetClusteredPrimaryKeyIndexesAsync(table)).FirstOrDefault(); //dbTable.Indexes.Cast<Index>().FirstOrDefault(_ => _.IsClustered && _.IndexKeyType == IndexKeyType.DriPrimaryKey);
@@ -433,7 +539,7 @@ namespace CoreSync.SqlServer
                         }
 
                         var primaryKeyColumns = await connection.GetIndexColumnNamesAsync(table, primaryKeyIndexName); //primaryKeyIndexName.IndexedColumns.Cast<IndexedColumn>().ToList();
-                        var allColumns = await connection.GetTableColumnNamesAsync(table); //dbTable.Columns.Cast<Column>().ToList();
+                        var allColumns = (await connection.GetTableColumnsAsync(table)).Select(_=>_.Item1).ToArray();
                         var tableColumns = allColumns.Where(_ => !primaryKeyColumns.Any(kc => kc == _)).ToArray();
 
                         if (primaryKeyColumns.Length != 1)
@@ -456,13 +562,9 @@ namespace CoreSync.SqlServer
                         {
                             await SetupTableForUpdatesOrDeletesOnly(table, cmd, allColumns, primaryKeyColumns, tableColumns);
                         }
-
-
                     }
                 }
             }
-
-            _initialized = true;
         }
 
         private async Task SetupTableForFullChangeDetection(SqlSyncTable table, SqlCommand cmd, string[] allColumns, string[] primaryKeyColumns, string[] tableColumns)
@@ -503,51 +605,10 @@ END");
                 await cmd.ExecuteNonQueryAsync();
             }
 
-            table.InitialSnapshotQuery = $@"SELECT * FROM {table.NameWithSchema}";
-
             table.IncrementalAddOrUpdatesQuery = $@"SELECT DISTINCT { string.Join(",", allColumns.Select(_ => "T.[" + _ + "]"))}, CT.OP AS __OP FROM {table.NameWithSchema} AS T 
 INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK] WHERE CT.ID > @version AND CT.TBL = '{table.NameWithSchema}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
 
             table.IncrementalDeletesQuery = $@"SELECT PK AS [{primaryKeyColumns[0]}] FROM __CORE_SYNC_CT WHERE ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
-
-            cmd.CommandText = $@"SELECT COUNT(*) FROM SYS.IDENTITY_COLUMNS WHERE OBJECT_NAME(OBJECT_ID) = @tablename AND OBJECT_SCHEMA_NAME(object_id) = @schemaname";
-            cmd.Parameters.Clear();
-            cmd.Parameters.AddWithValue("@tablename", table.Name);
-            cmd.Parameters.AddWithValue("@schemaname", table.Schema);
-
-            var hasTableIdentityColumn = ((int)await cmd.ExecuteScalarAsync() == 1);
-
-            cmd.Parameters.Clear();
-
-            //SET CONTEXT_INFO @sync_client_id_binary;
-            table.InsertQuery = $@"{(hasTableIdentityColumn ? $"SET IDENTITY_INSERT {table.NameWithSchema} ON" : string.Empty)}
-BEGIN TRY 
-INSERT INTO {table.NameWithSchema} ({string.Join(", ", allColumns.Select(_ => "[" + _ + "]"))}) 
-VALUES ({string.Join(", ", allColumns.Select(_ => "@" + _.Replace(' ', '_')))});
-END TRY  
-BEGIN CATCH  
-END CATCH
-{(hasTableIdentityColumn ? $"SET IDENTITY_INSERT {table.NameWithSchema} OFF" : string.Empty)}";
-
-            //SET CONTEXT_INFO @sync_client_id_binary; 
-            table.DeleteQuery = $@"BEGIN TRY 
-DELETE FROM {table.Name}
-WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_}] = @{_.Replace(' ', '_')}"))})
-AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.NameWithSchema} AS T INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK] AND CT.TBL = '{table.NameWithSchema}') <= @last_sync_version)
-END TRY  
-BEGIN CATCH  
-END CATCH";
-
-            //SET CONTEXT_INFO @sync_client_id_binary; 
-            table.UpdateQuery = $@"BEGIN TRY 
-UPDATE {table.NameWithSchema}
-SET {string.Join(", ", tableColumns.Select(_ => "[" + _ + "] = @" + _.Replace(' ', '_')))}
-WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"{table.NameWithSchema}.[{_}] = @{_.Replace(' ', '_')}"))})
-AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.NameWithSchema} AS T INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK] AND CT.TBL = '{table.NameWithSchema}') <= @last_sync_version)
-END TRY  
-BEGIN CATCH  
-END CATCH";
-
         }
 
         private async Task SetupTableForUpdatesOrDeletesOnly(SqlSyncTable table, SqlCommand cmd, string[] allColumns, string[] primaryKeyColumns, string[] tableColumns)
@@ -580,47 +641,6 @@ END");
                 cmd.CommandText = createTriggerCommand("DELETE");
                 await cmd.ExecuteNonQueryAsync();
             }
-
-            cmd.CommandText = $@"SELECT COUNT(*) FROM SYS.IDENTITY_COLUMNS WHERE OBJECT_NAME(OBJECT_ID) = @tablename AND OBJECT_SCHEMA_NAME(object_id) = @schemaname";
-            cmd.Parameters.Clear();
-            cmd.Parameters.AddWithValue("@tablename", table.Name);
-            cmd.Parameters.AddWithValue("@schemaname", table.Schema);
-
-            var hasTableIdentityColumn = ((int)await cmd.ExecuteScalarAsync() == 1);
-
-            cmd.Parameters.Clear();
-
-            table.InitialSnapshotQuery = $@"SELECT * FROM {table.NameWithSchema}";
-
-            //SET CONTEXT_INFO @sync_client_id_binary;
-            table.InsertQuery = $@"{(hasTableIdentityColumn ? $"SET IDENTITY_INSERT {table.NameWithSchema} ON" : string.Empty)}
-BEGIN TRY 
-INSERT INTO {table.NameWithSchema} ({string.Join(", ", allColumns.Select(_ => "[" + _ + "]"))}) 
-VALUES ({string.Join(", ", allColumns.Select(_ => "@" + _.Replace(' ', '_')))});
-END TRY  
-BEGIN CATCH  
-END CATCH
-{(hasTableIdentityColumn ? $"SET IDENTITY_INSERT {table.NameWithSchema} OFF" : string.Empty)}";
-
-            //SET CONTEXT_INFO @sync_client_id_binary; 
-            table.DeleteQuery = $@"BEGIN TRY 
-DELETE FROM {table.Name}
-WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_}] = @{_.Replace(' ', '_')}"))})
-AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.NameWithSchema} AS T INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK] AND CT.TBL = '{table.NameWithSchema}') <= @last_sync_version)
-END TRY  
-BEGIN CATCH  
-END CATCH";
-
-            //SET CONTEXT_INFO @sync_client_id_binary; 
-            table.UpdateQuery = $@"BEGIN TRY 
-UPDATE {table.NameWithSchema}
-SET {string.Join(", ", tableColumns.Select(_ => "[" + _ + "] = @" + _.Replace(' ', '_')))}
-WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"{table.NameWithSchema}.[{_}] = @{_.Replace(' ', '_')}"))})
-AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.NameWithSchema} AS T INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK] AND CT.TBL = '{table.NameWithSchema}') <= @last_sync_version)
-END TRY  
-BEGIN CATCH  
-END CATCH";
-
         }
 
         public async Task RemoveProvisionAsync()
@@ -693,7 +713,7 @@ END CATCH";
             }
         }
 
-        public async Task<SyncChangeSet> GetInitialSnapshotAsync(Guid otherStoreId)
+        public async Task<SyncChangeSet> GetInitialSnapshotAsync(Guid otherStoreId, SyncDirection syncDirection)
         {
             using (var c = new SqlConnection(Configuration.ConnectionString))
             {
@@ -712,6 +732,9 @@ END CATCH";
 
                         foreach (SqlSyncTable table in Configuration.Tables)
                         {
+                            if (table.SyncDirection != SyncDirection.UploadAndDownload &&
+                                table.SyncDirection != syncDirection)
+                                continue;
 
                             cmd.CommandText = table.InitialSnapshotQuery;
 
