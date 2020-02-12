@@ -391,6 +391,14 @@ namespace CoreSync.SqlServer
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
 ) ON [PRIMARY]";
                         await cmd.ExecuteNonQueryAsync();
+
+                        cmd.CommandText = $@"CREATE NONCLUSTERED INDEX [TBL-index] ON [dbo].[__CORE_SYNC_CT]
+(
+	[TBL] ASC
+)
+INCLUDE([PK]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMPDB = OFF, DROP_EXISTING = OFF, ONLINE = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]";
+
+                        await cmd.ExecuteNonQueryAsync();
                     }
                 }
 
