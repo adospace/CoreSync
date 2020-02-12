@@ -260,45 +260,6 @@ namespace CoreSync.Sqlite
             }
         }
 
-        //public async Task<SyncChangeSet> GetInitialSetAsync(Guid otherStoreId)
-        //{
-        //    await InitializeAsync();
-
-        //    using (var connection = new SqliteConnection(Configuration.ConnectionString))
-        //    {
-        //        await connection.OpenAsync();
-        //        using (var cmd = connection.CreateCommand())
-        //        {
-        //            var items = new List<SqliteSyncItem>();
-
-        //            using (var tr = connection.BeginTransaction())
-        //            {
-        //                cmd.Transaction = tr;
-
-        //                cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
-        //                var version = await cmd.ExecuteLongScalarAsync();
-
-        //                foreach (SqliteSyncTable table in Configuration.Tables)
-        //                {
-        //                    cmd.CommandText = $@"SELECT {string.Join(", ", table.Columns.Select(_ => "[" + _.Name + "]"))} FROM [{table.Name}]";
-
-        //                    using (var r = await cmd.ExecuteReaderAsync())
-        //                    {
-        //                        while (await r.ReadAsync())
-        //                        {
-        //                            var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
-        //                            items.Add(new SqliteSyncItem(table, DetectChangeType(values), values));
-        //                        }
-        //                    }
-        //                }
-        //                tr.Commit();
-
-        //                return new SyncChangeSet(new SyncAnchor(_storeId, version), new SyncAnchor(otherStoreId, 0), items);
-        //            }
-        //        }
-        //    }
-        //}
-
         private async Task<SyncAnchor> GetLastLocalAnchorForStoreAsync(Guid otherStoreId)
         {
             await InitializeAsync();
@@ -520,36 +481,38 @@ namespace CoreSync.Sqlite
 
         private async Task SetupTableForFullChangeDetection(SqliteSyncTable table, SqliteCommand cmd, SqliteColumn[] primaryKeyColumns, SqliteColumn[] tableColumns)
         {
-                var commandTextBase = new Func<string, string>((op) => $@"CREATE TRIGGER IF NOT EXISTS [__{table.Name}_ct-{op}__]
+            var commandTextBase = new Func<string, string>((op) => $@"CREATE TRIGGER IF NOT EXISTS [__{table.Name}_ct-{op}__]
     AFTER {op} ON [{table.Name}]
     FOR EACH ROW
     BEGIN
     INSERT INTO [__CORE_SYNC_CT] (TBL, OP, PK) VALUES ('{table.Name}', '{op[0]}', printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => (op == "DELETE" ? "OLD" : "NEW") + ".[" + _.Name + "]"))}));
     END");
-                cmd.CommandText = commandTextBase("INSERT");
-                await cmd.ExecuteNonQueryAsync();
+            cmd.CommandText = commandTextBase("INSERT");
+            await cmd.ExecuteNonQueryAsync();
 
-                cmd.CommandText = commandTextBase("UPDATE");
-                await cmd.ExecuteNonQueryAsync();
+            cmd.CommandText = commandTextBase("UPDATE");
+            await cmd.ExecuteNonQueryAsync();
 
-                cmd.CommandText = commandTextBase("DELETE");
-                await cmd.ExecuteNonQueryAsync();
+            cmd.CommandText = commandTextBase("DELETE");
+            await cmd.ExecuteNonQueryAsync();
 
-                //4. Insert/Update/Delete query templates
-                table.IncrementalAddOrUpdatesQuery = $@"SELECT DISTINCT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Name + "]"))}, CT.OP AS __OP 
+            table.InitialSnapshotQuery = $@"SELECT * FROM [{table.Name}]";
+
+            //4. Insert/Update/Delete query templates
+            table.IncrementalAddOrUpdatesQuery = $@"SELECT DISTINCT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Name + "]"))}, CT.OP AS __OP 
             FROM [{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.PK WHERE CT.ID > @version AND CT.TBL = '{table.Name}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
 
-                table.IncrementalDeletesQuery = $@"SELECT PK AS [{primaryKeyColumns[0].Name}] FROM [__CORE_SYNC_CT] WHERE TBL = '{table.Name}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
+            table.IncrementalDeletesQuery = $@"SELECT PK AS [{primaryKeyColumns[0].Name}] FROM [__CORE_SYNC_CT] WHERE TBL = '{table.Name}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
 
-                table.InsertQuery = $@"INSERT OR IGNORE INTO [{table.Name}] ({string.Join(", ", table.Columns.Select(_ => "[" + _.Name + "]"))}) 
+            table.InsertQuery = $@"INSERT OR IGNORE INTO [{table.Name}] ({string.Join(", ", table.Columns.Select(_ => "[" + _.Name + "]"))}) 
             VALUES ({string.Join(", ", table.Columns.Select(_ => "@" + _.Name.Replace(' ', '_')))});";
 
-                table.UpdateQuery = $@"UPDATE [{table.Name}]
+            table.UpdateQuery = $@"UPDATE [{table.Name}]
             SET {string.Join(", ", tableColumns.Select(_ => "[" + _.Name + "] = @" + _.Name.Replace(' ', '_')))}
             WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))})
             AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.Name} AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK] AND CT.TBL = '{table.Name}') <= @last_sync_version))";
 
-                table.DeleteQuery = $@"DELETE FROM [{table.Name}]
+            table.DeleteQuery = $@"DELETE FROM [{table.Name}]
             WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))})
             AND (@sync_force_write = 1 OR (SELECT MAX(CT.ID) FROM {table.Name} AS T INNER JOIN __CORE_SYNC_CT AS CT ON (printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.[PK] AND CT.TBL = '{table.Name}') <= @last_sync_version))";
         }
@@ -568,6 +531,8 @@ namespace CoreSync.Sqlite
 
             cmd.CommandText = commandTextBase("DELETE");
             await cmd.ExecuteNonQueryAsync();
+
+            table.InitialSnapshotQuery = $@"SELECT * FROM [{table.Name}]";
 
             //4. Insert/Update/Delete query templates
             table.InsertQuery = $@"INSERT OR IGNORE INTO [{table.Name}] ({string.Join(", ", table.Columns.Select(_ => "[" + _.Name + "]"))}) 
@@ -642,6 +607,47 @@ namespace CoreSync.Sqlite
                         cmd.CommandText = commandTextBase("DELETE");
                         await cmd.ExecuteNonQueryAsync();
 
+                    }
+                }
+            }
+        }
+
+        public async Task<SyncChangeSet> GetInitialSnapshotAsync(Guid otherStoreId)
+        {
+            await InitializeAsync();
+
+            using (var c = new SqliteConnection(Configuration.ConnectionString))
+            {
+                await c.OpenAsync();
+
+                using (var cmd = new SqliteCommand())
+                {
+                    var items = new List<SqliteSyncItem>();
+
+                    using (var tr = c.BeginTransaction())
+                    {
+                        cmd.Connection = c;
+                        cmd.Transaction = tr;
+
+                        cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
+                        var version = await cmd.ExecuteLongScalarAsync();
+
+                        foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_ => _.Columns.Any()))
+                        {
+                            cmd.CommandText = table.InitialSnapshotQuery;
+                            using (var r = await cmd.ExecuteReaderAsync())
+                            {
+                                while (await r.ReadAsync())
+                                {
+                                    var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
+                                    items.Add(new SqliteSyncItem(table, ChangeType.Insert, values));
+                                }
+                            }
+                        }
+
+                        tr.Commit();
+
+                        return new SyncChangeSet(new SyncAnchor(_storeId, version), await GetLastRemoteAnchorForStoreAsync(otherStoreId), items);
                     }
                 }
             }

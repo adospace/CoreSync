@@ -240,7 +240,7 @@ namespace CoreSync.SqlServer
                                 while (await r.ReadAsync())
                                 {
                                     var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => r.GetValue(_));
-                                    items.Add(new SqlSyncItem(table, DetectChangeType(values), 
+                                    items.Add(new SqlSyncItem(table, DetectChangeType(values),
                                         values.Where(_ => _.Key != "__OP").ToDictionary(_ => _.Key, _ => _.Value == DBNull.Value ? null : _.Value)));
                                 }
                             }
@@ -255,7 +255,7 @@ namespace CoreSync.SqlServer
                                 }
                             }
 
-                       }
+                        }
 
                         tr.Commit();
 
@@ -503,6 +503,8 @@ END");
                 await cmd.ExecuteNonQueryAsync();
             }
 
+            table.InitialSnapshotQuery = $@"SELECT * FROM {table.NameWithSchema}";
+
             table.IncrementalAddOrUpdatesQuery = $@"SELECT DISTINCT { string.Join(",", allColumns.Select(_ => "T.[" + _ + "]"))}, CT.OP AS __OP FROM {table.NameWithSchema} AS T 
 INNER JOIN __CORE_SYNC_CT AS CT ON CONVERT(nvarchar(1024), T.[{primaryKeyColumns[0]}]) = CT.[PK] WHERE CT.ID > @version AND CT.TBL = '{table.NameWithSchema}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
 
@@ -587,6 +589,8 @@ END");
             var hasTableIdentityColumn = ((int)await cmd.ExecuteScalarAsync() == 1);
 
             cmd.Parameters.Clear();
+
+            table.InitialSnapshotQuery = $@"SELECT * FROM {table.NameWithSchema}";
 
             //SET CONTEXT_INFO @sync_client_id_binary;
             table.InsertQuery = $@"{(hasTableIdentityColumn ? $"SET IDENTITY_INSERT {table.NameWithSchema} ON" : string.Empty)}
@@ -684,6 +688,43 @@ END CATCH";
                             cmd.CommandText = dropTriggerCommand("DELETE");
                             await cmd.ExecuteNonQueryAsync();
                         }
+                    }
+                }
+            }
+        }
+
+        public async Task<SyncChangeSet> GetInitialSnapshotAsync(Guid otherStoreId)
+        {
+            using (var c = new SqlConnection(Configuration.ConnectionString))
+            {
+                await c.OpenAsync();
+
+                using (var cmd = new SqlCommand())
+                {
+                    var items = new List<SqlSyncItem>();
+                    using (var tr = c.BeginTransaction(IsolationLevel.Serializable))
+                    {
+                        cmd.Connection = c;
+                        cmd.Transaction = tr;
+
+                        cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
+                        var version = await cmd.ExecuteLongScalarAsync();
+
+                        foreach (SqlSyncTable table in Configuration.Tables)
+                        {
+
+                            cmd.CommandText = table.InitialSnapshotQuery;
+
+                            using (var r = await cmd.ExecuteReaderAsync())
+                            {
+                                while (await r.ReadAsync())
+                                {
+                                    var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => r.GetValue(_));
+                                    items.Add(new SqlSyncItem(table, ChangeType.Insert, values));
+                                }
+                            }
+                        }
+                        return new SyncChangeSet(new SyncAnchor(_storeId, version), await GetLastRemoteAnchorForStoreAsync(otherStoreId), items);
                     }
                 }
             }
