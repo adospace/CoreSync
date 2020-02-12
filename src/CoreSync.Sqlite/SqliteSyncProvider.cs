@@ -402,6 +402,9 @@ namespace CoreSync.Sqlite
                     cmd.CommandText = $"CREATE TABLE IF NOT EXISTS __CORE_SYNC_CT (ID INTEGER PRIMARY KEY, TBL TEXT NOT NULL, OP CHAR NOT NULL, PK TEXT NOT NULL, SRC TEXT NULL)";
                     await cmd.ExecuteNonQueryAsync();
 
+                    cmd.CommandText = $"CREATE INDEX IF NOT EXISTS __CORE_SYNC_CT_PK_INDEX ON __CORE_SYNC_CT(PK)";
+                    await cmd.ExecuteNonQueryAsync();
+
                     cmd.CommandText = $"CREATE TABLE IF NOT EXISTS __CORE_SYNC_REMOTE_ANCHOR (ID TEXT NOT NULL PRIMARY KEY, LOCAL_VERSION LONG NULL, REMOTE_VERSION LONG NULL)";
                     await cmd.ExecuteNonQueryAsync();
 
