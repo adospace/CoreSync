@@ -168,12 +168,32 @@ WHERE
                     var listOfColumnNames = new List<(string, SqlDbType)>();
                     while (await reader.ReadAsync())
                     {
-                        listOfColumnNames.Add((reader.GetString(0), (SqlDbType)Enum.Parse(typeof(SqlDbType), reader.GetString(1), true)));
+                        listOfColumnNames.Add((reader.GetString(0), TryGetSqlDbTypeFromString(reader.GetString(1))));
                     }
 
                     return listOfColumnNames.ToArray();
                 }
             }
+        }
+
+        private static SqlDbType TryGetSqlDbTypeFromString(string typeName)
+        {
+            //ref https://docs.microsoft.com/en-us/dotnet/framework/data/adonet/sql-server-data-type-mappings
+            if (typeName == "sql_variant")
+                return SqlDbType.Variant;
+            if (typeName == "smalldatetime")
+                return SqlDbType.DateTime;
+            if (typeName == "rowversion")
+                return SqlDbType.Timestamp;
+            if (typeName == "numeric")
+                return SqlDbType.Decimal;
+            if (typeName == "image")
+                return SqlDbType.Binary;
+            if (typeName == "binary")
+                return SqlDbType.VarBinary;
+
+
+            return (SqlDbType)Enum.Parse(typeof(SqlDbType), typeName, true);
         }
 
 
