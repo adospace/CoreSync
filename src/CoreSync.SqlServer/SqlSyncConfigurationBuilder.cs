@@ -29,9 +29,9 @@ namespace CoreSync.SqlServer
             return this;
         }
 
-        public SqlSyncConfigurationBuilder Table<T>(SyncDirection syncDirection = SyncDirection.UploadAndDownload)
+        public SqlSyncConfigurationBuilder Table<T>(SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = "dbo")
         {
-            return Table(typeof(T).Name, syncDirection);
+            return Table(typeof(T).Name, syncDirection, schema);
         }
 
         public SqlSyncConfiguration Build() => new SqlSyncConfiguration(_connectionString, _tables.ToArray());
