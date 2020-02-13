@@ -24,7 +24,8 @@ namespace CoreSync
 
         ByteArray,
 
-        Guid
+        Guid,
 
+        Decimal
     }
 }

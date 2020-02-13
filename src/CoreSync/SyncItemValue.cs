@@ -37,8 +37,10 @@ namespace CoreSync
                 Type = SyncItemValueType.Guid;
             else if (value is long)
                 Type = SyncItemValueType.Int64;
+            else if (value is decimal)
+                Type = SyncItemValueType.Decimal;
             else
-                throw new NotSupportedException();
+                throw new NotSupportedException($"Type of value ('{value.GetType()}') is not supported for synchronization");
         }
 
         public object Value { get; set; }
