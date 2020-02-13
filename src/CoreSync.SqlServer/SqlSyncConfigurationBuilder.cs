@@ -11,13 +11,22 @@ namespace CoreSync.SqlServer
     {
         private readonly string _connectionString;
         private readonly List<SqlSyncTable> _tables = new List<SqlSyncTable>();
+        private string _schema = "dbo";
 
         public SqlSyncConfigurationBuilder(string connectionString)
         {
             _connectionString = connectionString;
         }
 
-        public SqlSyncConfigurationBuilder Table([NotNull] string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = "dbo")
+        public SqlSyncConfigurationBuilder Schema(string schema)
+        {
+            Validate.NotNullOrEmptyOrWhiteSpace(schema, nameof(schema));
+            
+            _schema = schema;
+            return this;
+        }
+
+        public SqlSyncConfigurationBuilder Table([NotNull] string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = null)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
 
@@ -25,11 +34,11 @@ namespace CoreSync.SqlServer
             if (_tables.Any(_ => String.CompareOrdinal(_.Name, name) == 0))
                 throw new InvalidOperationException($"Table with name '{name}' already added");
 
-            _tables.Add(new SqlSyncTable(name, syncDirection, schema));
+            _tables.Add(new SqlSyncTable(name, syncDirection, schema ?? _schema));
             return this;
         }
 
-        public SqlSyncConfigurationBuilder Table<T>(SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = "dbo")
+        public SqlSyncConfigurationBuilder Table<T>(SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = null)
         {
             return Table(typeof(T).Name, syncDirection, schema);
         }
