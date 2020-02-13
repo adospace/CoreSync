@@ -35,9 +35,6 @@ namespace CoreSync.Sqlite
         }
 
 
-        public SqliteSyncConfiguration Configuration
-        {
-            get { return new SqliteSyncConfiguration(_connectionString, _tables.ToArray()); }
-        }
+        public SqliteSyncConfiguration Build() => new SqliteSyncConfiguration(_connectionString, _tables.ToArray());
     }
 }
