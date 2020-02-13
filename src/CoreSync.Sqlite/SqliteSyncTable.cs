@@ -19,12 +19,30 @@ namespace CoreSync.Sqlite
         /// </summary>
         public Type RecordType { get; }
 
-        public IEnumerable<string> PrimaryColumnNames => Columns.Where(_ => _.IsPrimaryKey).Select(_ => _.Name);
+        internal string PrimaryColumnName => Columns.First(_ => _.Value.IsPrimaryKey).Value.Name;
+
+        internal SqlitePrimaryColumnType PrimaryColumnType => GetPrimaryColumnType(Columns[PrimaryColumnName].Type);
+
+        private SqlitePrimaryColumnType GetPrimaryColumnType(string type)
+        {
+            switch (type)
+            {
+                case "INTEGER":
+                    return SqlitePrimaryColumnType.Int;
+                case "TEXT":
+                    return SqlitePrimaryColumnType.Text;
+                case "BLOB":
+                    return SqlitePrimaryColumnType.Blob;
+
+            }
+
+            throw new NotSupportedException($"Table {Name} primary key type '{type}'");
+        }
 
         /// <summary>
         /// Table columns (discovered)
         /// </summary>
-        internal List<SqliteColumn> Columns { get; set; } = new List<SqliteColumn>();
+        internal Dictionary<string, SqliteColumn> Columns { get; set; } = new Dictionary<string, SqliteColumn>();
 
         internal string InitialSnapshotQuery { get; set; }
         

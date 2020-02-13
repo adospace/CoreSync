@@ -78,12 +78,21 @@ namespace CoreSync.Sqlite
 
                             cmd.Parameters.Add(new SqliteParameter("@last_sync_version", changeSet.TargetAnchor.Version));
                             cmd.Parameters.Add(new SqliteParameter("@sync_force_write", syncForceWrite));
-                            cmd.Parameters.Add(new SqliteParameter("@compoundPrimaryKey", string.Join("-", table.PrimaryColumnNames.Select(_ => item.Values[_].Value.ToString()))));
+                            //cmd.Parameters.Add(new SqliteParameter("@compoundPrimaryKey", string.Join("-", table.PrimaryColumnNames.Select(_ => item.Values[_].Value.ToString()))));
 
                             foreach (var valueItem in item.Values)
                                 cmd.Parameters.Add(new SqliteParameter("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value.Value ?? DBNull.Value));
 
-                            var affectedRows = cmd.ExecuteNonQuery();
+                            int affectedRows;
+
+                            try
+                            {
+                                affectedRows = cmd.ExecuteNonQuery();
+                            }
+                            catch (Exception ex)
+                            {
+                                throw new SynchronizationException($"Unable to {item} item to store for table {table}", ex);
+                            }
 
                             if (affectedRows == 0)
                             {
@@ -399,10 +408,15 @@ namespace CoreSync.Sqlite
 
                 using (var cmd = connection.CreateCommand())
                 {
-                    cmd.CommandText = $"CREATE TABLE IF NOT EXISTS __CORE_SYNC_CT (ID INTEGER PRIMARY KEY, TBL TEXT NOT NULL, OP CHAR NOT NULL, PK TEXT NOT NULL, SRC TEXT NULL)";
+                    cmd.CommandText = $@"CREATE TABLE IF NOT EXISTS __CORE_SYNC_CT 
+(ID INTEGER PRIMARY KEY, TBL TEXT NOT NULL COLLATE NOCASE, OP CHAR NOT NULL, PK_{SqlitePrimaryColumnType.Int} INTEGER NULL, PK_{SqlitePrimaryColumnType.Text} TEXT NULL COLLATE NOCASE, PK_{SqlitePrimaryColumnType.Blob} BLOB NULL, SRC TEXT NULL COLLATE NOCASE)";
                     await cmd.ExecuteNonQueryAsync();
 
-                    cmd.CommandText = $"CREATE INDEX IF NOT EXISTS __CORE_SYNC_CT_PK_INDEX ON __CORE_SYNC_CT(PK)";
+                    cmd.CommandText = $"CREATE INDEX IF NOT EXISTS __CORE_SYNC_CT_PK_{SqlitePrimaryColumnType.Int}_INDEX ON __CORE_SYNC_CT(PK_{SqlitePrimaryColumnType.Int})";
+                    await cmd.ExecuteNonQueryAsync();
+                    cmd.CommandText = $"CREATE INDEX IF NOT EXISTS __CORE_SYNC_CT_PK_{SqlitePrimaryColumnType.Text}_INDEX ON __CORE_SYNC_CT(PK_{SqlitePrimaryColumnType.Text})";
+                    await cmd.ExecuteNonQueryAsync();
+                    cmd.CommandText = $"CREATE INDEX IF NOT EXISTS __CORE_SYNC_CT_PK_{SqlitePrimaryColumnType.Blob}_INDEX ON __CORE_SYNC_CT(PK_{SqlitePrimaryColumnType.Blob})";
                     await cmd.ExecuteNonQueryAsync();
 
                     cmd.CommandText = $"CREATE TABLE IF NOT EXISTS __CORE_SYNC_REMOTE_ANCHOR (ID TEXT NOT NULL PRIMARY KEY, LOCAL_VERSION LONG NULL, REMOTE_VERSION LONG NULL)";
@@ -447,29 +461,44 @@ namespace CoreSync.Sqlite
                                     throw new NotSupportedException($"Unable to synchronize table '{table.Name}': one column has a reserved name '__OP'");
                                 }
 
-                                table.Columns.Add(new SqliteColumn(colName, colType, pk));
+                                table.Columns.Add(colName, new SqliteColumn(colName, colType, pk));
                             }
                         }
+
+                        if (table.Columns.Count == 0)
+                        {
+                            throw new InvalidOperationException($"Unable to configure table '{table}': does it exist with at least one column?");
+                        }
+
+                        if (table.Columns.Count(_ => _.Value.IsPrimaryKey) == 0)
+                        {
+                            throw new NotSupportedException($"Unable to configure table '{table}': no primary key defined");
+                        }
+
+                        if (table.Columns.Count(_ => _.Value.IsPrimaryKey) > 1)
+                        {
+                            throw new NotSupportedException($"Unable to configure table '{table}': it has more than one column as primary key");
+                        }                        
                     }
 
-                    foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_ => _.Columns.Any()))
+                    foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>())
                     {
-                        var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey).ToArray();
-                        var tableColumns = table.Columns.Where(_ => !_.IsPrimaryKey).ToArray();
+                        //var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey).ToArray();
+                        var tableColumns = table.Columns.Select(_ => _.Value).Where(_ => !_.IsPrimaryKey).ToArray();
 
                         table.InitialSnapshotQuery = $@"SELECT * FROM [{table.Name}]";
 
-                        table.InsertQuery = $@"INSERT OR IGNORE INTO [{table.Name}] ({string.Join(", ", table.Columns.Select(_ => "[" + _.Name + "]"))}) 
-            VALUES ({string.Join(", ", table.Columns.Select(_ => "@" + _.Name.Replace(' ', '_')))});";
+                        table.InsertQuery = $@"INSERT OR IGNORE INTO [{table.Name}] ({string.Join(", ", table.Columns.Select(_ => "[" + _.Key + "]"))}) 
+            VALUES ({string.Join(", ", table.Columns.Select(_ => "@" + _.Key.Replace(' ', '_')))});";
 
                         table.UpdateQuery = $@"UPDATE [{table.Name}]
             SET {string.Join(", ", tableColumns.Select(_ => "[" + _.Name + "] = @" + _.Name.Replace(' ', '_')))}
-            WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))})
-            AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK = @compoundPrimaryKey AND TBL = '{table.Name}') <= @last_sync_version)";
+            WHERE [{table.Name}].[{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(' ', '_')}
+            AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK_{table.PrimaryColumnType} = @{table.PrimaryColumnName.Replace(' ', '_')} AND TBL = '{table.Name}') <= @last_sync_version)";
 
                         table.DeleteQuery = $@"DELETE FROM [{table.Name}]
-            WHERE ({string.Join(", ", primaryKeyColumns.Select(_ => $"[{table.Name}].[{_.Name}] = @{_.Name.Replace(' ', '_')}"))})
-            AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK = @compoundPrimaryKey AND TBL = '{table.Name}') <= @last_sync_version)";
+            WHERE [{table.Name}].[{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(' ', '_')}
+            AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK_{table.PrimaryColumnType} = @{table.PrimaryColumnName.Replace(' ', '_')} AND TBL = '{table.Name}') <= @last_sync_version)";
 
                     }
                 }
@@ -493,18 +522,18 @@ namespace CoreSync.Sqlite
                 {
                     foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_ => _.Columns.Any()))
                     {
-                        var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey).ToArray();
-                        var tableColumns = table.Columns.Where(_ => !_.IsPrimaryKey).ToArray();
+                        //var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey).ToArray();
+                        //var tableColumns = table.Columns.Where(_ => !_.IsPrimaryKey).ToArray();
 
                         if (table.SyncDirection == SyncDirection.UploadAndDownload ||
                             (table.SyncDirection == SyncDirection.UploadOnly && ProviderMode == ProviderMode.Local) ||
                             (table.SyncDirection == SyncDirection.DownloadOnly && ProviderMode == ProviderMode.Remote))
                         {
-                            await SetupTableForFullChangeDetection(table, cmd, primaryKeyColumns, tableColumns);
+                            await SetupTableForFullChangeDetection(table, cmd);
                         }
                         else
                         {
-                            await SetupTableForUpdatesOrDeletesOnly(table, cmd, primaryKeyColumns, tableColumns);
+                            await SetupTableForUpdatesOrDeletesOnly(table, cmd);
                         }
                     }
                 }
@@ -513,13 +542,13 @@ namespace CoreSync.Sqlite
             //_initialized = true;
         }
 
-        private async Task SetupTableForFullChangeDetection(SqliteSyncTable table, SqliteCommand cmd, SqliteColumn[] primaryKeyColumns, SqliteColumn[] tableColumns)
+        private async Task SetupTableForFullChangeDetection(SqliteSyncTable table, SqliteCommand cmd)
         {
             var commandTextBase = new Func<string, string>((op) => $@"CREATE TRIGGER IF NOT EXISTS [__{table.Name}_ct-{op}__]
     AFTER {op} ON [{table.Name}]
     FOR EACH ROW
     BEGIN
-    INSERT INTO [__CORE_SYNC_CT] (TBL, OP, PK) VALUES ('{table.Name}', '{op[0]}', printf('{string.Join("-", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => (op == "DELETE" ? "OLD" : "NEW") + ".[" + _.Name + "]"))}));
+    INSERT INTO [__CORE_SYNC_CT] (TBL, OP, PK_{table.PrimaryColumnType}) VALUES ('{table.Name}', '{op[0]}', {(op == "DELETE" ? "OLD" : "NEW")}.[{table.PrimaryColumnName}]);
     END");
             cmd.CommandText = commandTextBase("INSERT");
             await cmd.ExecuteNonQueryAsync();
@@ -530,19 +559,19 @@ namespace CoreSync.Sqlite
             cmd.CommandText = commandTextBase("DELETE");
             await cmd.ExecuteNonQueryAsync();
 
-            table.IncrementalAddOrUpdatesQuery = $@"SELECT DISTINCT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Name + "]"))}, CT.OP AS __OP 
-            FROM [{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON printf('{string.Join("", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => "T.[" + _.Name + "]"))}) = CT.PK WHERE CT.ID > @version AND CT.TBL = '{table.Name}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
+            table.IncrementalAddOrUpdatesQuery = $@"SELECT DISTINCT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Key + "]"))}, CT.OP AS __OP 
+            FROM [{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON T.[{table.PrimaryColumnName}] = CT.PK_{table.PrimaryColumnType} WHERE CT.ID > @version AND CT.TBL = '{table.Name}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
 
-            table.IncrementalDeletesQuery = $@"SELECT PK AS [{primaryKeyColumns[0].Name}] FROM [__CORE_SYNC_CT] WHERE TBL = '{table.Name}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
+            table.IncrementalDeletesQuery = $@"SELECT PK_{table.PrimaryColumnType} AS [{table.PrimaryColumnName}] FROM [__CORE_SYNC_CT] WHERE TBL = '{table.Name}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
         }
 
-        private async Task SetupTableForUpdatesOrDeletesOnly(SqliteSyncTable table, SqliteCommand cmd, SqliteColumn[] primaryKeyColumns, SqliteColumn[] tableColumns)
+        private async Task SetupTableForUpdatesOrDeletesOnly(SqliteSyncTable table, SqliteCommand cmd)
         {
             var commandTextBase = new Func<string, string>((op) => $@"CREATE TRIGGER IF NOT EXISTS [__{table.Name}_ct-{op}__]
     AFTER {op} ON [{table.Name}]
     FOR EACH ROW
     BEGIN
-    INSERT INTO [__CORE_SYNC_CT] (TBL, OP, PK) VALUES ('{table.Name}', '{op[0]}', printf('{string.Join("-", primaryKeyColumns.Select(_ => TypeToPrintFormat(_.Type)))}', {string.Join(", ", primaryKeyColumns.Select(_ => (op == "DELETE" ? "OLD" : "NEW") + ".[" + _.Name + "]"))}));
+    INSERT INTO [__CORE_SYNC_CT] (TBL, OP, PK_{table.PrimaryColumnType}) VALUES ('{table.Name}', '{op[0]}', {(op == "DELETE" ? "OLD" : "NEW")}.[{table.PrimaryColumnName}]);
     END");
 
             cmd.CommandText = commandTextBase("UPDATE");
@@ -561,6 +590,7 @@ namespace CoreSync.Sqlite
                 //1. discover tables
                 using (var cmd = connection.CreateCommand())
                 {
+                    var listOfTables = new List<string>();
                     foreach (SqliteSyncTable table in Configuration.Tables)
                     {
                         cmd.CommandText = $"PRAGMA table_info('{table.Name}')";
@@ -573,15 +603,13 @@ namespace CoreSync.Sqlite
                             while (await reader.ReadAsync())
                             {
                                 var colName = reader.GetString(1);
-                                var colType = reader.GetString(2);
-                                var pk = reader.GetBoolean(5);
 
                                 if (string.CompareOrdinal(colName, "__OP") == 0)
                                 {
-                                    throw new NotSupportedException($"Unable to synchronize table '{table.Name}': one column has a reserved name '__OP'");
+                                    continue;
                                 }
 
-                                table.Columns.Add(new SqliteColumn(colName, colType, pk));
+                                listOfTables.Add(colName);
                             }
                         }
                     }
@@ -599,9 +627,9 @@ namespace CoreSync.Sqlite
                     await cmd.ExecuteNonQueryAsync();
 
                     //5. drop triggers
-                    foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_ => _.Columns.Any()))
+                    foreach (var tableName in listOfTables)
                     {
-                        var commandTextBase = new Func<string, string>((op) => $@"DROP TRIGGER IF EXISTS [__{table.Name}_ct-{op}__]");
+                        var commandTextBase = new Func<string, string>((op) => $@"DROP TRIGGER IF EXISTS [__{tableName}_ct-{op}__]");
                         cmd.CommandText = commandTextBase("INSERT");
                         await cmd.ExecuteNonQueryAsync();
 

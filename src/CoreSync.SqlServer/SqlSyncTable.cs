@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Text;
 
 namespace CoreSync.SqlServer
@@ -20,7 +21,30 @@ namespace CoreSync.SqlServer
 
         public string NameWithSchema => $"{(Schema == null ? string.Empty : "[" + Schema + "].")}[{Name}]";
 
-        internal string[] PrimaryColumnNames { get; set; }
+        internal string PrimaryColumnName { get; set; }
+
+        internal SqlPrimaryColumnType PrimaryColumnType => GetPrimaryColumnType(Columns[PrimaryColumnName].DbType);
+
+        private SqlPrimaryColumnType GetPrimaryColumnType(SqlDbType dbType)
+        {
+            switch (dbType)
+            {
+                case SqlDbType.Int:
+                case SqlDbType.SmallInt:
+                case SqlDbType.BigInt:
+                    return SqlPrimaryColumnType.Int;
+                case SqlDbType.Char:
+                case SqlDbType.NVarChar:
+                case SqlDbType.VarChar:
+                case SqlDbType.NChar:
+                    return SqlPrimaryColumnType.String;
+                case SqlDbType.UniqueIdentifier:
+                    return SqlPrimaryColumnType.Guid;
+
+            }
+
+            throw new NotSupportedException($"Table {NameWithSchema} primary key type {dbType}");
+        }
 
         /// <summary>
         /// Table columns (discovered)

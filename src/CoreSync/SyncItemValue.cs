@@ -17,7 +17,7 @@ namespace CoreSync
 
         private void DetectTypeOfObject(object value)
         {
-            if (value == null)
+            if (value == null || value is DBNull)
                 Type = SyncItemValueType.Null;
             else if (value is string)
                 Type = SyncItemValueType.String;
