@@ -37,6 +37,8 @@ namespace CoreSync
                 Type = SyncItemValueType.Guid;
             else if (value is long)
                 Type = SyncItemValueType.Int64;
+            else if (value is short)
+                Type = SyncItemValueType.Int32;
             else if (value is decimal)
                 Type = SyncItemValueType.Decimal;
             else
