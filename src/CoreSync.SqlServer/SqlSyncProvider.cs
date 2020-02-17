@@ -32,7 +32,7 @@ namespace CoreSync.SqlServer
         {
             Validate.NotNull(changeSet, nameof(changeSet));
 
-            //await InitializeAsync();
+            await InitializeStoreAsync();
 
             using (var c = new SqlConnection(Configuration.ConnectionString))
             {
@@ -220,7 +220,7 @@ namespace CoreSync.SqlServer
         {
             long fromVersion = (await GetLastLocalAnchorForStoreAsync(otherStoreId)).Version;
 
-            //await InitializeAsync();
+            await InitializeStoreAsync();
 
             using (var c = new SqlConnection(Configuration.ConnectionString))
             {
@@ -287,7 +287,7 @@ namespace CoreSync.SqlServer
 
         private async Task<SyncAnchor> GetLastLocalAnchorForStoreAsync(Guid otherStoreId)
         {
-            //await InitializeAsync();
+            await InitializeStoreAsync();
 
             using (var c = new SqlConnection(Configuration.ConnectionString))
             {

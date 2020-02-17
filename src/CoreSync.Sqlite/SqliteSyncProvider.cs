@@ -31,6 +31,8 @@ namespace CoreSync.Sqlite
         {
             Validate.NotNull(changeSet, nameof(changeSet));
 
+            await InitializeStoreAsync();
+
             using (var c = new SqliteConnection(Configuration.ConnectionString))
             {
                 await c.OpenAsync();
@@ -201,7 +203,7 @@ namespace CoreSync.Sqlite
         {
             long fromVersion = (await GetLastLocalAnchorForStoreAsync(otherStoreId)).Version;
 
-            //await InitializeAsync();
+            await InitializeStoreAsync();
 
             using (var c = new SqliteConnection(Configuration.ConnectionString))
             {
@@ -268,7 +270,7 @@ namespace CoreSync.Sqlite
 
         private async Task<SyncAnchor> GetLastLocalAnchorForStoreAsync(Guid otherStoreId)
         {
-            //await InitializeAsync();
+            await InitializeStoreAsync();
 
             using (var c = new SqliteConnection(Configuration.ConnectionString))
             {
