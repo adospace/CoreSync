@@ -127,7 +127,7 @@ namespace CoreSync.SqlServer
                                     {
                                         Value = ConvertToSqlType(valueItem, table.Columns[table.PrimaryColumnName].DbType)
                                     });
-                                    if (0 == (long)await cmd.ExecuteScalarAsync())
+                                    if (0 == (int)await cmd.ExecuteScalarAsync())
                                     {
                                         throw new SynchronizationException($"Unable to {item} item to store for table {table} {new SyncAnchor(_storeId, version)}: affected rows was 0");
                                     }

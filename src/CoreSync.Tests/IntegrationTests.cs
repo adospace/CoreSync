@@ -443,11 +443,6 @@ namespace CoreSync.Tests
             Assert.IsNotNull(finalLocalAnchor);
             await remoteSyncProvider.SaveVersionForStoreAsync(localStoreId, changeSetAfterUserAdd.SourceAnchor.Version);
 
-
-            //try to apply same changeset result in an exception
-            var exception = await Assert.ThrowsExceptionAsync<InvalidSyncOperationException>(() => localSyncProvider.ApplyChangesAsync(changeSetAfterUserAdd));
-            Assert.IsNotNull(exception);
-
             newUser.Created = new DateTime(2018, 1, 1);
             await remoteDb.SaveChangesAsync();
 
