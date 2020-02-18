@@ -49,6 +49,8 @@ namespace CoreSync.Sqlite
         internal string IncrementalAddOrUpdatesQuery { get; set; }
         
         internal string IncrementalDeletesQuery { get; set; }
+
+        internal string SelectExistingQuery { get; set; }
         
         internal string InsertQuery { get; set; }
 

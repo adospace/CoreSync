@@ -104,7 +104,14 @@ namespace CoreSync.Sqlite
                                     //applied the insert or another record with same values (see primary key)
                                     //is already present in table.
                                     //In any case we can't proceed
-                                    throw new InvalidSyncOperationException(new SyncAnchor(_storeId, changeSet.SourceAnchor.Version + 1));
+                                    cmd.CommandText = table.SelectExistingQuery;
+                                    cmd.Parameters.Clear();
+                                    var valueItem = item.Values[table.PrimaryColumnName];
+                                    cmd.Parameters.Add(new SqliteParameter("@" + table.PrimaryColumnName.Replace(" ", "_"), valueItem.Value ?? DBNull.Value));
+                                    if (0 == (long)await cmd.ExecuteScalarAsync())
+                                    {
+                                        throw new SynchronizationException($"Unable to {item} item to store for table {table} {new SyncAnchor(_storeId, version)}: affected rows was 0");
+                                    }
                                 }
                                 else if (itemChangeType == ChangeType.Update ||
                                     itemChangeType == ChangeType.Delete)
@@ -493,6 +500,9 @@ namespace CoreSync.Sqlite
                         table.InsertQuery = $@"INSERT OR IGNORE INTO [{table.Name}] ({string.Join(", ", table.Columns.Select(_ => "[" + _.Key + "]"))}) 
             VALUES ({string.Join(", ", table.Columns.Select(_ => "@" + _.Key.Replace(' ', '_')))});";
 
+                        table.SelectExistingQuery = $@"SELECT COUNT(*) FROM [{table.Name}] 
+            WHERE [{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(' ', '_')}";
+
                         table.UpdateQuery = $@"UPDATE [{table.Name}]
             SET {string.Join(", ", tableColumns.Select(_ => "[" + _.Name + "] = @" + _.Name.Replace(' ', '_')))}
             WHERE [{table.Name}].[{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(' ', '_')}
@@ -502,6 +512,16 @@ namespace CoreSync.Sqlite
             WHERE [{table.Name}].[{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(' ', '_')}
             AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK_{table.PrimaryColumnType} = @{table.PrimaryColumnName.Replace(' ', '_')} AND TBL = '{table.Name}') <= @last_sync_version)";
 
+
+                        if (table.SyncDirection == SyncDirection.UploadAndDownload ||
+                            (table.SyncDirection == SyncDirection.UploadOnly && ProviderMode == ProviderMode.Local) ||
+                            (table.SyncDirection == SyncDirection.DownloadOnly && ProviderMode == ProviderMode.Remote))
+                        {
+                            table.IncrementalAddOrUpdatesQuery = $@"SELECT DISTINCT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Key + "]"))}, CT.OP AS __OP 
+                                FROM [{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON T.[{table.PrimaryColumnName}] = CT.PK_{table.PrimaryColumnType} WHERE CT.ID > @version AND CT.TBL = '{table.Name}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
+
+                            table.IncrementalDeletesQuery = $@"SELECT PK_{table.PrimaryColumnType} AS [{table.PrimaryColumnName}] FROM [__CORE_SYNC_CT] WHERE TBL = '{table.Name}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
+                        }
                     }
                 }
             }
@@ -560,11 +580,6 @@ namespace CoreSync.Sqlite
 
             cmd.CommandText = commandTextBase("DELETE");
             await cmd.ExecuteNonQueryAsync();
-
-            table.IncrementalAddOrUpdatesQuery = $@"SELECT DISTINCT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Key + "]"))}, CT.OP AS __OP 
-            FROM [{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON T.[{table.PrimaryColumnName}] = CT.PK_{table.PrimaryColumnType} WHERE CT.ID > @version AND CT.TBL = '{table.Name}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
-
-            table.IncrementalDeletesQuery = $@"SELECT PK_{table.PrimaryColumnType} AS [{table.PrimaryColumnName}] FROM [__CORE_SYNC_CT] WHERE TBL = '{table.Name}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
         }
 
         private async Task SetupTableForUpdatesOrDeletesOnly(SqliteSyncTable table, SqliteCommand cmd)

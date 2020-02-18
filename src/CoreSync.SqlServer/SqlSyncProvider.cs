@@ -120,8 +120,17 @@ namespace CoreSync.SqlServer
                                     //If we can't apply an insert means that we already
                                     //applied the insert or another record with same values (see primary key)
                                     //is already present in table.
-                                    //In any case we can't proceed
-                                    throw new InvalidSyncOperationException(new SyncAnchor(_storeId, version + 1));
+                                    cmd.CommandText = table.SelectExistingQuery;
+                                    cmd.Parameters.Clear();
+                                    var valueItem = item.Values[table.PrimaryColumnName];
+                                    cmd.Parameters.Add(new SqlParameter("@" + table.PrimaryColumnName.Replace(" ", "_"), table.Columns[table.PrimaryColumnName].DbType)
+                                    {
+                                        Value = ConvertToSqlType(valueItem, table.Columns[table.PrimaryColumnName].DbType)
+                                    });
+                                    if (0 == (long)await cmd.ExecuteScalarAsync())
+                                    {
+                                        throw new SynchronizationException($"Unable to {item} item to store for table {table} {new SyncAnchor(_storeId, version)}: affected rows was 0");
+                                    }
                                 }
                                 else if (itemChangeType == ChangeType.Update ||
                                     itemChangeType == ChangeType.Delete)
@@ -516,6 +525,9 @@ BEGIN CATCH
 END CATCH
 {(hasTableIdentityColumn ? $"SET IDENTITY_INSERT {table.NameWithSchema} OFF" : string.Empty)}";
 
+                        table.SelectExistingQuery = $@"SELECT COUNT (*) FROM {table.NameWithSchema}
+WHERE [{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(" ", "_")}";
+
                         //SET CONTEXT_INFO @sync_client_id_binary; 
                         table.DeleteQuery = $@"BEGIN TRY 
 DELETE FROM {table.Name}
@@ -535,6 +547,15 @@ END TRY
 BEGIN CATCH  
 END CATCH";
 
+                        if (table.SyncDirection == SyncDirection.UploadAndDownload ||
+                            (table.SyncDirection == SyncDirection.UploadOnly && ProviderMode == ProviderMode.Local) ||
+                            (table.SyncDirection == SyncDirection.DownloadOnly && ProviderMode == ProviderMode.Remote))
+                        {
+                            table.IncrementalAddOrUpdatesQuery = $@"SELECT DISTINCT { string.Join(",", allColumns.Select(_ => "T.[" + _ + "]"))}, CT.OP AS __OP FROM {table.NameWithSchema} AS T 
+INNER JOIN __CORE_SYNC_CT AS CT ON T.[{table.PrimaryColumnName}] = CT.[PK_{table.PrimaryColumnType}] WHERE CT.ID > @version AND CT.TBL = '{table.NameWithSchema}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
+
+                            table.IncrementalDeletesQuery = $@"SELECT PK_{table.PrimaryColumnType} AS [{table.PrimaryColumnName}] FROM __CORE_SYNC_CT WHERE TBL = '{table.NameWithSchema}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
+                        }
                     }
                 }
             }
@@ -631,11 +652,6 @@ END");
                 cmd.CommandText = createTriggerCommand("DELETE");
                 await cmd.ExecuteNonQueryAsync();
             }
-
-            table.IncrementalAddOrUpdatesQuery = $@"SELECT DISTINCT { string.Join(",", allColumns.Select(_ => "T.[" + _ + "]"))}, CT.OP AS __OP FROM {table.NameWithSchema} AS T 
-INNER JOIN __CORE_SYNC_CT AS CT ON T.[{table.PrimaryColumnName}] = CT.[PK_{table.PrimaryColumnType}] WHERE CT.ID > @version AND CT.TBL = '{table.NameWithSchema}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
-
-            table.IncrementalDeletesQuery = $@"SELECT PK_{table.PrimaryColumnType} AS [{table.PrimaryColumnName}] FROM __CORE_SYNC_CT WHERE TBL = '{table.NameWithSchema}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
         }
 
         private async Task SetupTableForUpdatesOrDeletesOnly(SqlSyncTable table, SqlCommand cmd, string[] allColumns, string[] primaryKeyColumns, string[] tableColumns)
