@@ -681,7 +681,9 @@ namespace CoreSync.Sqlite
                         cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
                         var version = await cmd.ExecuteLongScalarAsync();
 
-                        foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_ => _.Columns.Any()))
+                        foreach (var table in Configuration.Tables
+                            .Cast<SqliteSyncTable>()
+                            .Where(_ => _.Columns.Any() && !_.SkipInitialSnapshot))
                         {
                             if (table.SyncDirection != SyncDirection.UploadAndDownload &&
                                 table.SyncDirection != syncDirection)

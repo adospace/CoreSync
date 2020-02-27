@@ -6,12 +6,13 @@ namespace CoreSync
 {
     public abstract class SyncTable
     {
-        protected SyncTable(string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload)
+        protected SyncTable(string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload, bool skipInitialSnapshot = false)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
 
             Name = name;
             SyncDirection = syncDirection;
+            SkipInitialSnapshot = skipInitialSnapshot;
         }
 
         /// <summary>
@@ -20,6 +21,8 @@ namespace CoreSync
         public string Name { get; }
 
         public SyncDirection SyncDirection { get; }
+
+        public bool SkipInitialSnapshot { get; }
 
         public override string ToString()
         {

@@ -7,7 +7,7 @@ namespace CoreSync.SqlServer
 {
     public class SqlSyncTable : SyncTable
     {
-        internal SqlSyncTable(string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = "dbo") : base(name, syncDirection)
+        internal SqlSyncTable(string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = "dbo", bool skipInitialSnapshot = false) : base(name, syncDirection, skipInitialSnapshot)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
             Validate.NotNullOrEmptyOrWhiteSpace(schema, nameof(schema));

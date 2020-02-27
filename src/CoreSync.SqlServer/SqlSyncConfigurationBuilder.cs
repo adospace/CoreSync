@@ -26,7 +26,7 @@ namespace CoreSync.SqlServer
             return this;
         }
 
-        public SqlSyncConfigurationBuilder Table([NotNull] string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = null)
+        public SqlSyncConfigurationBuilder Table([NotNull] string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = null, bool skipInitialSnapshot = false)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
 
@@ -34,13 +34,13 @@ namespace CoreSync.SqlServer
             if (_tables.Any(_ => String.CompareOrdinal(_.Name, name) == 0))
                 throw new InvalidOperationException($"Table with name '{name}' already added");
 
-            _tables.Add(new SqlSyncTable(name, syncDirection, schema ?? _schema));
+            _tables.Add(new SqlSyncTable(name, syncDirection, schema ?? _schema, skipInitialSnapshot));
             return this;
         }
 
-        public SqlSyncConfigurationBuilder Table<T>(SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = null)
+        public SqlSyncConfigurationBuilder Table<T>(SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = null, bool skipInitialSnapshot = false)
         {
-            return Table(typeof(T).Name, syncDirection, schema);
+            return Table(typeof(T).Name, syncDirection, schema, skipInitialSnapshot);
         }
 
         public SqlSyncConfiguration Build() => new SqlSyncConfiguration(_connectionString, _tables.ToArray());

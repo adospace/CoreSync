@@ -6,7 +6,7 @@ namespace CoreSync.Sqlite
 {
     public class SqliteSyncTable : SyncTable
     {
-        internal SqliteSyncTable(string name, Type recordType = null, SyncDirection syncDirection = SyncDirection.UploadAndDownload) : base(name, syncDirection)
+        internal SqliteSyncTable(string name, Type recordType = null, SyncDirection syncDirection = SyncDirection.UploadAndDownload, bool skipInitialSnapshot = false) : base(name, syncDirection, skipInitialSnapshot)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
 

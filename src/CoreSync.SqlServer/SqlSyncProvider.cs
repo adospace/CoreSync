@@ -773,7 +773,7 @@ END");
                         cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
                         var version = await cmd.ExecuteLongScalarAsync();
 
-                        foreach (SqlSyncTable table in Configuration.Tables)
+                        foreach (SqlSyncTable table in Configuration.Tables.Where(_ => !_.SkipInitialSnapshot))
                         {
                             if (table.SyncDirection != SyncDirection.UploadAndDownload &&
                                 table.SyncDirection != syncDirection)
