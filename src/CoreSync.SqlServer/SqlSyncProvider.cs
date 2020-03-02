@@ -530,8 +530,8 @@ WHERE [{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(" ", "_")}
 
                         //SET CONTEXT_INFO @sync_client_id_binary; 
                         table.DeleteQuery = $@"BEGIN TRY 
-DELETE FROM {table.Name}
-WHERE [{table.Name}].[{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(" ", "_")}
+DELETE FROM {table.NameWithSchema}
+WHERE {table.NameWithSchema}.[{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(" ", "_")}
 AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK_{table.PrimaryColumnType} = @{table.PrimaryColumnName.Replace(" ", "_")} AND TBL = '{table.NameWithSchema}') <= @last_sync_version)
 END TRY  
 BEGIN CATCH  
@@ -541,7 +541,7 @@ END CATCH";
                         table.UpdateQuery = $@"BEGIN TRY 
 UPDATE {table.NameWithSchema}
 SET {string.Join(", ", tableColumns.Select(_ => "[" + _ + "] = @" + _.Replace(' ', '_')))}
-WHERE [{table.Name}].[{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(" ", "_")}
+WHERE {table.NameWithSchema}.[{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(" ", "_")}
 AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK_{table.PrimaryColumnType} = @{table.PrimaryColumnName.Replace(" ", "_")} AND TBL = '{table.NameWithSchema}') <= @last_sync_version)
 END TRY  
 BEGIN CATCH  
