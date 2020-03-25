@@ -151,12 +151,15 @@ namespace CoreSync.SqlServer
                                             goto retryWrite;
                                         }
                                     }
-                                    //conflict detected
-                                    var res = onConflictFunc?.Invoke(item);
-                                    if (res.HasValue && res.Value == ConflictResolution.ForceWrite)
+                                    else
                                     {
-                                        syncForceWrite = true;
-                                        goto retryWrite;
+                                        //conflict detected
+                                        var res = onConflictFunc?.Invoke(item);
+                                        if (res.HasValue && res.Value == ConflictResolution.ForceWrite)
+                                        {
+                                            syncForceWrite = true;
+                                            goto retryWrite;
+                                        }
                                     }
                                 }
                             }
