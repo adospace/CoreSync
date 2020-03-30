@@ -398,7 +398,7 @@ namespace CoreSync.SqlServer
 	[PK_Int] [int] SPARSE NULL,
 	[PK_String] [nvarchar](1024) SPARSE NULL,
 	[PK_Guid] [uniqueidentifier] SPARSE NULL,
-	[SRC] [varbinary](16) NULL,
+	[SRC] [varbinary](128) NULL,
  CONSTRAINT [PK___CORE_SYNC_CT] PRIMARY KEY CLUSTERED 
 (
 	[ID] ASC
@@ -600,28 +600,28 @@ INNER JOIN __CORE_SYNC_CT AS CT ON T.[{table.PrimaryColumnName}] = CT.[PK_{table
 
                         if (allColumns.Any(_ => string.CompareOrdinal(_, "__OP") == 0))
                         {
-                            throw new NotSupportedException($"Table '{table.Name}' has one column with reserved name '__OP'");
+                            throw new NotSupportedException($"Table '{table.NameWithSchema}' has one column with reserved name '__OP'");
                         }
 
                         if (table.SyncDirection == SyncDirection.UploadAndDownload ||
                             (table.SyncDirection == SyncDirection.UploadOnly && ProviderMode == ProviderMode.Local) ||
                             (table.SyncDirection == SyncDirection.DownloadOnly && ProviderMode == ProviderMode.Remote))
                         {
-                            await SetupTableForFullChangeDetection(table, cmd, allColumns, primaryKeyColumns, tableColumns);
+                            await SetupTableForFullChangeDetection(table, cmd);
                         }
                         else
                         {
-                            await SetupTableForUpdatesOrDeletesOnly(table, cmd, allColumns, primaryKeyColumns, tableColumns);
+                            await SetupTableForUpdatesOrDeletesOnly(table, cmd);
                         }
                     }
                 }
             }
         }
 
-        private async Task SetupTableForFullChangeDetection(SqlSyncTable table, SqlCommand cmd, string[] allColumns, string[] primaryKeyColumns, string[] tableColumns)
+        private async Task SetupTableForFullChangeDetection(SqlSyncTable table, SqlCommand cmd)
         {
             var existsTriggerCommand = new Func<string, string>((op) => $@"select COUNT(*) from sys.objects where schema_id=SCHEMA_ID('{table.Schema}') AND type='TR' and name='__{table.Name}_ct-{op}__'");
-            var createTriggerCommand = new Func<string, string>((op) => $@"CREATE TRIGGER [__{table.Name}_ct-{op}__]
+            var createTriggerCommand = new Func<string, string>((op) => $@"CREATE TRIGGER [__{table.NameWithSchemaRaw}_ct-{op}__]
 ON {table.NameWithSchema}
 AFTER {op}
 AS
@@ -657,10 +657,10 @@ END");
             }
         }
 
-        private async Task SetupTableForUpdatesOrDeletesOnly(SqlSyncTable table, SqlCommand cmd, string[] allColumns, string[] primaryKeyColumns, string[] tableColumns)
+        private async Task SetupTableForUpdatesOrDeletesOnly(SqlSyncTable table, SqlCommand cmd)
         {
             var existsTriggerCommand = new Func<string, string>((op) => $@"select COUNT(*) from sys.objects where schema_id=SCHEMA_ID('{table.Schema}') AND type='TR' and name='__{table.Name}_ct-{op}__'");
-            var createTriggerCommand = new Func<string, string>((op) => $@"CREATE TRIGGER [__{table.Name}_ct-{op}__]
+            var createTriggerCommand = new Func<string, string>((op) => $@"CREATE TRIGGER [__{table.NameWithSchemaRaw}_ct-{op}__]
 ON {table.NameWithSchema}
 AFTER {op}
 AS

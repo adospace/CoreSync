@@ -21,6 +21,8 @@ namespace CoreSync.SqlServer
 
         public string NameWithSchema => $"{(Schema == null ? string.Empty : "[" + Schema + "].")}[{Name}]";
 
+        public string NameWithSchemaRaw => $"{(Schema == null ? string.Empty : Schema + ".")}{Name}";
+
         internal string PrimaryColumnName { get; set; }
 
         internal SqlPrimaryColumnType PrimaryColumnType => GetPrimaryColumnType(Columns[PrimaryColumnName].DbType);
