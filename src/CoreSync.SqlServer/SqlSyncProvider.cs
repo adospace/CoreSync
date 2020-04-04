@@ -620,7 +620,7 @@ INNER JOIN __CORE_SYNC_CT AS CT ON T.[{table.PrimaryColumnName}] = CT.[PK_{table
 
         private async Task SetupTableForFullChangeDetection(SqlSyncTable table, SqlCommand cmd)
         {
-            var existsTriggerCommand = new Func<string, string>((op) => $@"select COUNT(*) from sys.objects where schema_id=SCHEMA_ID('{table.Schema}') AND type='TR' and name='__{table.Name}_ct-{op}__'");
+            var existsTriggerCommand = new Func<string, string>((op) => $@"select COUNT(*) from sys.objects where schema_id=SCHEMA_ID('{table.Schema}') AND type='TR' and name='__{table.NameWithSchemaRaw}_ct-{op}__'");
             var createTriggerCommand = new Func<string, string>((op) => $@"CREATE TRIGGER [__{table.NameWithSchemaRaw}_ct-{op}__]
 ON {table.NameWithSchema}
 AFTER {op}
@@ -659,7 +659,7 @@ END");
 
         private async Task SetupTableForUpdatesOrDeletesOnly(SqlSyncTable table, SqlCommand cmd)
         {
-            var existsTriggerCommand = new Func<string, string>((op) => $@"select COUNT(*) from sys.objects where schema_id=SCHEMA_ID('{table.Schema}') AND type='TR' and name='__{table.Name}_ct-{op}__'");
+            var existsTriggerCommand = new Func<string, string>((op) => $@"select COUNT(*) from sys.objects where schema_id=SCHEMA_ID('{table.Schema}') AND type='TR' and name='__{table.NameWithSchemaRaw}_ct-{op}__'");
             var createTriggerCommand = new Func<string, string>((op) => $@"CREATE TRIGGER [__{table.NameWithSchemaRaw}_ct-{op}__]
 ON {table.NameWithSchema}
 AFTER {op}
