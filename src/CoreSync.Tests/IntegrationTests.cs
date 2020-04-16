@@ -928,5 +928,190 @@ namespace CoreSync.Tests
             remoteUserPosts[3].Stars.ShouldBe(0);
         }
 
+        [TestMethod]
+        public async Task TestSyncAgent_SqlServer_SqlServer_UpdatedRemoteDeletedLocal()
+        {
+            using (var localDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=TestSyncAgent_SqlServer_SqlServer_UpdatedRemoteDeletedLocal_Local"))
+            using (var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=TestSyncAgent_SqlServer_SqlServer_UpdatedRemoteDeletedLocal_Remote"))
+            {
+                await localDb.Database.EnsureDeletedAsync();
+                await remoteDb.Database.EnsureDeletedAsync();
+
+                await localDb.Database.MigrateAsync();
+                await remoteDb.Database.MigrateAsync();
+
+                var remoteConfigurationBuilder =
+                    new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                        .Table("Users")
+                        .Table("Posts")
+                        .Table("Comments");
+
+                var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote);
+
+                var localConfigurationBuilder =
+                    new SqlSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+                var localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Build());
+
+                await TestSyncAgentWithUpdatedRemoteDeletedLocal(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+            }
+        }
+
+        private async Task TestSyncAgentWithUpdatedRemoteDeletedLocal(
+            BlogDbContext localDb,
+            ISyncProvider localSyncProvider,
+            BlogDbContext remoteDb,
+            ISyncProvider remoteSyncProvider)
+        {
+            #region Initialize remote data, sync local and verify
+
+            User remoteUser;
+            remoteDb.Users.Add(remoteUser = new User() { Email = "user@test.com", Name = "User created before sync", Created = DateTime.Now });
+
+            remoteUser.Posts.Add(new Post()
+            {
+                Content = "This is a post created before sync of the client",
+                Title = "Initial post of user 1",
+                Claps = 1,
+                Stars = 10
+            });
+
+            remoteUser.Posts.Add(new Post()
+            {
+                Content = "This is a second post created before sync of the client",
+                Title = "Initial post 2 of user 1",
+                Claps = 2,
+                Stars = 1
+            });
+
+            remoteUser.Posts.Add(new Post()
+            {
+                Content = "This is a third post created before sync of the client",
+                Title = "Initial post 3 of user 1",
+                Claps = 3,
+                Stars = 1
+            });
+
+            await remoteDb.SaveChangesAsync();
+
+            var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
+            await syncAgent.InitializeAsync();
+
+            var localUser = await localDb.Users.Include(_ => _.Posts).FirstOrDefaultAsync(_ => _.Email == "user@test.com");
+            localUser.ShouldNotBeNull();
+            localUser.Email.ShouldBe("user@test.com");
+            localUser.Name.ShouldBe("User created before sync");
+
+            var localUserPosts = localUser.Posts.OrderBy(_ => _.Claps).ToList();
+            localUserPosts.Count().ShouldBe(3);
+            localUserPosts[0].Content.ShouldBe("This is a post created before sync of the client");
+            localUserPosts[0].Title.ShouldBe("Initial post of user 1");
+            localUserPosts[0].Claps.ShouldBe(1);
+            localUserPosts[0].Stars.ShouldBe(10);
+
+            localUserPosts[1].Content.ShouldBe("This is a second post created before sync of the client");
+            localUserPosts[1].Title.ShouldBe("Initial post 2 of user 1");
+            localUserPosts[1].Claps.ShouldBe(2);
+            localUserPosts[1].Stars.ShouldBe(1);
+
+            localUserPosts[2].Content.ShouldBe("This is a third post created before sync of the client");
+            localUserPosts[2].Title.ShouldBe("Initial post 3 of user 1");
+            localUserPosts[2].Claps.ShouldBe(3);
+            localUserPosts[2].Stars.ShouldBe(1);
+
+            await syncAgent.SynchronizeAsync();
+
+            remoteDb = remoteDb.Refresh();
+
+            var remoteUserPosts = remoteDb.Posts.OrderBy(_ => _.Claps).ToList();
+            remoteUserPosts.Count().ShouldBe(3);
+            remoteUserPosts[0].Content.ShouldBe("This is a post created before sync of the client");
+            //even if edited on localdb post that was synched as initial snapshot can't be modified on server
+            remoteUserPosts[0].Title.ShouldBe("Initial post of user 1");
+            remoteUserPosts[0].Claps.ShouldBe(1);
+            remoteUserPosts[0].Stars.ShouldBe(10);
+
+            remoteUserPosts[1].Content.ShouldBe("This is a second post created before sync of the client");
+            remoteUserPosts[1].Title.ShouldBe("Initial post 2 of user 1");
+            remoteUserPosts[1].Claps.ShouldBe(2);
+            remoteUserPosts[1].Stars.ShouldBe(1);
+
+            remoteUserPosts[2].Content.ShouldBe("This is a third post created before sync of the client");
+            remoteUserPosts[2].Title.ShouldBe("Initial post 3 of user 1");
+            remoteUserPosts[2].Claps.ShouldBe(3);
+            remoteUserPosts[2].Stars.ShouldBe(1);
+
+            #endregion
+
+            #region Remove a local record and verify
+
+            var postToRemove = localUser.Posts[2];
+
+            localDb.Posts.Remove(localUser.Posts[2]);
+            await localDb.SaveChangesAsync();
+
+            localUser = await localDb.Users.Include(_ => _.Posts).FirstOrDefaultAsync(_ => _.Email == "user@test.com");
+            Assert.AreEqual(2, localUser.Posts.Count);
+
+            #endregion
+
+            #region Update a remote record
+
+            var remotePost = remoteUser.Posts.First(p => p.Id == postToRemove.Id);
+            remotePost.Content = "Updated remote for test.";
+
+            remoteDb = remoteDb.Refresh();
+            remoteDb.Posts.Update(remotePost);
+
+            await remoteDb.SaveChangesAsync();
+
+            remoteUser = await remoteDb.Users.Include(_ => _.Posts).FirstOrDefaultAsync(_ => _.Email == "user@test.com");
+            Assert.AreEqual("Updated remote for test.", remoteUser.Posts.First(p => p.Id == postToRemove.Id).Content);
+
+            #endregion
+
+            #region Syncronize and verify the local database has the deleted record
+            //I've delete a post on local database AND updated the same posts on rempte database
+            //SynchronizeAsync() accepts 2 args remoteConflictResolutionFunc and localConflictResolutionFunc
+            //that describe how agent should deal with conflits:
+            //1) remoteConflictResolutionFunc: (itemInConflict) => ConflictResolution.Skip or simply remoteConflictResolution: ConflictResolution.Skip
+            //   means that remote database should not apply the delete operation on post coming from local database
+            //2) localConflictResolutionFunc: (itemInConflict) => ConflictResolution.ForceWrite or simply localConflictResolutionFunc: ConflictResolution.ForceWrite
+            //   means that local datase should update the local post that was updated from remote db and since the record doesn't exist anymore it actually means insert
+            //   the post record again with data coming from server
+
+            await syncAgent.SynchronizeAsync();
+            //this above call is the same as this:
+            // await syncAgent.SynchronizeAsync(conflictResolutionOnRemoteStore: ConflictResolution.Skip, conflictResolutionOnLocalStore: ConflictResolution.ForceWrite);
+            //Thanks to Mike Perrenoud I've found that by default await syncAgent.SynchronizeAsync() was instead defaulted to 
+            // await syncAgent.SynchronizeAsync(conflictResolutionOnRemoteStore: ConflictResolution.Skip, conflictResolutionOnLocalStore: ConflictResolution.Skip);
+            // causing this test to fail
+
+            // following code allows to enumerate any item in conflict and take appropriate action for each of them:
+            //await syncAgent.SynchronizeAsync(
+            //    remoteConflictResolutionFunc: (itemInConflict) =>
+            //    {
+            //        itemInConflict.ChangeType.ShouldBe(ChangeType.Delete);
+            //        itemInConflict.TableName.ShouldBe("Posts");
+            //        itemInConflict.Values["Id"].Value = postToRemove.Id;
+            //        return ConflictResolution.Skip;
+            //    },
+            //    localConflictResolutionFunc: (itemInConflict) =>
+            //    {
+            //        return ConflictResolution.ForceWrite;
+            //    });
+
+            localDb = localDb.Refresh();
+
+            localUser = await localDb.Users.Include(_ => _.Posts).FirstOrDefaultAsync(_ => _.Email == "user@test.com");
+            Assert.AreEqual(3, localUser.Posts.Count);
+            Assert.AreEqual("Updated remote for test.", localUser.Posts.First(p => p.Id == postToRemove.Id).Content);
+
+            #endregion
+        }
+
     }
 }

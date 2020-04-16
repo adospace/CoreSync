@@ -47,6 +47,9 @@ namespace CoreSync
         {
             try
             {
+                remoteConflictResolutionFunc = remoteConflictResolutionFunc ?? ((_) => ConflictResolution.Skip);
+                localConflictResolutionFunc = localConflictResolutionFunc ?? ((_) => ConflictResolution.ForceWrite);
+
                 var localStoreId = await LocalSyncProvider.GetStoreIdAsync();
                 var remoteStoreId = await RemoteSyncProvider.GetStoreIdAsync();
 
