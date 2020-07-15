@@ -23,9 +23,9 @@ namespace CoreSync
                 var localStoreId = await LocalSyncProvider.GetStoreIdAsync();
                 var remoteStoreId = await RemoteSyncProvider.GetStoreIdAsync();
 
-                var initalLocalChangeSet = await LocalSyncProvider.GetInitialSnapshotAsync(remoteStoreId, SyncDirection.UploadOnly);
-                await RemoteSyncProvider.ApplyChangesAsync(initalLocalChangeSet, (item) => throw new InvalidOperationException($"Conflit on insert initial item on remote store: {item}"));
-                await LocalSyncProvider.SaveVersionForStoreAsync(remoteStoreId, initalLocalChangeSet.SourceAnchor.Version);
+                var initialLocalChangeSet = await LocalSyncProvider.GetInitialSnapshotAsync(remoteStoreId, SyncDirection.UploadOnly);
+                await RemoteSyncProvider.ApplyChangesAsync(initialLocalChangeSet, (item) => throw new InvalidOperationException($"Conflit on insert initial item on remote store: {item}"));
+                await LocalSyncProvider.SaveVersionForStoreAsync(remoteStoreId, initialLocalChangeSet.SourceAnchor.Version);
 
                 var initialRemoteChangeSet = await RemoteSyncProvider.GetInitialSnapshotAsync(localStoreId, SyncDirection.DownloadOnly);
                 await LocalSyncProvider.ApplyChangesAsync(initialRemoteChangeSet, (item) => throw new InvalidOperationException($"Conflit on insert initial item on local store: {item}"));

@@ -24,5 +24,9 @@ namespace CoreSync
         Task ApplyProvisionAsync();
 
         Task RemoveProvisionAsync();
+
+        Task<SyncVersion> GetSyncVersionAsync();
+
+        Task<SyncVersion> ApplyRetentionPolicyAsync(int minVersion);
     }
 }

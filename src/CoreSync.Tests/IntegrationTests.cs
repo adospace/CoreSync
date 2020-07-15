@@ -11,397 +11,11 @@ using System.Threading.Tasks;
 
 namespace CoreSync.Tests
 {
-    [TestClass]
-    public class IntegrationTests
+    public partial class IntegrationTests
     {
         public static string ConnectionString => Environment.GetEnvironmentVariable("CORE-SYNC_CONNECTION_STRING") ??
                                                  throw new ArgumentException(
                                                      "Set CORE-SYNC_CONNECTION_STRING environmental variable containing connection string to Sql Server");
-
-        [TestMethod]
-        public async Task Test1_SqlServer_SqlServer()
-        {
-            using (var localDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test1_Local"))
-            using (var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test1_Remote"))
-            {
-                await localDb.Database.EnsureDeletedAsync();
-                await remoteDb.Database.EnsureDeletedAsync();
-
-                await localDb.Database.MigrateAsync();
-                await remoteDb.Database.MigrateAsync();
-
-                var remoteConfigurationBuilder =
-                    new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
-                    .Table("Users")
-                    .Table("Posts")
-                    .Table("Comments");
-
-                var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build());
-                await remoteSyncProvider.ApplyProvisionAsync();
-
-                var localConfigurationBuilder =
-                    new SqlSyncConfigurationBuilder(localDb.ConnectionString)
-                    .Table("Users")
-                    .Table("Posts")
-                    .Table("Comments");
-
-                var localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Build());
-                await localSyncProvider.ApplyProvisionAsync();
-
-
-                await Test1(localDb,
-                    localSyncProvider,
-                    remoteDb,
-                    remoteSyncProvider);
-            }
-        }
-
-        [TestMethod]
-        public async Task Test2_SqlServer_SqlServer()
-        {
-            using (var localDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test2_Local"))
-            using (var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test2_Remote"))
-            {
-                await localDb.Database.EnsureDeletedAsync();
-                await remoteDb.Database.EnsureDeletedAsync();
-
-                await localDb.Database.MigrateAsync();
-                await remoteDb.Database.MigrateAsync();
-
-                var remoteConfigurationBuilder =
-                    new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
-                    .Table("Users")
-                    .Table("Posts")
-                    .Table("Comments");
-
-                var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build());
-                await remoteSyncProvider.ApplyProvisionAsync();
-
-                var localConfigurationBuilder =
-                    new SqlSyncConfigurationBuilder(localDb.ConnectionString)
-                    .Table("Users")
-                    .Table("Posts")
-                    .Table("Comments");
-
-                var localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Build());
-                await localSyncProvider.ApplyProvisionAsync();
-
-                await Test2(localDb,
-                    localSyncProvider,
-                    remoteDb,
-                    remoteSyncProvider);
-            }
-        }
-
-        [TestMethod]
-        public async Task Test1_Sqlite_Sqlite()
-        {
-            var localDbFile = $"{Path.GetTempPath()}Test1_Sqlite_Sqlite_local.sqlite";
-            var remoteDbFile = $"{Path.GetTempPath()}Test1_Sqlite_Sqlite_remote.sqlite";
-
-            if (File.Exists(localDbFile)) File.Delete(localDbFile);
-            if (File.Exists(remoteDbFile)) File.Delete(remoteDbFile);
-
-            using (var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}"))
-            using (var remoteDb = new SqliteBlogDbContext($"Data Source={remoteDbFile}"))
-            {
-                await localDb.Database.EnsureDeletedAsync();
-                await remoteDb.Database.EnsureDeletedAsync();
-
-                await localDb.Database.MigrateAsync();
-                await remoteDb.Database.MigrateAsync();
-
-                var remoteConfigurationBuilder =
-                    new SqliteSyncConfigurationBuilder(remoteDb.ConnectionString)
-                        .Table<User>("Users")
-                        .Table<Post>("Posts")
-                        .Table<Comment>("Comments");
-
-                var remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Build());
-                await remoteSyncProvider.ApplyProvisionAsync();
-
-                var localConfigurationBuilder =
-                    new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
-                        .Table<User>("Users")
-                        .Table<Post>("Posts")
-                        .Table<Comment>("Comments");
-
-                var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build());
-                await localSyncProvider.ApplyProvisionAsync();
-
-
-                await Test1(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
-            }
-        }
-
-        [TestMethod]
-        public async Task Test1_SqlServer_Sqlite()
-        {
-            var remoteDbFile = $"{Path.GetTempPath()}Test1_SqlServer_Sqlite_remote.sqlite";
-
-            if (File.Exists(remoteDbFile)) File.Delete(remoteDbFile);
-
-            using (var localDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test1_Local"))
-            using (var remoteDb = new SqliteBlogDbContext($"Data Source={remoteDbFile}"))
-            {
-                await localDb.Database.EnsureDeletedAsync();
-                await remoteDb.Database.EnsureDeletedAsync();
-
-                await localDb.Database.MigrateAsync();
-                await remoteDb.Database.MigrateAsync();
-
-                var remoteConfigurationBuilder =
-                    new SqliteSyncConfigurationBuilder(remoteDb.ConnectionString)
-                        .Table<User>("Users")
-                        .Table<Post>("Posts")
-                        .Table<Comment>("Comments");
-
-                var remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Build());
-                await remoteSyncProvider.ApplyProvisionAsync();
-
-                var localConfigurationBuilder =
-                    new SqlSyncConfigurationBuilder(localDb.ConnectionString)
-                        .Table("Users")
-                        .Table("Posts")
-                        .Table("Comments");
-
-
-                var localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Build());
-                await localSyncProvider.ApplyProvisionAsync();
-
-
-                await Test1(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
-            }
-        }
-
-        [TestMethod]
-        public async Task Test2_Sqlite_Sqlite()
-        {
-            var localDbFile = $"{Path.GetTempPath()}Test2_Sqlite_Sqlite_local.sqlite";
-            var remoteDbFile = $"{Path.GetTempPath()}Test2_Sqlite_Sqlite_remote.sqlite";
-
-            if (File.Exists(localDbFile)) File.Delete(localDbFile);
-            if (File.Exists(remoteDbFile)) File.Delete(remoteDbFile);
-
-            using (var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}"))
-            using (var remoteDb = new SqliteBlogDbContext($"Data Source={remoteDbFile}"))
-            {
-                await localDb.Database.EnsureDeletedAsync();
-                await remoteDb.Database.EnsureDeletedAsync();
-
-                await localDb.Database.MigrateAsync();
-                await remoteDb.Database.MigrateAsync();
-
-                var remoteConfigurationBuilder =
-                    new SqliteSyncConfigurationBuilder(remoteDb.ConnectionString)
-                        .Table<User>("Users")
-                        .Table<Post>("Posts")
-                        .Table<Comment>("Comments");
-
-                var remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Build());
-                await remoteSyncProvider.ApplyProvisionAsync();
-
-                var localConfigurationBuilder =
-                    new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
-                        .Table<User>("Users")
-                        .Table<Post>("Posts")
-                        .Table<Comment>("Comments");
-
-                var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build());
-                await localSyncProvider.ApplyProvisionAsync();
-
-                await Test2(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
-            }
-        }
-
-        [TestMethod]
-        public async Task Test1_Sqlite_SqlServer()
-        {
-            var localDbFile = $"{Path.GetTempPath()}Test1_Sqlite_SqlServer_local.sqlite";
-
-            if (File.Exists(localDbFile)) File.Delete(localDbFile);
-
-            using (var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}"))
-            using (var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test1_Remote"))
-            {
-                await localDb.Database.EnsureDeletedAsync();
-                await remoteDb.Database.EnsureDeletedAsync();
-
-                await localDb.Database.MigrateAsync();
-                await remoteDb.Database.MigrateAsync();
-
-                var remoteConfigurationBuilder =
-                    new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
-                        .Table("Users")
-                        .Table("Posts")
-                        .Table("Comments");
-
-                var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build());
-                await remoteSyncProvider.ApplyProvisionAsync();
-
-                var localConfigurationBuilder =
-                    new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
-                        .Table<User>("Users")
-                        .Table<Post>("Posts")
-                        .Table<Comment>("Comments");
-
-                var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build());
-                await localSyncProvider.ApplyProvisionAsync();
-
-
-                await Test1(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
-            }
-        }
-
-        [TestMethod]
-        public async Task Test2_Sqlite_SqlServer()
-        {
-            var localDbFile = $"{Path.GetTempPath()}Test2_Sqlite_SqlServer_local.sqlite";
-
-            if (File.Exists(localDbFile)) File.Delete(localDbFile);
-
-            using (var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}"))
-            using (var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test2_Remote"))
-            {
-                await localDb.Database.EnsureDeletedAsync();
-                await remoteDb.Database.EnsureDeletedAsync();
-
-                await localDb.Database.MigrateAsync();
-                await remoteDb.Database.MigrateAsync();
-
-                var remoteConfigurationBuilder =
-                    new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
-                        .Table("Users")
-                        .Table("Posts")
-                        .Table("Comments");
-
-                var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build());
-                await remoteSyncProvider.ApplyProvisionAsync();
-
-                var localConfigurationBuilder =
-                    new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
-                        .Table<User>("Users")
-                        .Table<Post>("Posts")
-                        .Table<Comment>("Comments");
-
-                var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build());
-                await localSyncProvider.ApplyProvisionAsync();
-
-
-                //await Test2(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
-            }
-        }
-
-        [TestMethod]
-        public async Task TestSyncAgent_Sqlite_SqlServer()
-        {
-            var localDbFile = $"{Path.GetTempPath()}TestSyncAgent_Sqlite_SqlServer_local.sqlite";
-
-            if (File.Exists(localDbFile)) File.Delete(localDbFile);
-
-            using (var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}"))
-            using (var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=TestSyncAgent_Sqlite_SqlServer_Remote"))
-            {
-                await localDb.Database.EnsureDeletedAsync();
-                await remoteDb.Database.EnsureDeletedAsync();
-
-                await localDb.Database.MigrateAsync();
-                await remoteDb.Database.MigrateAsync();
-
-                var remoteConfigurationBuilder =
-                    new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
-                        .Table("Users")
-                        .Table("Posts")
-                        .Table("Comments");
-
-                var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build());
-
-                var localConfigurationBuilder =
-                    new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
-                        .Table<User>("Users")
-                        .Table<Post>("Posts")
-                        .Table<Comment>("Comments");
-
-                var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build());
-
-
-                await TestSyncAgent(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
-            }
-        }
-
-        [TestMethod]
-        public async Task TestSyncAgent_Sqlite_SqlServer_MultipleRecordsSameTable()
-        {
-            var localDbFile = $"{Path.GetTempPath()}TestSyncAgent_Sqlite_SqlServer_MultipleRecordsSameTable.sqlite";
-
-            if (File.Exists(localDbFile)) File.Delete(localDbFile);
-
-            using (var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}"))
-            using (var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=TestSyncAgent_Sqlite_SqlServer_MultipleRecordsSameTable"))
-            {
-                await localDb.Database.EnsureDeletedAsync();
-                await remoteDb.Database.EnsureDeletedAsync();
-
-                await localDb.Database.MigrateAsync();
-                await remoteDb.Database.MigrateAsync();
-
-                var remoteConfigurationBuilder =
-                    new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
-                        .Table("Users")
-                        .Table("Posts")
-                        .Table("Comments");
-
-                var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build());
-
-                var localConfigurationBuilder =
-                    new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
-                        .Table<User>("Users")
-                        .Table<Post>("Posts")
-                        .Table<Comment>("Comments");
-
-                var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build());
-
-
-                await TestSyncAgentMultipleRecordsOnSameTable(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
-            }
-        }
-
-        [TestMethod]
-        public async Task TestSyncAgent_Sqlite_SqlServer_WithInitialData()
-        {
-            var localDbFile = $"{Path.GetTempPath()}TestSyncAgent_Sqlite_SqlServer_WithInitialData.sqlite";
-
-            if (File.Exists(localDbFile)) File.Delete(localDbFile);
-
-            using (var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}"))
-            using (var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=TestSyncAgent_Sqlite_SqlServer_WithInitialData"))
-            {
-                await localDb.Database.EnsureDeletedAsync();
-                await remoteDb.Database.EnsureDeletedAsync();
-
-                await localDb.Database.MigrateAsync();
-                await remoteDb.Database.MigrateAsync();
-
-                var remoteConfigurationBuilder =
-                    new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
-                        .Table("Users")
-                        .Table("Posts")
-                        .Table("Comments");
-
-                var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote);
-
-                var localConfigurationBuilder =
-                    new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
-                        .Table<User>("Users")
-                        .Table<Post>("Posts")
-                        .Table<Comment>("Comments");
-
-                var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local);
-
-
-                await TestSyncAgentWithInitialData(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
-            }
-        }
 
         private async Task Test1(
             BlogDbContext localDb,
@@ -756,7 +370,7 @@ namespace CoreSync.Tests
             localDb = localDb.Refresh();
 
             //verify that first user is still stored locally
-            localUser = await localDb.Users.Include(_=>_.Posts).FirstAsync(_ => _.Email == "user@email.com");
+            localUser = await localDb.Users.Include(_ => _.Posts).FirstAsync(_ => _.Email == "user@email.com");
             Assert.AreEqual("user", localUser.Name);
             Assert.AreEqual(new DateTime(2018, 1, 1), localUser.Created);
 
@@ -771,7 +385,7 @@ namespace CoreSync.Tests
             Assert.AreEqual(new DateTime(2019, 1, 1), localUser3.Created);
 
             //verify that user posts are still stored locally
-            Assert.AreEqual("This is first post from user 1", localUser.Posts.OrderBy(_=>_.Updated).ToArray()[0].Content);
+            Assert.AreEqual("This is first post from user 1", localUser.Posts.OrderBy(_ => _.Updated).ToArray()[0].Content);
             Assert.AreEqual("This is second post from user 1", localUser.Posts.OrderBy(_ => _.Updated).ToArray()[1].Content);
             Assert.AreEqual("This is first post from user 2", localUser2.Posts.OrderBy(_ => _.Updated).ToArray()[0].Content);
 
@@ -822,7 +436,7 @@ namespace CoreSync.Tests
 
 
             remoteUser2.Posts.Add(new Post()
-            { 
+            {
                 Content = "Post add to remote user while user is delete on local db",
                 Updated = DateTime.Now
             });
@@ -871,7 +485,7 @@ namespace CoreSync.Tests
             var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
             await syncAgent.InitializeAsync();
 
-            var localUser = await localDb.Users.Include(_=>_.Posts).FirstOrDefaultAsync(_ => _.Email == "user@test.com");
+            var localUser = await localDb.Users.Include(_ => _.Posts).FirstOrDefaultAsync(_ => _.Email == "user@test.com");
             localUser.ShouldNotBeNull();
             localUser.Email.ShouldBe("user@test.com");
             localUser.Name.ShouldBe("User created before sync");
@@ -895,7 +509,7 @@ namespace CoreSync.Tests
 
             await syncAgent.SynchronizeAsync();
 
-            localUser.Posts.Add(new Post() { Content = "Post created on local db after first sync", Title = "Post created on local db", Claps = 4});
+            localUser.Posts.Add(new Post() { Content = "Post created on local db after first sync", Title = "Post created on local db", Claps = 4 });
             localUserPosts[0].Title = "Post edited on local db";
 
             await localDb.SaveChangesAsync();
@@ -928,37 +542,6 @@ namespace CoreSync.Tests
             remoteUserPosts[3].Stars.ShouldBe(0);
         }
 
-        [TestMethod]
-        public async Task TestSyncAgent_SqlServer_SqlServer_UpdatedRemoteDeletedLocal()
-        {
-            using (var localDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=TestSyncAgent_SqlServer_SqlServer_UpdatedRemoteDeletedLocal_Local"))
-            using (var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=TestSyncAgent_SqlServer_SqlServer_UpdatedRemoteDeletedLocal_Remote"))
-            {
-                await localDb.Database.EnsureDeletedAsync();
-                await remoteDb.Database.EnsureDeletedAsync();
-
-                await localDb.Database.MigrateAsync();
-                await remoteDb.Database.MigrateAsync();
-
-                var remoteConfigurationBuilder =
-                    new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
-                        .Table("Users")
-                        .Table("Posts")
-                        .Table("Comments");
-
-                var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote);
-
-                var localConfigurationBuilder =
-                    new SqlSyncConfigurationBuilder(localDb.ConnectionString)
-                    .Table("Users")
-                    .Table("Posts")
-                    .Table("Comments");
-
-                var localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Build());
-
-                await TestSyncAgentWithUpdatedRemoteDeletedLocal(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
-            }
-        }
 
         private async Task TestSyncAgentWithUpdatedRemoteDeletedLocal(
             BlogDbContext localDb,
@@ -1113,5 +696,104 @@ namespace CoreSync.Tests
             #endregion
         }
 
+
+        private async Task TestSyncAgentWithDataRetention(
+            BlogDbContext localDb,
+            ISyncProvider localSyncProvider,
+            BlogDbContext remoteDb,
+            ISyncProvider remoteSyncProvider)
+        {
+            //setup change tracking
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            //create remote data
+            User remoteUser;
+            remoteDb.Users.Add(remoteUser = new User() { Email = "user@test.com", Name = "User created before sync", Created = DateTime.Now });
+
+            for (int i = 1; i <= 10; i++)
+            {
+                remoteUser.Posts.Add(new Post()
+                {
+                    Content = $"Content of Post {i}",
+                    Title = $"Post {i}",
+                    Claps = 1,
+                    Stars = 10
+                });
+            }
+
+            await remoteDb.SaveChangesAsync();
+
+
+            //set data retention -> remove first records in the change tracking table
+            var remoteSyncVersion = await remoteSyncProvider.GetSyncVersionAsync();
+            remoteSyncVersion.Minimum.ShouldBe(1);
+            remoteSyncVersion.Current.ShouldBe(11);//1 users + 10 posts
+
+            remoteSyncVersion = await remoteSyncProvider.ApplyRetentionPolicyAsync(4);
+            remoteSyncVersion.Minimum.ShouldBe(4);
+            remoteSyncVersion.Current.ShouldBe(11);// 11 - 4 = 7 posts
+
+            //local provider is still not synched
+            var localSyncVersion = await localSyncProvider.GetSyncVersionAsync();
+            localSyncVersion.Minimum.ShouldBe(0);
+            localSyncVersion.Current.ShouldBe(0);
+
+            //now let's sync
+            var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
+            await syncAgent.InitializeAsync();
+
+            localSyncVersion = await localSyncProvider.GetSyncVersionAsync();
+            localSyncVersion.Minimum.ShouldBe(0);
+            localSyncVersion.Current.ShouldBe(0);
+
+            (await localDb.Users.ToListAsync()).Count.ShouldBe(1);
+            (await localDb.Posts.ToListAsync()).Count.ShouldBe(10);
+
+            //now add a new post on server, one on local db than sync
+            remoteDb = remoteDb.Refresh();
+            remoteUser = await remoteDb.Users.FirstAsync(_ => _.Email == "user@test.com");
+
+            remoteUser.Posts.Add(new Post()
+            {
+                Content = $"Another post on server",
+                Title = $"New post on server",
+                Claps = 1,
+                Stars = 10
+            });
+
+            await remoteDb.SaveChangesAsync();
+
+            var localUser = await localDb.Users.FirstAsync(_ => _.Email == "user@test.com");
+
+            localUser.Posts.Add(new Post()
+            {
+                Content = $"A post from client",
+                Title = $"New post on client",
+                Claps = 1,
+                Stars = 10
+            });
+
+            await localDb.SaveChangesAsync();
+
+            await syncAgent.SynchronizeAsync();
+
+            remoteDb = remoteDb.Refresh();
+            localDb = localDb.Refresh();
+
+            (await remoteDb.Users.SingleAsync()).Email.ShouldBe("user@test.com");
+            (await localDb.Users.SingleAsync()).Email.ShouldBe("user@test.com");
+
+            (await remoteDb.Posts.ToListAsync()).Count.ShouldBe(12);
+            (await localDb.Posts.ToListAsync()).Count.ShouldBe(12);
+           
+
+            remoteSyncVersion = await remoteSyncProvider.ApplyRetentionPolicyAsync(4);
+            remoteSyncVersion.Minimum.ShouldBe(4);
+            remoteSyncVersion.Current.ShouldBe(13);// +2 posts
+
+            localSyncVersion = await localSyncProvider.GetSyncVersionAsync();
+            localSyncVersion.Minimum.ShouldBe(1);
+            localSyncVersion.Current.ShouldBe(2); // +2 posts
+        }
     }
 }

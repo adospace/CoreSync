@@ -50,8 +50,9 @@ namespace CoreSync.Sqlite
                         cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
                         var minVersion = await cmd.ExecuteLongScalarAsync();
 
-                        if (changeSet.SourceAnchor.Version < minVersion - 1)
-                            throw new InvalidOperationException($"Unable to apply changes, version of data requested ({changeSet.SourceAnchor.Version}) is too old (min valid version {minVersion})");
+                        // if (changeSet.SourceAnchor.Version > 0 &&
+                        //     changeSet.SourceAnchor.Version < minVersion - 1)
+                        //     throw new InvalidOperationException($"Unable to apply changes, version of source data ({changeSet.SourceAnchor.Version}) is too old (min valid version {minVersion})");
 
                         foreach (var item in changeSet.Items)
                         {
@@ -710,5 +711,80 @@ namespace CoreSync.Sqlite
                 }
             }
         }
+
+        
+        public async Task<SyncVersion> GetSyncVersionAsync()
+        {
+            await InitializeStoreAsync();
+
+            using (var c = new SqliteConnection(Configuration.ConnectionString))
+            {
+                try
+                {
+                    await c.OpenAsync();
+
+                    using (var cmd = new SqliteCommand())
+                    {
+                        using (var tr = c.BeginTransaction())
+                        {
+                            cmd.Connection = c;
+                            cmd.Transaction = tr;
+
+                            cmd.CommandText = "SELECT MAX(ID) FROM __CORE_SYNC_CT";
+                            var version = await cmd.ExecuteLongScalarAsync();
+
+                            cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
+                            var minVersion = await cmd.ExecuteLongScalarAsync();
+
+                            return new SyncVersion(version, minVersion);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException($"Unable to get current/minimum version from store", ex);
+                }
+            }
+        }
+
+        public async Task<SyncVersion> ApplyRetentionPolicyAsync(int minVersion)
+        {
+            await InitializeStoreAsync();
+
+            using (var c = new SqliteConnection(Configuration.ConnectionString))
+            {
+                try
+                {
+                    await c.OpenAsync();
+
+                    using (var cmd = new SqliteCommand())
+                    {
+                        using (var tr = c.BeginTransaction())
+                        {
+                            cmd.Connection = c;
+                            cmd.Transaction = tr;
+
+                            cmd.CommandText = $"DELETE FROM __CORE_SYNC_CT WHERE ID < {minVersion}";
+                            await cmd.ExecuteNonQueryAsync();
+
+                            cmd.CommandText = "SELECT MAX(ID) FROM __CORE_SYNC_CT";
+                            var version = await cmd.ExecuteLongScalarAsync();
+
+                            cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
+                            var newMinVersion = await cmd.ExecuteLongScalarAsync();
+
+                            tr.Commit();
+
+                            return new SyncVersion(version, newMinVersion);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException($"Unable to apply version {minVersion} to tracking table of the store", ex);
+                }
+            }
+        }
+
     }
 }
