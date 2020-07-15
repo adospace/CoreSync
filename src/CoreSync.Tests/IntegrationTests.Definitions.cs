@@ -472,6 +472,43 @@ namespace CoreSync.Tests
         }
 
 
+        [TestMethod]
+        public async Task Test_Sqlite_SqlServer_DataRetention()
+        {
+            var localDbFile = $"{Path.GetTempPath()}Test_Sqlite_SqlServer_DataRetention.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using (var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}"))
+            using (var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test_Sqlite_SqlServer_DataRetention"))
+            {
+                await localDb.Database.EnsureDeletedAsync();
+                await remoteDb.Database.EnsureDeletedAsync();
+
+                await localDb.Database.MigrateAsync();
+                await remoteDb.Database.MigrateAsync();
+
+                var remoteConfigurationBuilder =
+                    new SqliteSyncConfigurationBuilder(remoteDb.ConnectionString)
+                        .Table("Users")
+                        .Table("Posts")
+                        .Table("Comments");
+
+                var remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote);
+
+                var localConfigurationBuilder =
+                    new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                        .Table<User>("Users")
+                        .Table<Post>("Posts")
+                        .Table<Comment>("Comments");
+
+                var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local);
+
+
+                await TestSyncAgentWithDataRetention(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+            }
+        }
+
     }
 
 

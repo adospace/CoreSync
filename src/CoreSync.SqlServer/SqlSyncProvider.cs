@@ -67,8 +67,8 @@ namespace CoreSync.SqlServer
                             cmd.Parameters.Clear();
 
 
-                            if (changeSet.SourceAnchor.Version < minVersion - 1)
-                                throw new InvalidOperationException($"Unable to apply changes, version of data requested ({changeSet.SourceAnchor.Version}) is too old (min valid version {minVersion})");
+                            // if (changeSet.SourceAnchor.Version < minVersion - 1)
+                            //     throw new InvalidOperationException($"Unable to apply changes, version of data requested ({changeSet.SourceAnchor.Version}) is too old (min valid version {minVersion})");
 
                             foreach (var item in changeSet.Items)
                             {
@@ -875,7 +875,7 @@ END");
                             var newMinVersion = await cmd.ExecuteLongScalarAsync();
 
                             tr.Commit();
-                            
+
                             return new SyncVersion(version, newMinVersion);
                         }
                     }
