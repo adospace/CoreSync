@@ -527,12 +527,12 @@ namespace CoreSync.Tests
                 await remoteDb.Database.MigrateAsync();
 
                 var remoteConfigurationBuilder =
-                    new SqliteSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
                         .Table("Users")
                         .Table("Posts")
                         .Table("Comments");
 
-                var remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote);
+                var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote);
 
                 var localConfigurationBuilder =
                     new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
