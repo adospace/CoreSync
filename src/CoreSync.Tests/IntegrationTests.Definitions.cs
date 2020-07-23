@@ -325,6 +325,44 @@ namespace CoreSync.Tests
             }
         }
 
+                [TestMethod]
+        public async Task TestSyncAgent_Sqlite_Sqlite()
+        {
+            var localDbFile = $"{Path.GetTempPath()}TestSyncAgent_Sqlite_Sqlite_local.sqlite";
+            var remoteDbFile = $"{Path.GetTempPath()}TestSyncAgent_Sqlite_Sqlite_remote.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+            if (File.Exists(remoteDbFile)) File.Delete(remoteDbFile);
+
+            using (var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}"))
+            using (var remoteDb = new SqliteBlogDbContext($"Data Source={remoteDbFile}"))
+            {
+                await localDb.Database.EnsureDeletedAsync();
+                await remoteDb.Database.EnsureDeletedAsync();
+
+                await localDb.Database.MigrateAsync();
+                await remoteDb.Database.MigrateAsync();
+
+                var remoteConfigurationBuilder =
+                    new SqliteSyncConfigurationBuilder(remoteDb.ConnectionString)
+                        .Table("Users")
+                        .Table("Posts")
+                        .Table("Comments");
+
+                var remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Build());
+
+                var localConfigurationBuilder =
+                    new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                        .Table<User>("Users")
+                        .Table<Post>("Posts")
+                        .Table<Comment>("Comments");
+
+                var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build());
+
+                await TestSyncAgent(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+            }
+        }
+
         [TestMethod]
         public async Task TestSyncAgent_Sqlite_SqlServer_MultipleRecordsSameTable()
         {

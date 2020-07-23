@@ -10,5 +10,10 @@ namespace CoreSync
 
         public long Current { get; }
         public long Minimum { get; }
+
+        public override string ToString()
+        {
+            return $"SyncVersion(Current={Current} Minimum={Minimum})";
+        }
     }
 }
