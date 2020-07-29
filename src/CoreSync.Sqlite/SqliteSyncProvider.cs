@@ -11,11 +11,13 @@ namespace CoreSync.Sqlite
     {
         private bool _initialized = false;
         private Guid _storeId;
+        private readonly ISyncLogger _logger;
 
-        public SqliteSyncProvider(SqliteSyncConfiguration configuration, ProviderMode providerMode = ProviderMode.Bidirectional)
+        public SqliteSyncProvider(SqliteSyncConfiguration configuration, ProviderMode providerMode = ProviderMode.Bidirectional, ISyncLogger logger = null)
         {
             Configuration = configuration;
             ProviderMode = providerMode;
+            _logger = logger;
 
             if (configuration.Tables.Any(_ => _.SyncDirection != SyncDirection.UploadAndDownload) &&
                 providerMode == ProviderMode.Bidirectional)
@@ -32,6 +34,10 @@ namespace CoreSync.Sqlite
             Validate.NotNull(changeSet, nameof(changeSet));
 
             await InitializeStoreAsync();
+
+            var now = DateTime.Now;
+
+            _logger?.Info($"[{_storeId}] Begin ApplyChanges(source={changeSet.SourceAnchor}, target={changeSet.TargetAnchor}, {changeSet.Items.Count} items)");
 
             using (var c = new SqliteConnection(Configuration.ConnectionString))
             {
@@ -91,6 +97,11 @@ namespace CoreSync.Sqlite
                             try
                             {
                                 affectedRows = cmd.ExecuteNonQuery();
+
+                                if (affectedRows > 0)
+                                {
+                                    _logger?.Trace($"[{_storeId}] Successfully applied {item}");
+                                }
                             }
                             catch (Exception ex)
                             {
@@ -113,6 +124,12 @@ namespace CoreSync.Sqlite
                                     {
                                         throw new SynchronizationException($"Unable to {item} item to store for table {table} {new SyncAnchor(_storeId, version)}: affected rows was 0");
                                     }
+                                    else
+                                    {
+                                        itemChangeType = ChangeType.Update;
+                                        goto retryWrite;
+                                        //_logger?.Trace($"[{_storeId}] Existing record for {item}");
+                                    }
                                 }
                                 else if (itemChangeType == ChangeType.Update ||
                                     itemChangeType == ChangeType.Delete)
@@ -124,11 +141,13 @@ namespace CoreSync.Sqlite
                                             //item is already deleted in data store
                                             //so this means that we're going to delete a already deleted record
                                             //i.e. nothing to do
+                                            _logger?.Trace($"[{_storeId}] Insert on delete conflict occurred for {item}");
                                         }
                                         else
                                         {
                                             //if user wants to update forcely a delete record means
                                             //he wants to actually insert it again in store
+                                            _logger?.Trace($"[{_storeId}] Insert on delete conflict occurred for {item}");
                                             itemChangeType = ChangeType.Insert;
                                             goto retryWrite;
                                         }
@@ -139,24 +158,32 @@ namespace CoreSync.Sqlite
                                         var res = onConflictFunc?.Invoke(item);
                                         if (res.HasValue && res.Value == ConflictResolution.ForceWrite)
                                         {
+                                            _logger?.Trace($"[{_storeId}] Force write on conflict occurred for {item}");
+
                                             syncForceWrite = true;
                                             goto retryWrite;
+                                        }
+                                        else
+                                        {
+                                            _logger?.Warning($"[{_storeId}] Skip conflict for {item}");
                                         }
                                     }
                                 }
                             }
 
-                            cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
-                            cmd.Parameters.Clear();
-                            var currentVersion = await cmd.ExecuteLongScalarAsync();
+                            if (affectedRows > 0)
+                            {
+                                cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
+                                cmd.Parameters.Clear();
+                                var currentVersion = await cmd.ExecuteLongScalarAsync();
 
+                                cmd.CommandText = "UPDATE [__CORE_SYNC_CT] SET [SRC] = @sourceId WHERE [ID] = @version";
+                                cmd.Parameters.Clear();
+                                cmd.Parameters.AddWithValue("@sourceId", changeSet.SourceAnchor.StoreId.ToString());
+                                cmd.Parameters.AddWithValue("@version", currentVersion);
 
-                            cmd.CommandText = "UPDATE [__CORE_SYNC_CT] SET [SRC] = @sourceId WHERE [ID] = @version";
-                            cmd.Parameters.Clear();
-                            cmd.Parameters.AddWithValue("@sourceId", changeSet.SourceAnchor.StoreId.ToString());
-                            cmd.Parameters.AddWithValue("@version", currentVersion);
-
-                            await cmd.ExecuteNonQueryAsync();
+                                await cmd.ExecuteNonQueryAsync();
+                            }
                         }
 
                         cmd.CommandText = $"UPDATE [__CORE_SYNC_REMOTE_ANCHOR] SET [REMOTE_VERSION] = @version WHERE [ID] = @id";
@@ -173,7 +200,11 @@ namespace CoreSync.Sqlite
 
                         tr.Commit();
 
-                        return new SyncAnchor(_storeId, version);
+                        var resAnchor = new SyncAnchor(_storeId, version);
+
+                        _logger?.Info($"[{_storeId}] Completed ApplyChanges(resAnchor={resAnchor}) in {(DateTime.Now - now).TotalMilliseconds}ms");
+
+                        return resAnchor;
 
                     }
                 }
@@ -205,6 +236,8 @@ namespace CoreSync.Sqlite
                         }
 
                         tr.Commit();
+
+                        _logger?.Trace($"[{_storeId}] Save version {version} for store {otherStoreId}");
                     }
                 }
             }
@@ -212,9 +245,15 @@ namespace CoreSync.Sqlite
 
         public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncDirection syncDirection)
         {
-            long fromVersion = (await GetLastLocalAnchorForStoreAsync(otherStoreId)).Version;
+            var fromAnchor = (await GetLastLocalAnchorForStoreAsync(otherStoreId));
 
-            await InitializeStoreAsync();
+            //if fromVersion is 0 means that client needs actually to initialize its local datastore
+
+            //await InitializeStoreAsync();
+
+            var now = DateTime.Now;
+
+            _logger?.Info($"[{_storeId}] Begin GetChanges(from={otherStoreId}, syncDirection={syncDirection}, fromVersion={fromAnchor})");
 
             using (var c = new SqliteConnection(Configuration.ConnectionString))
             {
@@ -235,8 +274,8 @@ namespace CoreSync.Sqlite
                         cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
                         var minVersion = await cmd.ExecuteLongScalarAsync();
 
-                        if (fromVersion < minVersion - 1)
-                            throw new InvalidOperationException($"Unable to get changes, version of data requested ({fromVersion}) is too old (min valid version {minVersion})");
+                        if (!fromAnchor.IsNull() && fromAnchor.Version < minVersion - 1)
+                            throw new InvalidOperationException($"Unable to get changes, version of data requested ({fromAnchor}) is too old (min valid version {minVersion})");
 
                         foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_ => _.Columns.Any()))
                         {
@@ -244,10 +283,26 @@ namespace CoreSync.Sqlite
                                 table.SyncDirection != syncDirection)
                                 continue;
 
+                            var snapshotItems = new HashSet<object>();
+
+                            if (fromAnchor.IsNull() && !table.SkipInitialSnapshot)
+                            {
+                                cmd.CommandText = table.InitialSnapshotQuery;
+                                using (var r = await cmd.ExecuteReaderAsync())
+                                {
+                                    while (await r.ReadAsync())
+                                    {
+                                        var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
+                                        items.Add(new SqliteSyncItem(table, ChangeType.Insert, values));
+                                        snapshotItems.Add(values[table.PrimaryColumnName]);
+                                        _logger?.Trace($"[{_storeId}] Initial snapshot {items.Last()}");
+                                    }
+                                }
+                            }
 
                             cmd.CommandText = table.IncrementalAddOrUpdatesQuery;
                             cmd.Parameters.Clear();
-                            cmd.Parameters.AddWithValue("@version", fromVersion);
+                            cmd.Parameters.AddWithValue("@version", fromAnchor.IsNull() ? 0 : fromAnchor.Version);
                             cmd.Parameters.AddWithValue("@sourceId", otherStoreId.ToString());
 
                             using (var r = await cmd.ExecuteReaderAsync())
@@ -255,8 +310,12 @@ namespace CoreSync.Sqlite
                                 while (await r.ReadAsync())
                                 {
                                     var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
+                                    if (snapshotItems.Contains(values[table.PrimaryColumnName]))
+                                        continue;
+
                                     items.Add(new SqliteSyncItem(table, DetectChangeType(values),
                                         values.Where(_ => _.Key != "__OP").ToDictionary(_ => _.Key, _ => _.Value == DBNull.Value ? null : _.Value)));
+                                    _logger?.Trace($"[{_storeId}] Incremental add or update {items.Last()}");
                                 }
                             }
 
@@ -267,16 +326,22 @@ namespace CoreSync.Sqlite
                                 {
                                     var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
                                     items.Add(new SqliteSyncItem(table, ChangeType.Delete, values));
+                                    _logger?.Trace($"[{_storeId}] Incremental delete {items.Last()}");
                                 }
                             }
                         }
 
                         tr.Commit();
 
-                        return new SyncChangeSet(new SyncAnchor(_storeId, version), await GetLastRemoteAnchorForStoreAsync(otherStoreId), items);
+                        var resChangeSet = new SyncChangeSet(new SyncAnchor(_storeId, version), await GetLastRemoteAnchorForStoreAsync(otherStoreId), items);
+
+                        _logger?.Info($"[{_storeId}] Completed GetChanges(to={version}, {items.Count} items) in {(DateTime.Now - now).TotalMilliseconds}ms");
+
+                        return resChangeSet;
                     }
                 }
             }
+
         }
 
         private async Task<SyncAnchor> GetLastLocalAnchorForStoreAsync(Guid otherStoreId)
@@ -295,7 +360,7 @@ namespace CoreSync.Sqlite
                     var version = await cmd.ExecuteScalarAsync();
 
                     if (version == null || version == DBNull.Value)
-                        return new SyncAnchor(_storeId, 0);
+                        return SyncAnchor.Null;
 
                     return new SyncAnchor(_storeId, (long)version);
                 }
@@ -318,7 +383,7 @@ namespace CoreSync.Sqlite
                     var version = await cmd.ExecuteScalarAsync();
 
                     if (version == null || version == DBNull.Value)
-                        return new SyncAnchor(otherStoreId, 0);
+                        return SyncAnchor.Null;
 
                     return new SyncAnchor(otherStoreId, (long)version);
                 }
@@ -665,52 +730,52 @@ namespace CoreSync.Sqlite
             }
         }
 
-        public async Task<SyncChangeSet> GetInitialSnapshotAsync(Guid otherStoreId, SyncDirection syncDirection)
-        {
-            //await InitializeAsync();
+        //public async Task<SyncChangeSet> GetInitialSnapshotAsync(Guid otherStoreId, SyncDirection syncDirection)
+        //{
+        //    //await InitializeAsync();
 
-            using (var c = new SqliteConnection(Configuration.ConnectionString))
-            {
-                await c.OpenAsync();
+        //    using (var c = new SqliteConnection(Configuration.ConnectionString))
+        //    {
+        //        await c.OpenAsync();
 
-                using (var cmd = new SqliteCommand())
-                {
-                    var items = new List<SqliteSyncItem>();
+        //        using (var cmd = new SqliteCommand())
+        //        {
+        //            var items = new List<SqliteSyncItem>();
 
-                    using (var tr = c.BeginTransaction())
-                    {
-                        cmd.Connection = c;
-                        cmd.Transaction = tr;
+        //            using (var tr = c.BeginTransaction())
+        //            {
+        //                cmd.Connection = c;
+        //                cmd.Transaction = tr;
 
-                        cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
-                        var version = await cmd.ExecuteLongScalarAsync();
+        //                cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
+        //                var version = await cmd.ExecuteLongScalarAsync();
 
-                        foreach (var table in Configuration.Tables
-                            .Cast<SqliteSyncTable>()
-                            .Where(_ => _.Columns.Any() && !_.SkipInitialSnapshot))
-                        {
-                            if (table.SyncDirection != SyncDirection.UploadAndDownload &&
-                                table.SyncDirection != syncDirection)
-                                continue;
+        //                foreach (var table in Configuration.Tables
+        //                    .Cast<SqliteSyncTable>()
+        //                    .Where(_ => _.Columns.Any() && !_.SkipInitialSnapshot))
+        //                {
+        //                    if (table.SyncDirection != SyncDirection.UploadAndDownload &&
+        //                        table.SyncDirection != syncDirection)
+        //                        continue;
 
-                            cmd.CommandText = table.InitialSnapshotQuery;
-                            using (var r = await cmd.ExecuteReaderAsync())
-                            {
-                                while (await r.ReadAsync())
-                                {
-                                    var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
-                                    items.Add(new SqliteSyncItem(table, ChangeType.Insert, values));
-                                }
-                            }
-                        }
+        //                    cmd.CommandText = table.InitialSnapshotQuery;
+        //                    using (var r = await cmd.ExecuteReaderAsync())
+        //                    {
+        //                        while (await r.ReadAsync())
+        //                        {
+        //                            var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
+        //                            items.Add(new SqliteSyncItem(table, ChangeType.Insert, values));
+        //                        }
+        //                    }
+        //                }
 
-                        tr.Commit();
+        //                tr.Commit();
 
-                        return new SyncChangeSet(new SyncAnchor(_storeId, version), await GetLastRemoteAnchorForStoreAsync(otherStoreId), items);
-                    }
-                }
-            }
-        }
+        //                return new SyncChangeSet(new SyncAnchor(_storeId, version), await GetLastRemoteAnchorForStoreAsync(otherStoreId), items);
+        //            }
+        //        }
+        //    }
+        //}
 
         
         public async Task<SyncVersion> GetSyncVersionAsync()

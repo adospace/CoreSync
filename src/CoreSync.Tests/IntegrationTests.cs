@@ -23,6 +23,9 @@ namespace CoreSync.Tests
             BlogDbContext remoteDb,
             ISyncProvider remoteSyncProvider)
         {
+            await localSyncProvider.ApplyProvisionAsync();
+            await remoteSyncProvider.ApplyProvisionAsync();
+
             var localStoreId = await localSyncProvider.GetStoreIdAsync();
             var remoteStoreId = await remoteSyncProvider.GetStoreIdAsync();
 
@@ -106,7 +109,7 @@ namespace CoreSync.Tests
                         Assert.IsNotNull(item);
                         Assert.AreEqual(newUserInLocalDb.Email, item.Values["Email"].Value);
                         Assert.AreEqual(newUserInLocalDb.Name, item.Values["Name"].Value);
-                        Assert.AreEqual(ChangeType.Update, item.ChangeType);
+                        Assert.AreEqual(ChangeType.Insert, item.ChangeType);
 
                         //force write in remote store
                         return ConflictResolution.ForceWrite;
@@ -209,7 +212,7 @@ namespace CoreSync.Tests
 
             var changeSetAfterApplyChangesToRemoteDb = await remoteSyncProvider.GetChangesAsync(localStoreId);
             Assert.IsNotNull(changeSetAfterApplyChangesToRemoteDb);
-            Assert.AreEqual(0, changeSetAfterApplyChangesToRemoteDb.Items.Count);
+            Assert.AreEqual(2, changeSetAfterApplyChangesToRemoteDb.Items.Count);
 
             await localSyncProvider.ApplyChangesAsync(changeSetAfterApplyChangesToRemoteDb);
             await remoteSyncProvider.SaveVersionForStoreAsync(localStoreId, changeSetAfterApplyChangesToRemoteDb.SourceAnchor.Version);
@@ -237,7 +240,7 @@ namespace CoreSync.Tests
             ISyncProvider remoteSyncProvider)
         {
             var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
-            await syncAgent.InitializeAsync();
+            //await syncAgent.InitializeAsync();
             await syncAgent.SynchronizeAsync();
 
             //create a user on server
@@ -314,7 +317,7 @@ namespace CoreSync.Tests
             ISyncProvider remoteSyncProvider)
         {
             var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
-            await syncAgent.InitializeAsync();
+            //await syncAgent.InitializeAsync();
             await syncAgent.SynchronizeAsync();
 
             //create a user on server
@@ -483,7 +486,7 @@ namespace CoreSync.Tests
             await remoteDb.SaveChangesAsync();
 
             var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
-            await syncAgent.InitializeAsync();
+            await syncAgent.SynchronizeAsync();
 
             var localUser = await localDb.Users.Include(_ => _.Posts).FirstOrDefaultAsync(_ => _.Email == "user@test.com");
             localUser.ShouldNotBeNull();
@@ -581,7 +584,7 @@ namespace CoreSync.Tests
             await remoteDb.SaveChangesAsync();
 
             var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
-            await syncAgent.InitializeAsync();
+            await syncAgent.SynchronizeAsync();
 
             var localUser = await localDb.Users.Include(_ => _.Posts).FirstOrDefaultAsync(_ => _.Email == "user@test.com");
             localUser.ShouldNotBeNull();
@@ -740,7 +743,7 @@ namespace CoreSync.Tests
 
             //now let's sync
             var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
-            await syncAgent.InitializeAsync();
+            await syncAgent.SynchronizeAsync();
 
             localSyncVersion = await localSyncProvider.GetSyncVersionAsync();
             localSyncVersion.Minimum.ShouldBe(0);

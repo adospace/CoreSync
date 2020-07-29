@@ -4,6 +4,8 @@ namespace CoreSync
 {
     public class SyncAnchor
     {
+        public static SyncAnchor Null { get; } = new SyncAnchor() { Version = -1 };
+
         public SyncAnchor()
         { }
 
@@ -27,7 +29,9 @@ namespace CoreSync
 
         public override string ToString()
         {
-            return $"Anchor {Version} (StoreId: {StoreId})";
+            return Version == -1 ? "Null Anchor" : $"Anchor {Version} (StoreId: {StoreId})";
         }
+
+        public bool IsNull() => Version == -1;
     }
 }
