@@ -798,5 +798,49 @@ namespace CoreSync.Tests
             localSyncVersion.Minimum.ShouldBe(1);
             localSyncVersion.Current.ShouldBe(2); // +2 posts
         }
+
+        private async Task TestSyncAgentDeleteWithForeignKeys(
+            BlogDbContext localDb,
+            ISyncProvider localSyncProvider,
+            BlogDbContext remoteDb,
+            ISyncProvider remoteSyncProvider)
+        {
+            var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
+            await syncAgent.SynchronizeAsync();
+
+            //create a user on remote store
+            User remoteUser;
+            remoteDb.Users.Add(remoteUser = new User() { Email = "user@test.com", Name = "User", Created = DateTime.Now });
+            remoteUser.Posts.Add(new Post()
+            {
+                Content = $"Content",
+                Title = $"Post",
+                Claps = 1,
+                Stars = 10
+            });
+
+            await remoteDb.SaveChangesAsync();
+
+            await syncAgent.SynchronizeAsync();
+
+            var localUser = await localDb.Users.FirstOrDefaultAsync(_ => _.Email == "user@test.com");
+            localUser.ShouldNotBeNull();
+
+            //delete user on remotedb
+            remoteDb = remoteDb.Refresh();
+
+            remoteDb.Users.Remove(await remoteDb.Users.FirstAsync(_ => _.Email == "user@test.com"));
+            remoteDb.Posts.RemoveRange(await remoteDb.Posts.ToListAsync());
+            await remoteDb.SaveChangesAsync();
+
+            await syncAgent.SynchronizeAsync();
+
+            localDb = localDb.Refresh();
+            localUser = await localDb.Users.FirstOrDefaultAsync(_ => _.Email == "user@test.com");
+            localUser.ShouldBeNull();
+
+            (await localDb.Posts.AnyAsync()).ShouldBeFalse();
+        }
+
     }
 }
