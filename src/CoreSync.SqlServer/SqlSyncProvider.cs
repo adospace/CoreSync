@@ -50,6 +50,8 @@ namespace CoreSync.SqlServer
                     c.InfoMessage += (s, e) => messageLog.Add(e);
                     await c.OpenAsync();
 
+                    await DisableConstraintsForChangeSetTables(c, changeSet);
+
                     using (var cmd = new SqlCommand())
                     {
                         using (var tr = c.BeginTransaction())
@@ -118,7 +120,7 @@ namespace CoreSync.SqlServer
                                 try
                                 {
                                     affectedRows = cmd.ExecuteNonQuery();
-                                   
+
                                     if (affectedRows > 0)
                                     {
                                         _logger?.Trace($"[{_storeId}] Successfully applied {item}");
@@ -219,8 +221,46 @@ namespace CoreSync.SqlServer
                 }
                 catch (Exception ex)
                 {
-                    var exceptionMessage = $"An exception occurred during synchronization:{Environment.NewLine}Errors:{Environment.NewLine}{string.Join(Environment.NewLine, messageLog.SelectMany(_=>_.Errors.Cast<SqlError>()))}{Environment.NewLine}Messages:{Environment.NewLine}{string.Join(Environment.NewLine, messageLog.Select(_ => _.Message))}";
+                    var exceptionMessage = $"An exception occurred during synchronization:{Environment.NewLine}Errors:{Environment.NewLine}{string.Join(Environment.NewLine, messageLog.SelectMany(_ => _.Errors.Cast<SqlError>()))}{Environment.NewLine}Messages:{Environment.NewLine}{string.Join(Environment.NewLine, messageLog.Select(_ => _.Message))}";
                     throw new SyncErrorException(exceptionMessage, ex);
+                }
+                finally
+                {
+                    await RestoreConstraintsForChangeSetTables(c, changeSet);
+                }
+            }
+        }
+
+        private async Task DisableConstraintsForChangeSetTables(SqlConnection connection, SyncChangeSet changeSet)
+        {
+            using (var cmd = new SqlCommand())
+            {
+                cmd.Connection = connection;
+
+                foreach (SqlSyncTable table in changeSet.Items
+                    .Select(_=> _.TableName)
+                    .Distinct()
+                    .Select(tableName => Configuration.Tables.First(_ => _.Name == tableName)))
+                {
+                    cmd.CommandText = $"ALTER TABLE [{table.NameWithSchema}] NOCHECK CONSTRAINT ALL";
+                    await cmd.ExecuteNonQueryAsync();
+                }
+            }
+        }
+
+        private async Task RestoreConstraintsForChangeSetTables(SqlConnection connection, SyncChangeSet changeSet)
+        {
+            using (var cmd = new SqlCommand())
+            {
+                cmd.Connection = connection;
+
+                foreach (SqlSyncTable table in changeSet.Items
+                    .Select(_ => _.TableName)
+                    .Distinct()
+                    .Select(tableName => Configuration.Tables.First(_ => _.Name == tableName)))
+                {
+                    cmd.CommandText = $"ALTER TABLE [{table.NameWithSchema}] WITH CHECK CHECK CONSTRAINT ALL";
+                    await cmd.ExecuteNonQueryAsync();
                 }
             }
         }
