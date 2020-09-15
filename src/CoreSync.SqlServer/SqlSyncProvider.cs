@@ -242,7 +242,7 @@ namespace CoreSync.SqlServer
                     .Distinct()
                     .Select(tableName => Configuration.Tables.First(_ => _.Name == tableName)))
                 {
-                    cmd.CommandText = $"ALTER TABLE [{table.NameWithSchema}] NOCHECK CONSTRAINT ALL";
+                    cmd.CommandText = $"ALTER TABLE {table.NameWithSchema} NOCHECK CONSTRAINT ALL";
                     await cmd.ExecuteNonQueryAsync();
                 }
             }
@@ -259,7 +259,7 @@ namespace CoreSync.SqlServer
                     .Distinct()
                     .Select(tableName => Configuration.Tables.First(_ => _.Name == tableName)))
                 {
-                    cmd.CommandText = $"ALTER TABLE [{table.NameWithSchema}] WITH CHECK CHECK CONSTRAINT ALL";
+                    cmd.CommandText = $"ALTER TABLE {table.NameWithSchema} WITH CHECK CHECK CONSTRAINT ALL";
                     await cmd.ExecuteNonQueryAsync();
                 }
             }
