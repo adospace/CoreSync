@@ -66,5 +66,7 @@ namespace CoreSync.SqlServer
         internal string UpdateQuery { get; set; }
 
         internal string DeleteQuery { get; set; }
+
+        internal string[] SkipColumns { get; set; } = new string[] { };
     }
 }

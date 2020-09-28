@@ -61,6 +61,28 @@ namespace CoreSync.SqlServer
             return Table(name, syncDirection, schema ?? _schema, skipInitialSnapshot);
         }
 
+        /// <summary>
+        /// Specify which column should be skipped when synchronizing
+        /// </summary>
+        /// <param name="columnNames">Array of columns to skip when synchronizing</param>
+        /// <returns>The current Sql configuration builder</returns>
+        public SqlSyncConfigurationBuilder SkipColumns(params string[] columnNames)
+        {
+            if (columnNames == null)
+                throw new ArgumentNullException();
+
+            var lastTable = _tables.LastOrDefault();
+            if (lastTable == null)
+            {
+                throw new InvalidOperationException("SkipColumns requires a table");
+            }
+
+            //remove duplicates
+
+            lastTable.SkipColumns = columnNames;
+            return this;
+        }
+
         public SqlSyncConfiguration Build() => new SqlSyncConfiguration(_connectionString, _tables.ToArray());
     }
 }

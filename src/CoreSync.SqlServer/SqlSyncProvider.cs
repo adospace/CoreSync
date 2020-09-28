@@ -510,8 +510,13 @@ INCLUDE([TBL]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMP
                             throw new NotSupportedException($"Table '{table.Name}' has more than one column as primary key");
                         }
 
-                        table.Columns = (await connection.GetTableColumnsAsync(table)).ToDictionary(_ => _.Item1, _ => new SqlColumn(_.Item1, _.Item2));
+                        table.Columns = (await connection.GetTableColumnsAsync(table)).ToDictionary(_ => _.Item1, _ => new SqlColumn(_.Item1, _.Item2), StringComparer.OrdinalIgnoreCase);
                         table.PrimaryColumnName = primaryKeyColumns[0];
+
+                        if (table.SkipColumns.Any(skipColumn => string.CompareOrdinal(skipColumn, table.PrimaryColumnName) == 0))
+                        {
+                            throw new InvalidOperationException($"Column to skip in synchronization ('{table.PrimaryColumnName}') can't be the primary column");
+                        }
 
                         var allColumns = table.Columns.Keys;
 
@@ -863,7 +868,16 @@ END");
                                 {
                                     while (await r.ReadAsync())
                                     {
-                                        var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => r.GetValue(_));
+                                        var values = Enumerable.Range(0, r.FieldCount)
+                                            .ToDictionary(index => r.GetName(index), index => r.GetValue(index), StringComparer.OrdinalIgnoreCase);
+                                        foreach (var skipColumn in table.SkipColumns)
+                                        {
+                                            if (string.CompareOrdinal(skipColumn, table.PrimaryColumnName) == 0)
+                                                throw new InvalidOperationException($"Column to skip in synchronization ('{skipColumn}') can't be the primary column");
+                                            if (!values.Remove(skipColumn))
+                                                throw new InvalidOperationException($"Column to skip '{skipColumn}' does not exist in table '{table.NameWithSchema}'");
+                                        }
+
                                         items.Add(new SqlSyncItem(table, ChangeType.Insert, values));
                                         snapshotItems.Add(values[table.PrimaryColumnName]);
                                         _logger?.Trace($"[{_storeId}] Initial snapshot {items.Last()}");
@@ -880,9 +894,18 @@ END");
                             {
                                 while (await r.ReadAsync())
                                 {
-                                    var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => r.GetValue(_));
+                                    var values = Enumerable.Range(0, r.FieldCount)
+                                        .ToDictionary(index => r.GetName(index), index => r.GetValue(index), StringComparer.OrdinalIgnoreCase);
                                     if (snapshotItems.Contains(values[table.PrimaryColumnName]))
                                         continue;
+
+                                    foreach (var skipColumn in table.SkipColumns)
+                                    {
+                                        if (string.CompareOrdinal(skipColumn, table.PrimaryColumnName) == 0)
+                                            throw new InvalidOperationException($"Column to skip in synchronization ('{skipColumn}') can't be the primary column");
+                                        if (!values.Remove(skipColumn))
+                                            throw new InvalidOperationException($"Column to skip '{skipColumn}' does not exist in table '{table.NameWithSchema}'");
+                                    }
 
                                     items.Add(new SqlSyncItem(table, DetectChangeType(values),
                                         values.Where(_ => _.Key != "__OP").ToDictionary(_ => _.Key, _ => _.Value == DBNull.Value ? null : _.Value)));
