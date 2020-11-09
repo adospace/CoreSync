@@ -518,7 +518,7 @@ INCLUDE([TBL]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMP
                             throw new InvalidOperationException($"Column to skip in synchronization ('{table.PrimaryColumnName}') can't be the primary column");
                         }
 
-                        var allColumns = table.Columns.Keys;
+                        var allColumns = table.Columns.Keys.Except(table.SkipColumns);
 
                         var tableColumns = allColumns.Where(_ => !primaryKeyColumns.Any(kc => kc == _)).ToArray();
 
@@ -874,8 +874,8 @@ END");
                                         {
                                             if (string.CompareOrdinal(skipColumn, table.PrimaryColumnName) == 0)
                                                 throw new InvalidOperationException($"Column to skip in synchronization ('{skipColumn}') can't be the primary column");
-                                            if (!values.Remove(skipColumn))
-                                                throw new InvalidOperationException($"Column to skip '{skipColumn}' does not exist in table '{table.NameWithSchema}'");
+                                            //if (!values.Remove(skipColumn))
+                                            //    throw new InvalidOperationException($"Column to skip '{skipColumn}' does not exist in table '{table.NameWithSchema}'");
                                         }
 
                                         items.Add(new SqlSyncItem(table, ChangeType.Insert, values));
@@ -903,8 +903,8 @@ END");
                                     {
                                         if (string.CompareOrdinal(skipColumn, table.PrimaryColumnName) == 0)
                                             throw new InvalidOperationException($"Column to skip in synchronization ('{skipColumn}') can't be the primary column");
-                                        if (!values.Remove(skipColumn))
-                                            throw new InvalidOperationException($"Column to skip '{skipColumn}' does not exist in table '{table.NameWithSchema}'");
+                                        //if (!values.Remove(skipColumn))
+                                        //    throw new InvalidOperationException($"Column to skip '{skipColumn}' does not exist in table '{table.NameWithSchema}'");
                                     }
 
                                     items.Add(new SqlSyncItem(table, DetectChangeType(values),
