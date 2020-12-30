@@ -59,163 +59,168 @@ namespace CoreSync.SqlServer
                             cmd.Connection = c;
                             cmd.Transaction = tr;
 
-                            cmd.CommandText = "SELECT MAX(ID) FROM __CORE_SYNC_CT";
-                            var version = await cmd.ExecuteLongScalarAsync();
-
-                            cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
-                            var minVersion = await cmd.ExecuteLongScalarAsync();
-
-                            cmd.CommandText = $"DECLARE @session uniqueidentifier; SET @session = @sync_client_id_binary; SET CONTEXT_INFO @session";
-                            cmd.Parameters.Add(new SqlParameter("@sync_client_id_binary", changeSet.SourceAnchor.StoreId));
-                            await cmd.ExecuteNonQueryAsync();
-                            cmd.Parameters.Clear();
-
-                            cmd.CommandText = $"SELECT CONTEXT_INFO()";
-                            var contextInfo = await cmd.ExecuteScalarAsync();
-                            cmd.Parameters.Clear();
-
-                            // if (changeSet.SourceAnchor.Version < minVersion - 1)
-                            //     throw new InvalidOperationException($"Unable to apply changes, version of data requested ({changeSet.SourceAnchor.Version}) is too old (min valid version {minVersion})");
-
-                            foreach (var item in changeSet.Items)
+                            try
                             {
-                                var table = (SqlSyncTable)Configuration.Tables.First(_ => _.Name == item.TableName);
+                                cmd.CommandText = "SELECT MAX(ID) FROM __CORE_SYNC_CT";
+                                var version = await cmd.ExecuteLongScalarAsync();
 
-                                bool syncForceWrite = false;
-                                var itemChangeType = item.ChangeType;
+                                cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
+                                var minVersion = await cmd.ExecuteLongScalarAsync();
 
-                            retryWrite:
+                                cmd.CommandText = $"DECLARE @session uniqueidentifier; SET @session = @sync_client_id_binary; SET CONTEXT_INFO @session";
+                                cmd.Parameters.Add(new SqlParameter("@sync_client_id_binary", changeSet.SourceAnchor.StoreId));
+                                await cmd.ExecuteNonQueryAsync();
                                 cmd.Parameters.Clear();
 
-                                switch (itemChangeType)
+                                cmd.CommandText = $"SELECT CONTEXT_INFO()";
+                                var contextInfo = await cmd.ExecuteScalarAsync();
+                                cmd.Parameters.Clear();
+
+                                foreach (var item in changeSet.Items)
                                 {
-                                    case ChangeType.Insert:
-                                        cmd.CommandText = table.InsertQuery;
-                                        break;
+                                    var table = (SqlSyncTable)Configuration.Tables.First(_ => _.Name == item.TableName);
 
-                                    case ChangeType.Update:
-                                        cmd.CommandText = table.UpdateQuery;
-                                        break;
+                                    bool syncForceWrite = false;
+                                    var itemChangeType = item.ChangeType;
 
-                                    case ChangeType.Delete:
-                                        cmd.CommandText = table.DeleteQuery;
-                                        break;
-                                }
+                                retryWrite:
+                                    cmd.Parameters.Clear();
 
-                                cmd.Parameters.Add(new SqlParameter("@last_sync_version", changeSet.TargetAnchor.Version));
-                                cmd.Parameters.Add(new SqlParameter("@sync_force_write", syncForceWrite));
-                                //cmd.Parameters.Add(new SqlParameter("@compoundPrimaryKey", string.Join("-", table.PrimaryColumnNames.Select(_ => item.Values[_].Value.ToString()))));
-
-                                foreach (var valueItem in item.Values)
-                                {
-                                    cmd.Parameters.Add(new SqlParameter("@" + valueItem.Key.Replace(" ", "_"), table.Columns[valueItem.Key].DbType)
+                                    switch (itemChangeType)
                                     {
-                                        Value = ConvertToSqlType(valueItem.Value, table.Columns[valueItem.Key].DbType)
-                                    });
-                                    //cmd.Parameters.AddWithValue("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value.Value ?? DBNull.Value);
-                                }
+                                        case ChangeType.Insert:
+                                            cmd.CommandText = table.InsertQuery;
+                                            break;
 
-                                int affectedRows;
+                                        case ChangeType.Update:
+                                            cmd.CommandText = table.UpdateQuery;
+                                            break;
 
-                                try
-                                {
-                                    affectedRows = cmd.ExecuteNonQuery();
-
-                                    if (affectedRows > 0)
-                                    {
-                                        _logger?.Trace($"[{_storeId}] Successfully applied {item}");
+                                        case ChangeType.Delete:
+                                            cmd.CommandText = table.DeleteQuery;
+                                            break;
                                     }
-                                }
-                                catch (Exception ex)
-                                {
-                                    throw new SynchronizationException($"Unable to {item} item to store for table {table}", ex);
-                                }
 
-                                if (affectedRows == 0)
-                                {
-                                    if (itemChangeType == ChangeType.Insert)
+                                    cmd.Parameters.Add(new SqlParameter("@last_sync_version", changeSet.TargetAnchor.Version));
+                                    cmd.Parameters.Add(new SqlParameter("@sync_force_write", syncForceWrite));
+                                    //cmd.Parameters.Add(new SqlParameter("@compoundPrimaryKey", string.Join("-", table.PrimaryColumnNames.Select(_ => item.Values[_].Value.ToString()))));
+
+                                    foreach (var valueItem in item.Values)
                                     {
-                                        //If we can't apply an insert means that we already
-                                        //applied the insert or another record with same values (see primary key)
-                                        //is already present in table.
-                                        cmd.CommandText = table.SelectExistingQuery;
-                                        cmd.Parameters.Clear();
-                                        var valueItem = item.Values[table.PrimaryColumnName];
-                                        cmd.Parameters.Add(new SqlParameter("@" + table.PrimaryColumnName.Replace(" ", "_"), table.Columns[table.PrimaryColumnName].DbType)
+                                        cmd.Parameters.Add(new SqlParameter("@" + valueItem.Key.Replace(" ", "_"), table.Columns[valueItem.Key].DbType)
                                         {
-                                            Value = ConvertToSqlType(valueItem, table.Columns[table.PrimaryColumnName].DbType)
+                                            Value = ConvertToSqlType(valueItem.Value, table.Columns[valueItem.Key].DbType)
                                         });
-                                        if (0 == (int)await cmd.ExecuteScalarAsync())
+                                        //cmd.Parameters.AddWithValue("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value.Value ?? DBNull.Value);
+                                    }
+
+                                    int affectedRows;
+
+                                    try
+                                    {
+                                        affectedRows = cmd.ExecuteNonQuery();
+
+                                        if (affectedRows > 0)
                                         {
-                                            throw new SynchronizationException($"Unable to {item} item to store for table {table} {new SyncAnchor(_storeId, version)}: affected rows was 0");
-                                        }
-                                        else
-                                        {
-                                            itemChangeType = ChangeType.Update;
-                                            goto retryWrite;
-                                            //_logger?.Trace($"[{_storeId}] Existing record for {item}");
+                                            _logger?.Trace($"[{_storeId}] Successfully applied {item}");
                                         }
                                     }
-                                    else if (itemChangeType == ChangeType.Update ||
-                                        itemChangeType == ChangeType.Delete)
+                                    catch (Exception ex)
                                     {
-                                        if (syncForceWrite)
+                                        throw new SynchronizationException($"Unable to {item} item to store for table {table}", ex);
+                                    }
+
+                                    if (affectedRows == 0)
+                                    {
+                                        if (itemChangeType == ChangeType.Insert)
                                         {
-                                            if (itemChangeType == ChangeType.Delete)
+                                            //If we can't apply an insert means that we already
+                                            //applied the insert or another record with same values (see primary key)
+                                            //is already present in table.
+                                            cmd.CommandText = table.SelectExistingQuery;
+                                            cmd.Parameters.Clear();
+                                            var valueItem = item.Values[table.PrimaryColumnName];
+                                            cmd.Parameters.Add(new SqlParameter("@" + table.PrimaryColumnName.Replace(" ", "_"), table.Columns[table.PrimaryColumnName].DbType)
                                             {
-                                                //item is already deleted in data store
-                                                //so this means that we're going to delete a already deleted record
-                                                //i.e. nothing to do
-                                                _logger?.Trace($"[{_storeId}] Insert on delete conflict occurred for {item}");
+                                                Value = ConvertToSqlType(valueItem, table.Columns[table.PrimaryColumnName].DbType)
+                                            });
+                                            if (0 == (int)await cmd.ExecuteScalarAsync())
+                                            {
+                                                throw new SynchronizationException($"Unable to {item} item to store for table {table} {new SyncAnchor(_storeId, version)}: affected rows was 0");
                                             }
                                             else
                                             {
-                                                //if user wants to update forcely a deleted record means
-                                                //he wants to actually insert it again in store
-                                                _logger?.Trace($"[{_storeId}] Insert on delete conflict occurred for {item}");
-                                                itemChangeType = ChangeType.Insert;
+                                                itemChangeType = ChangeType.Update;
                                                 goto retryWrite;
+                                                //_logger?.Trace($"[{_storeId}] Existing record for {item}");
                                             }
                                         }
-                                        else
+                                        else if (itemChangeType == ChangeType.Update ||
+                                            itemChangeType == ChangeType.Delete)
                                         {
-                                            //conflict detected
-                                            var res = onConflictFunc?.Invoke(item);
-                                            if (res.HasValue && res.Value == ConflictResolution.ForceWrite)
+                                            if (syncForceWrite)
                                             {
-                                                _logger?.Trace($"[{_storeId}] Force write on conflict occurred for {item}");
-
-                                                syncForceWrite = true;
-                                                goto retryWrite;
+                                                if (itemChangeType == ChangeType.Delete)
+                                                {
+                                                    //item is already deleted in data store
+                                                    //so this means that we're going to delete a already deleted record
+                                                    //i.e. nothing to do
+                                                    _logger?.Trace($"[{_storeId}] Insert on delete conflict occurred for {item}");
+                                                }
+                                                else
+                                                {
+                                                    //if user wants to update forcely a deleted record means
+                                                    //he wants to actually insert it again in store
+                                                    _logger?.Trace($"[{_storeId}] Insert on delete conflict occurred for {item}");
+                                                    itemChangeType = ChangeType.Insert;
+                                                    goto retryWrite;
+                                                }
                                             }
                                             else
                                             {
-                                                _logger?.Warning($"[{_storeId}] Skip conflict for {item}");
+                                                //conflict detected
+                                                var res = onConflictFunc?.Invoke(item);
+                                                if (res.HasValue && res.Value == ConflictResolution.ForceWrite)
+                                                {
+                                                    _logger?.Trace($"[{_storeId}] Force write on conflict occurred for {item}");
+
+                                                    syncForceWrite = true;
+                                                    goto retryWrite;
+                                                }
+                                                else
+                                                {
+                                                    _logger?.Warning($"[{_storeId}] Skip conflict for {item}");
+                                                }
                                             }
                                         }
                                     }
                                 }
+
+                                cmd.CommandText = $"UPDATE [__CORE_SYNC_REMOTE_ANCHOR] SET [REMOTE_VERSION] = @version WHERE [ID] = @id";
+                                cmd.Parameters.Clear();
+                                cmd.Parameters.AddWithValue("@id", changeSet.SourceAnchor.StoreId.ToString());
+                                cmd.Parameters.AddWithValue("@version", changeSet.SourceAnchor.Version);
+
+                                if (0 == await cmd.ExecuteNonQueryAsync())
+                                {
+                                    cmd.CommandText = "INSERT INTO [__CORE_SYNC_REMOTE_ANCHOR] ([ID], [REMOTE_VERSION]) VALUES (@id, @version)";
+
+                                    await cmd.ExecuteNonQueryAsync();
+                                }
+
+                                tr.Commit();
+
+                                var resAnchor = new SyncAnchor(_storeId, version);
+
+                                _logger?.Info($"[{_storeId}] Completed ApplyChanges(resAnchor={resAnchor}) in {(DateTime.Now - now).TotalMilliseconds}ms");
+
+                                return resAnchor;
                             }
-
-                            cmd.CommandText = $"UPDATE [__CORE_SYNC_REMOTE_ANCHOR] SET [REMOTE_VERSION] = @version WHERE [ID] = @id";
-                            cmd.Parameters.Clear();
-                            cmd.Parameters.AddWithValue("@id", changeSet.SourceAnchor.StoreId.ToString());
-                            cmd.Parameters.AddWithValue("@version", changeSet.SourceAnchor.Version);
-
-                            if (0 == await cmd.ExecuteNonQueryAsync())
+                            catch (Exception)
                             {
-                                cmd.CommandText = "INSERT INTO [__CORE_SYNC_REMOTE_ANCHOR] ([ID], [REMOTE_VERSION]) VALUES (@id, @version)";
-
-                                await cmd.ExecuteNonQueryAsync();
+                                tr.Rollback();
+                                throw;
                             }
-
-                            tr.Commit();
-
-                            var resAnchor = new SyncAnchor(_storeId, version);
-
-                            _logger?.Info($"[{_storeId}] Completed ApplyChanges(resAnchor={resAnchor}) in {(DateTime.Now - now).TotalMilliseconds}ms");
-
-                            return resAnchor;
                         }
                     }
                 }
@@ -291,20 +296,28 @@ namespace CoreSync.SqlServer
                     {
                         cmd.Connection = c;
                         cmd.Transaction = tr;
-                        cmd.CommandText = $"UPDATE [__CORE_SYNC_REMOTE_ANCHOR] SET [LOCAL_VERSION] = @version WHERE [ID] = @id";
-                        cmd.Parameters.AddWithValue("@id", otherStoreId.ToString());
-                        cmd.Parameters.AddWithValue("@version", version);
-
-                        if (0 == await cmd.ExecuteNonQueryAsync())
+                        try
                         {
-                            cmd.CommandText = "INSERT INTO [__CORE_SYNC_REMOTE_ANCHOR] ([ID], [LOCAL_VERSION]) VALUES (@id, @version)";
+                            cmd.CommandText = $"UPDATE [__CORE_SYNC_REMOTE_ANCHOR] SET [LOCAL_VERSION] = @version WHERE [ID] = @id";
+                            cmd.Parameters.AddWithValue("@id", otherStoreId.ToString());
+                            cmd.Parameters.AddWithValue("@version", version);
 
-                            await cmd.ExecuteNonQueryAsync();
+                            if (0 == await cmd.ExecuteNonQueryAsync())
+                            {
+                                cmd.CommandText = "INSERT INTO [__CORE_SYNC_REMOTE_ANCHOR] ([ID], [LOCAL_VERSION]) VALUES (@id, @version)";
+
+                                await cmd.ExecuteNonQueryAsync();
+                            }
+
+                            tr.Commit();
+
+                            _logger?.Trace($"[{_storeId}] Save version {version} for store {otherStoreId}");
                         }
-
-                        tr.Commit();
-
-                        _logger?.Trace($"[{_storeId}] Save version {version} for store {otherStoreId}");
+                        catch (Exception)
+                        {
+                            tr.Rollback();
+                            throw;
+                        }
                     }
                 }
             }
@@ -780,51 +793,10 @@ END");
             }
         }
 
-        //public async Task<SyncChangeSet> GetInitialSnapshotAsync(Guid otherStoreId, SyncDirection syncDirection)
-        //{
-        //    using (var c = new SqlConnection(Configuration.ConnectionString))
-        //    {
-        //        await c.OpenAsync();
-
-        //        using (var cmd = new SqlCommand())
-        //        {
-        //            var items = new List<SqlSyncItem>();
-        //            using (var tr = c.BeginTransaction(IsolationLevel.Serializable))
-        //            {
-        //                cmd.Connection = c;
-        //                cmd.Transaction = tr;
-
-        //                cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
-        //                var version = await cmd.ExecuteLongScalarAsync();
-
-        //                foreach (SqlSyncTable table in Configuration.Tables.Where(_ => !_.SkipInitialSnapshot))
-        //                {
-        //                    if (table.SyncDirection != SyncDirection.UploadAndDownload &&
-        //                        table.SyncDirection != syncDirection)
-        //                        continue;
-
-        //                    cmd.CommandText = table.InitialSnapshotQuery;
-
-        //                    using (var r = await cmd.ExecuteReaderAsync())
-        //                    {
-        //                        while (await r.ReadAsync())
-        //                        {
-        //                            var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => r.GetValue(_));
-        //                            items.Add(new SqlSyncItem(table, ChangeType.Insert, values));
-        //                        }
-        //                    }
-        //                }
-        //                return new SyncChangeSet(new SyncAnchor(_storeId, version), await GetLastRemoteAnchorForStoreAsync(otherStoreId), items);
-        //            }
-        //        }
-        //    }
-        //}
-
         public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncDirection syncDirection)
         {
             var fromAnchor = (await GetLastLocalAnchorForStoreAsync(otherStoreId));
 
-            //await InitializeStoreAsync();
             var now = DateTime.Now;
 
             _logger?.Info($"[{_storeId}] Begin GetChanges(from={otherStoreId}, syncDirection={syncDirection}, fromVersion={fromAnchor})");
@@ -843,26 +815,54 @@ END");
                         cmd.Connection = c;
                         cmd.Transaction = tr;
 
-                        cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
-                        var version = await cmd.ExecuteLongScalarAsync();
-
-                        cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
-                        var minVersion = await cmd.ExecuteLongScalarAsync();
-
-                        if (!fromAnchor.IsNull() && fromAnchor.Version < minVersion - 1)
-                            throw new InvalidOperationException($"Unable to get changes, version of data requested ({fromAnchor}) is too old (min valid version {minVersion})");
-
-                        foreach (SqlSyncTable table in Configuration.Tables)
+                        try
                         {
-                            if (table.SyncDirection != SyncDirection.UploadAndDownload &&
-                                table.SyncDirection != syncDirection)
-                                continue;
+                            cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
+                            var version = await cmd.ExecuteLongScalarAsync();
 
-                            var snapshotItems = new HashSet<object>();
+                            cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
+                            var minVersion = await cmd.ExecuteLongScalarAsync();
 
-                            if (fromAnchor.IsNull() && !table.SkipInitialSnapshot)
+                            if (!fromAnchor.IsNull() && fromAnchor.Version < minVersion - 1)
+                                throw new InvalidOperationException($"Unable to get changes, version of data requested ({fromAnchor}) is too old (min valid version {minVersion})");
+
+                            foreach (SqlSyncTable table in Configuration.Tables)
                             {
-                                cmd.CommandText = table.InitialSnapshotQuery;
+                                if (table.SyncDirection != SyncDirection.UploadAndDownload &&
+                                    table.SyncDirection != syncDirection)
+                                    continue;
+
+                                var snapshotItems = new HashSet<object>();
+
+                                if (fromAnchor.IsNull() && !table.SkipInitialSnapshot)
+                                {
+                                    cmd.CommandText = table.InitialSnapshotQuery;
+
+                                    using (var r = await cmd.ExecuteReaderAsync())
+                                    {
+                                        while (await r.ReadAsync())
+                                        {
+                                            var values = Enumerable.Range(0, r.FieldCount)
+                                                .ToDictionary(index => r.GetName(index), index => r.GetValue(index), StringComparer.OrdinalIgnoreCase);
+                                            foreach (var skipColumn in table.SkipColumns)
+                                            {
+                                                if (string.CompareOrdinal(skipColumn, table.PrimaryColumnName) == 0)
+                                                    throw new InvalidOperationException($"Column to skip in synchronization ('{skipColumn}') can't be the primary column");
+                                                //if (!values.Remove(skipColumn))
+                                                //    throw new InvalidOperationException($"Column to skip '{skipColumn}' does not exist in table '{table.NameWithSchema}'");
+                                            }
+
+                                            items.Add(new SqlSyncItem(table, ChangeType.Insert, values));
+                                            snapshotItems.Add(values[table.PrimaryColumnName]);
+                                            _logger?.Trace($"[{_storeId}] Initial snapshot {items.Last()}");
+                                        }
+                                    }
+                                }
+
+                                cmd.CommandText = table.IncrementalAddOrUpdatesQuery;
+                                cmd.Parameters.Clear();
+                                cmd.Parameters.AddWithValue("@version", fromAnchor.IsNull() ? 0 : fromAnchor.Version);
+                                cmd.Parameters.AddWithValue("@sourceId", otherStoreId);
 
                                 using (var r = await cmd.ExecuteReaderAsync())
                                 {
@@ -870,6 +870,9 @@ END");
                                     {
                                         var values = Enumerable.Range(0, r.FieldCount)
                                             .ToDictionary(index => r.GetName(index), index => r.GetValue(index), StringComparer.OrdinalIgnoreCase);
+                                        if (snapshotItems.Contains(values[table.PrimaryColumnName]))
+                                            continue;
+
                                         foreach (var skipColumn in table.SkipColumns)
                                         {
                                             if (string.CompareOrdinal(skipColumn, table.PrimaryColumnName) == 0)
@@ -878,62 +881,38 @@ END");
                                             //    throw new InvalidOperationException($"Column to skip '{skipColumn}' does not exist in table '{table.NameWithSchema}'");
                                         }
 
-                                        items.Add(new SqlSyncItem(table, ChangeType.Insert, values));
-                                        snapshotItems.Add(values[table.PrimaryColumnName]);
-                                        _logger?.Trace($"[{_storeId}] Initial snapshot {items.Last()}");
+                                        items.Add(new SqlSyncItem(table, DetectChangeType(values),
+                                            values.Where(_ => _.Key != "__OP").ToDictionary(_ => _.Key, _ => _.Value == DBNull.Value ? null : _.Value)));
+                                        _logger?.Trace($"[{_storeId}] Incremental add or update {items.Last()}");
                                     }
                                 }
-                            }
 
-                            cmd.CommandText = table.IncrementalAddOrUpdatesQuery;
-                            cmd.Parameters.Clear();
-                            cmd.Parameters.AddWithValue("@version", fromAnchor.IsNull() ? 0 : fromAnchor.Version);
-                            cmd.Parameters.AddWithValue("@sourceId", otherStoreId);
-
-                            using (var r = await cmd.ExecuteReaderAsync())
-                            {
-                                while (await r.ReadAsync())
+                                cmd.CommandText = table.IncrementalDeletesQuery;
+                                using (var r = await cmd.ExecuteReaderAsync())
                                 {
-                                    var values = Enumerable.Range(0, r.FieldCount)
-                                        .ToDictionary(index => r.GetName(index), index => r.GetValue(index), StringComparer.OrdinalIgnoreCase);
-                                    if (snapshotItems.Contains(values[table.PrimaryColumnName]))
-                                        continue;
-
-                                    foreach (var skipColumn in table.SkipColumns)
+                                    while (await r.ReadAsync())
                                     {
-                                        if (string.CompareOrdinal(skipColumn, table.PrimaryColumnName) == 0)
-                                            throw new InvalidOperationException($"Column to skip in synchronization ('{skipColumn}') can't be the primary column");
-                                        //if (!values.Remove(skipColumn))
-                                        //    throw new InvalidOperationException($"Column to skip '{skipColumn}' does not exist in table '{table.NameWithSchema}'");
+                                        var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => r.GetValue(_));
+                                        items.Add(new SqlSyncItem(table, ChangeType.Delete, values));
+                                        _logger?.Trace($"[{_storeId}] Incremental delete {items.Last()}");
                                     }
-
-                                    items.Add(new SqlSyncItem(table, DetectChangeType(values),
-                                        values.Where(_ => _.Key != "__OP").ToDictionary(_ => _.Key, _ => _.Value == DBNull.Value ? null : _.Value)));
-                                    _logger?.Trace($"[{_storeId}] Incremental add or update {items.Last()}");
                                 }
+
                             }
 
-                            cmd.CommandText = table.IncrementalDeletesQuery;
-                            using (var r = await cmd.ExecuteReaderAsync())
-                            {
-                                while (await r.ReadAsync())
-                                {
-                                    var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => r.GetValue(_));
-                                    items.Add(new SqlSyncItem(table, ChangeType.Delete, values));
-                                    _logger?.Trace($"[{_storeId}] Incremental delete {items.Last()}");
-                                }
-                            }
+                            tr.Commit();
 
+                            var resChangeSet = new SyncChangeSet(new SyncAnchor(_storeId, version), await GetLastRemoteAnchorForStoreAsync(otherStoreId), items);
+
+                            _logger?.Info($"[{_storeId}] Completed GetChanges(to={version}, {items.Count} items) in {(DateTime.Now - now).TotalMilliseconds}ms");
+
+                            return resChangeSet;
                         }
-
-                        tr.Commit();
-
-                        var resChangeSet = new SyncChangeSet(new SyncAnchor(_storeId, version), await GetLastRemoteAnchorForStoreAsync(otherStoreId), items);
-
-                        _logger?.Info($"[{_storeId}] Completed GetChanges(to={version}, {items.Count} items) in {(DateTime.Now - now).TotalMilliseconds}ms");
-
-                        return resChangeSet;
-
+                        catch (Exception)
+                        {
+                            tr.Rollback();
+                            throw;
+                        }
                     }
                 }
             }
@@ -990,18 +969,26 @@ END");
                             cmd.Connection = c;
                             cmd.Transaction = tr;
 
-                            cmd.CommandText = $"DELETE FROM __CORE_SYNC_CT WHERE ID < {minVersion}";
-                            await cmd.ExecuteNonQueryAsync();
+                            try
+                            {
+                                cmd.CommandText = $"DELETE FROM __CORE_SYNC_CT WHERE ID < {minVersion}";
+                                await cmd.ExecuteNonQueryAsync();
 
-                            cmd.CommandText = "SELECT MAX(ID) FROM __CORE_SYNC_CT";
-                            var version = await cmd.ExecuteLongScalarAsync();
+                                cmd.CommandText = "SELECT MAX(ID) FROM __CORE_SYNC_CT";
+                                var version = await cmd.ExecuteLongScalarAsync();
 
-                            cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
-                            var newMinVersion = await cmd.ExecuteLongScalarAsync();
+                                cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
+                                var newMinVersion = await cmd.ExecuteLongScalarAsync();
 
-                            tr.Commit();
+                                tr.Commit();
 
-                            return new SyncVersion(version, newMinVersion);
+                                return new SyncVersion(version, newMinVersion);
+                            }
+                            catch (Exception)
+                            {
+                                tr.Rollback();
+                                throw;
+                            }
                         }
                     }
                 }

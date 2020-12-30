@@ -50,17 +50,14 @@ namespace CoreSync.Sqlite
                         cmd.Connection = c;
                         cmd.Transaction = tr;
 
-                        cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
-                        var version = await cmd.ExecuteLongScalarAsync();
+                        try
+                        {
+                            cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
+                            var version = await cmd.ExecuteLongScalarAsync();
 
-                        cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
-                        var minVersion = await cmd.ExecuteLongScalarAsync();
+                            cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
+                            var minVersion = await cmd.ExecuteLongScalarAsync();
 
-                        //cmd.CommandText = "PRAGMA foreign_keys = OFF;";
-                        //await cmd.ExecuteNonQueryAsync();
-
-                        //try
-                        //{
                             foreach (var item in changeSet.Items)
                             {
                                 var table = (SqliteSyncTable)Configuration.Tables.First(_ => _.Name == item.TableName);
@@ -198,21 +195,20 @@ namespace CoreSync.Sqlite
 
                                 await cmd.ExecuteNonQueryAsync();
                             }
-                        //}
-                        //finally
-                        //{
-                        //    //cmd.CommandText = "PRAGMA foreign_keys = ON;";
-                        //    //await cmd.ExecuteNonQueryAsync();
-                        //}
 
-                        tr.Commit();
+                            tr.Commit();
 
-                        var resAnchor = new SyncAnchor(_storeId, version);
+                            var resAnchor = new SyncAnchor(_storeId, version);
 
-                        _logger?.Info($"[{_storeId}] Completed ApplyChanges(resAnchor={resAnchor}) in {(DateTime.Now - now).TotalMilliseconds}ms");
+                            _logger?.Info($"[{_storeId}] Completed ApplyChanges(resAnchor={resAnchor}) in {(DateTime.Now - now).TotalMilliseconds}ms");
 
-                        return resAnchor;
-
+                            return resAnchor;
+                        }
+                        catch (Exception)
+                        {
+                            tr.Rollback();
+                            throw;
+                        }
                     }
                 }
 
@@ -231,20 +227,29 @@ namespace CoreSync.Sqlite
                     {
                         cmd.Connection = c;
                         cmd.Transaction = tr;
-                        cmd.CommandText = $"UPDATE [__CORE_SYNC_REMOTE_ANCHOR] SET [LOCAL_VERSION] = @version WHERE [ID] = @id";
-                        cmd.Parameters.AddWithValue("@id", otherStoreId.ToString());
-                        cmd.Parameters.AddWithValue("@version", version);
 
-                        if (0 == await cmd.ExecuteNonQueryAsync())
+                        try
                         {
-                            cmd.CommandText = "INSERT INTO [__CORE_SYNC_REMOTE_ANCHOR] ([ID], [LOCAL_VERSION]) VALUES (@id, @version)";
+                            cmd.CommandText = $"UPDATE [__CORE_SYNC_REMOTE_ANCHOR] SET [LOCAL_VERSION] = @version WHERE [ID] = @id";
+                            cmd.Parameters.AddWithValue("@id", otherStoreId.ToString());
+                            cmd.Parameters.AddWithValue("@version", version);
 
-                            await cmd.ExecuteNonQueryAsync();
+                            if (0 == await cmd.ExecuteNonQueryAsync())
+                            {
+                                cmd.CommandText = "INSERT INTO [__CORE_SYNC_REMOTE_ANCHOR] ([ID], [LOCAL_VERSION]) VALUES (@id, @version)";
+
+                                await cmd.ExecuteNonQueryAsync();
+                            }
+
+                            tr.Commit();
+
+                            _logger?.Trace($"[{_storeId}] Save version {version} for store {otherStoreId}");
                         }
-
-                        tr.Commit();
-
-                        _logger?.Trace($"[{_storeId}] Save version {version} for store {otherStoreId}");
+                        catch (Exception)
+                        {
+                            tr.Rollback();
+                            throw;
+                        }
                     }
                 }
             }
@@ -275,76 +280,85 @@ namespace CoreSync.Sqlite
                         cmd.Connection = c;
                         cmd.Transaction = tr;
 
-                        cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
-                        var version = await cmd.ExecuteLongScalarAsync();
-
-                        cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
-                        var minVersion = await cmd.ExecuteLongScalarAsync();
-
-                        if (!fromAnchor.IsNull() && fromAnchor.Version < minVersion - 1)
-                            throw new InvalidOperationException($"Unable to get changes, version of data requested ({fromAnchor}) is too old (min valid version {minVersion})");
-
-                        foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_ => _.Columns.Any()))
+                        try
                         {
-                            if (table.SyncDirection != SyncDirection.UploadAndDownload &&
-                                table.SyncDirection != syncDirection)
-                                continue;
+                            cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
+                            var version = await cmd.ExecuteLongScalarAsync();
 
-                            var snapshotItems = new HashSet<object>();
+                            cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
+                            var minVersion = await cmd.ExecuteLongScalarAsync();
 
-                            if (fromAnchor.IsNull() && !table.SkipInitialSnapshot)
+                            if (!fromAnchor.IsNull() && fromAnchor.Version < minVersion - 1)
+                                throw new InvalidOperationException($"Unable to get changes, version of data requested ({fromAnchor}) is too old (min valid version {minVersion})");
+
+                            foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_ => _.Columns.Any()))
                             {
-                                cmd.CommandText = table.InitialSnapshotQuery;
+                                if (table.SyncDirection != SyncDirection.UploadAndDownload &&
+                                    table.SyncDirection != syncDirection)
+                                    continue;
+
+                                var snapshotItems = new HashSet<object>();
+
+                                if (fromAnchor.IsNull() && !table.SkipInitialSnapshot)
+                                {
+                                    cmd.CommandText = table.InitialSnapshotQuery;
+                                    using (var r = await cmd.ExecuteReaderAsync())
+                                    {
+                                        while (await r.ReadAsync())
+                                        {
+                                            var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
+                                            items.Add(new SqliteSyncItem(table, ChangeType.Insert, values));
+                                            snapshotItems.Add(values[table.PrimaryColumnName]);
+                                            _logger?.Trace($"[{_storeId}] Initial snapshot {items.Last()}");
+                                        }
+                                    }
+                                }
+
+                                cmd.CommandText = table.IncrementalAddOrUpdatesQuery;
+                                cmd.Parameters.Clear();
+                                cmd.Parameters.AddWithValue("@version", fromAnchor.IsNull() ? 0 : fromAnchor.Version);
+                                cmd.Parameters.AddWithValue("@sourceId", otherStoreId.ToString());
+
                                 using (var r = await cmd.ExecuteReaderAsync())
                                 {
                                     while (await r.ReadAsync())
                                     {
                                         var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
-                                        items.Add(new SqliteSyncItem(table, ChangeType.Insert, values));
-                                        snapshotItems.Add(values[table.PrimaryColumnName]);
-                                        _logger?.Trace($"[{_storeId}] Initial snapshot {items.Last()}");
+                                        if (snapshotItems.Contains(values[table.PrimaryColumnName]))
+                                            continue;
+
+                                        items.Add(new SqliteSyncItem(table, DetectChangeType(values),
+                                            values.Where(_ => _.Key != "__OP").ToDictionary(_ => _.Key, _ => _.Value == DBNull.Value ? null : _.Value)));
+                                        _logger?.Trace($"[{_storeId}] Incremental add or update {items.Last()}");
+                                    }
+                                }
+
+                                cmd.CommandText = table.IncrementalDeletesQuery;
+                                using (var r = await cmd.ExecuteReaderAsync())
+                                {
+                                    while (await r.ReadAsync())
+                                    {
+                                        var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
+                                        items.Add(new SqliteSyncItem(table, ChangeType.Delete, values));
+                                        _logger?.Trace($"[{_storeId}] Incremental delete {items.Last()}");
                                     }
                                 }
                             }
 
-                            cmd.CommandText = table.IncrementalAddOrUpdatesQuery;
-                            cmd.Parameters.Clear();
-                            cmd.Parameters.AddWithValue("@version", fromAnchor.IsNull() ? 0 : fromAnchor.Version);
-                            cmd.Parameters.AddWithValue("@sourceId", otherStoreId.ToString());
+                            tr.Commit();
 
-                            using (var r = await cmd.ExecuteReaderAsync())
-                            {
-                                while (await r.ReadAsync())
-                                {
-                                    var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
-                                    if (snapshotItems.Contains(values[table.PrimaryColumnName]))
-                                        continue;
+                            var resChangeSet = new SyncChangeSet(new SyncAnchor(_storeId, version), await GetLastRemoteAnchorForStoreAsync(otherStoreId), items);
 
-                                    items.Add(new SqliteSyncItem(table, DetectChangeType(values),
-                                        values.Where(_ => _.Key != "__OP").ToDictionary(_ => _.Key, _ => _.Value == DBNull.Value ? null : _.Value)));
-                                    _logger?.Trace($"[{_storeId}] Incremental add or update {items.Last()}");
-                                }
-                            }
+                            _logger?.Info($"[{_storeId}] Completed GetChanges(to={version}, {items.Count} items) in {(DateTime.Now - now).TotalMilliseconds}ms");
 
-                            cmd.CommandText = table.IncrementalDeletesQuery;
-                            using (var r = await cmd.ExecuteReaderAsync())
-                            {
-                                while (await r.ReadAsync())
-                                {
-                                    var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
-                                    items.Add(new SqliteSyncItem(table, ChangeType.Delete, values));
-                                    _logger?.Trace($"[{_storeId}] Incremental delete {items.Last()}");
-                                }
-                            }
+                            return resChangeSet;
+
                         }
-
-                        tr.Commit();
-
-                        var resChangeSet = new SyncChangeSet(new SyncAnchor(_storeId, version), await GetLastRemoteAnchorForStoreAsync(otherStoreId), items);
-
-                        _logger?.Info($"[{_storeId}] Completed GetChanges(to={version}, {items.Count} items) in {(DateTime.Now - now).TotalMilliseconds}ms");
-
-                        return resChangeSet;
+                        catch (Exception)
+                        {
+                            tr.Rollback();
+                            throw;
+                        }
                     }
                 }
             }
@@ -736,54 +750,6 @@ namespace CoreSync.Sqlite
                 }
             }
         }
-
-        //public async Task<SyncChangeSet> GetInitialSnapshotAsync(Guid otherStoreId, SyncDirection syncDirection)
-        //{
-        //    //await InitializeAsync();
-
-        //    using (var c = new SqliteConnection(Configuration.ConnectionString))
-        //    {
-        //        await c.OpenAsync();
-
-        //        using (var cmd = new SqliteCommand())
-        //        {
-        //            var items = new List<SqliteSyncItem>();
-
-        //            using (var tr = c.BeginTransaction())
-        //            {
-        //                cmd.Connection = c;
-        //                cmd.Transaction = tr;
-
-        //                cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
-        //                var version = await cmd.ExecuteLongScalarAsync();
-
-        //                foreach (var table in Configuration.Tables
-        //                    .Cast<SqliteSyncTable>()
-        //                    .Where(_ => _.Columns.Any() && !_.SkipInitialSnapshot))
-        //                {
-        //                    if (table.SyncDirection != SyncDirection.UploadAndDownload &&
-        //                        table.SyncDirection != syncDirection)
-        //                        continue;
-
-        //                    cmd.CommandText = table.InitialSnapshotQuery;
-        //                    using (var r = await cmd.ExecuteReaderAsync())
-        //                    {
-        //                        while (await r.ReadAsync())
-        //                        {
-        //                            var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
-        //                            items.Add(new SqliteSyncItem(table, ChangeType.Insert, values));
-        //                        }
-        //                    }
-        //                }
-
-        //                tr.Commit();
-
-        //                return new SyncChangeSet(new SyncAnchor(_storeId, version), await GetLastRemoteAnchorForStoreAsync(otherStoreId), items);
-        //            }
-        //        }
-        //    }
-        //}
-
         
         public async Task<SyncVersion> GetSyncVersionAsync()
         {
@@ -836,18 +802,26 @@ namespace CoreSync.Sqlite
                             cmd.Connection = c;
                             cmd.Transaction = tr;
 
-                            cmd.CommandText = $"DELETE FROM __CORE_SYNC_CT WHERE ID < {minVersion}";
-                            await cmd.ExecuteNonQueryAsync();
+                            try
+                            {
+                                cmd.CommandText = $"DELETE FROM __CORE_SYNC_CT WHERE ID < {minVersion}";
+                                await cmd.ExecuteNonQueryAsync();
 
-                            cmd.CommandText = "SELECT MAX(ID) FROM __CORE_SYNC_CT";
-                            var version = await cmd.ExecuteLongScalarAsync();
+                                cmd.CommandText = "SELECT MAX(ID) FROM __CORE_SYNC_CT";
+                                var version = await cmd.ExecuteLongScalarAsync();
 
-                            cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
-                            var newMinVersion = await cmd.ExecuteLongScalarAsync();
+                                cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
+                                var newMinVersion = await cmd.ExecuteLongScalarAsync();
 
-                            tr.Commit();
+                                tr.Commit();
 
-                            return new SyncVersion(version, newMinVersion);
+                                return new SyncVersion(version, newMinVersion);
+                            }
+                            catch (Exception)
+                            {
+                                tr.Rollback();
+                                throw;
+                            }
                         }
                     }
                 }
