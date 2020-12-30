@@ -103,7 +103,7 @@ namespace CoreSync.Sqlite
                                         cmd.Parameters.Add(new SqliteParameter("@" + table.PrimaryColumnName.Replace(" ", "_"), valueItem.Value ?? DBNull.Value));
                                         if (0 == (long)await cmd.ExecuteScalarAsync())
                                         {
-                                            throw new SynchronizationException($"Unable to {item} item to store for table {table} {new SyncAnchor(_storeId, version)}: affected rows was 0");
+                                            throw new SynchronizationException($"Unable to {itemChangeType} item ({item}) to store for table {table} {new SyncAnchor(_storeId, version)}: affected rows was 0");
                                         }
                                         else
                                         {

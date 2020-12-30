@@ -86,33 +86,10 @@ namespace CoreSync.SqlServer
                                 retryWrite:
                                     cmd.Parameters.Clear();
 
-                                    switch (itemChangeType)
-                                    {
-                                        case ChangeType.Insert:
-                                            cmd.CommandText = table.InsertQuery;
-                                            break;
-
-                                        case ChangeType.Update:
-                                            cmd.CommandText = table.UpdateQuery;
-                                            break;
-
-                                        case ChangeType.Delete:
-                                            cmd.CommandText = table.DeleteQuery;
-                                            break;
-                                    }
+                                    table.SetupCommand(cmd, itemChangeType, item.Values);
 
                                     cmd.Parameters.Add(new SqlParameter("@last_sync_version", changeSet.TargetAnchor.Version));
                                     cmd.Parameters.Add(new SqlParameter("@sync_force_write", syncForceWrite));
-                                    //cmd.Parameters.Add(new SqlParameter("@compoundPrimaryKey", string.Join("-", table.PrimaryColumnNames.Select(_ => item.Values[_].Value.ToString()))));
-
-                                    foreach (var valueItem in item.Values)
-                                    {
-                                        cmd.Parameters.Add(new SqlParameter("@" + valueItem.Key.Replace(" ", "_"), table.Columns[valueItem.Key].DbType)
-                                        {
-                                            Value = ConvertToSqlType(valueItem.Value, table.Columns[valueItem.Key].DbType)
-                                        });
-                                        //cmd.Parameters.AddWithValue("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value.Value ?? DBNull.Value);
-                                    }
 
                                     int affectedRows;
 
@@ -142,11 +119,11 @@ namespace CoreSync.SqlServer
                                             var valueItem = item.Values[table.PrimaryColumnName];
                                             cmd.Parameters.Add(new SqlParameter("@" + table.PrimaryColumnName.Replace(" ", "_"), table.Columns[table.PrimaryColumnName].DbType)
                                             {
-                                                Value = ConvertToSqlType(valueItem, table.Columns[table.PrimaryColumnName].DbType)
+                                                Value = Utils.ConvertToSqlType(valueItem, table.Columns[table.PrimaryColumnName].DbType)
                                             });
                                             if (0 == (int)await cmd.ExecuteScalarAsync())
                                             {
-                                                throw new SynchronizationException($"Unable to {item} item to store for table {table} {new SyncAnchor(_storeId, version)}: affected rows was 0");
+                                                throw new SynchronizationException($"Unable to {itemChangeType} item ({item}) to store for table {table} {new SyncAnchor(_storeId, version)}: affected rows was 0");
                                             }
                                             else
                                             {
@@ -268,18 +245,6 @@ namespace CoreSync.SqlServer
                     await cmd.ExecuteNonQueryAsync();
                 }
             }
-        }
-
-        private static object ConvertToSqlType(SyncItemValue value, SqlDbType dbType)
-        {
-            if (value.Value == null)
-                return DBNull.Value;
-
-            if (dbType == SqlDbType.UniqueIdentifier &&
-                value.Value is string)
-                return Guid.Parse(value.Value.ToString());
-
-            return value.Value;
         }
 
         public async Task SaveVersionForStoreAsync(Guid otherStoreId, long version)
@@ -525,6 +490,7 @@ INCLUDE([TBL]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMP
 
                         table.Columns = (await connection.GetTableColumnsAsync(table)).ToDictionary(_ => _.Item1, _ => new SqlColumn(_.Item1, _.Item2), StringComparer.OrdinalIgnoreCase);
                         table.PrimaryColumnName = primaryKeyColumns[0];
+                        table.PrimaryKeyColumns = primaryKeyColumns;
 
                         if (table.SkipColumns.Any(skipColumn => string.CompareOrdinal(skipColumn, table.PrimaryColumnName) == 0))
                         {
@@ -545,53 +511,53 @@ INCLUDE([TBL]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMP
                         cmd.Parameters.AddWithValue("@tablename", table.Name);
                         cmd.Parameters.AddWithValue("@schemaname", table.Schema);
 
-                        var hasTableIdentityColumn = ((int)await cmd.ExecuteScalarAsync() == 1);
+                        table.HasTableIdentityColumn = ((int)await cmd.ExecuteScalarAsync() == 1);
                         
-                        table.InitialSnapshotQuery = $@"SELECT * FROM {table.NameWithSchema}";
+                        //table.InitialSnapshotQuery = $@"SELECT * FROM {table.NameWithSchema}";
 
                         //SET CONTEXT_INFO @sync_client_id_binary;
-                        table.InsertQuery = $@"{(hasTableIdentityColumn ? $"SET IDENTITY_INSERT {table.NameWithSchema} ON" : string.Empty)}
-BEGIN TRY 
-INSERT INTO {table.NameWithSchema} ({string.Join(", ", allColumns.Select(_ => "[" + _ + "]"))}) 
-VALUES ({string.Join(", ", allColumns.Select(_ => "@" + _.Replace(' ', '_')))});
-END TRY  
-BEGIN CATCH  
-PRINT ERROR_MESSAGE()
-END CATCH
-{(hasTableIdentityColumn ? $"SET IDENTITY_INSERT {table.NameWithSchema} OFF" : string.Empty)}";
+//                        table.InsertQuery = $@"{(hasTableIdentityColumn ? $"SET IDENTITY_INSERT {table.NameWithSchema} ON" : string.Empty)}
+//BEGIN TRY 
+//INSERT INTO {table.NameWithSchema} ({string.Join(", ", allColumns.Select(_ => "[" + _ + "]"))}) 
+//VALUES ({string.Join(", ", allColumns.Select(_ => "@" + _.Replace(' ', '_')))});
+//END TRY  
+//BEGIN CATCH  
+//PRINT ERROR_MESSAGE()
+//END CATCH
+//{(hasTableIdentityColumn ? $"SET IDENTITY_INSERT {table.NameWithSchema} OFF" : string.Empty)}";
 
-                        table.SelectExistingQuery = $@"SELECT COUNT (*) FROM {table.NameWithSchema}
-WHERE [{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(" ", "_")}";
-
-                        //SET CONTEXT_INFO @sync_client_id_binary; 
-                        table.DeleteQuery = $@"BEGIN TRY 
-DELETE FROM {table.NameWithSchema}
-WHERE {table.NameWithSchema}.[{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(" ", "_")}
-AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK_{table.PrimaryColumnType} = @{table.PrimaryColumnName.Replace(" ", "_")} AND TBL = '{table.NameWithSchema}') <= @last_sync_version)
-END TRY  
-BEGIN CATCH  
-PRINT ERROR_MESSAGE()
-END CATCH";
+//                        table.SelectExistingQuery = $@"SELECT COUNT (*) FROM {table.NameWithSchema}
+//WHERE [{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(" ", "_")}";
 
                         //SET CONTEXT_INFO @sync_client_id_binary; 
-                        table.UpdateQuery = $@"BEGIN TRY 
-UPDATE {table.NameWithSchema}
-SET {string.Join(", ", tableColumns.Select(_ => "[" + _ + "] = @" + _.Replace(' ', '_')))}
-WHERE {table.NameWithSchema}.[{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(" ", "_")}
-AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK_{table.PrimaryColumnType} = @{table.PrimaryColumnName.Replace(" ", "_")} AND TBL = '{table.NameWithSchema}') <= @last_sync_version)
-END TRY  
-BEGIN CATCH  
-PRINT ERROR_MESSAGE()
-END CATCH";
+//                        table.DeleteQuery = $@"BEGIN TRY 
+//DELETE FROM {table.NameWithSchema}
+//WHERE {table.NameWithSchema}.[{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(" ", "_")}
+//AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK_{table.PrimaryColumnType} = @{table.PrimaryColumnName.Replace(" ", "_")} AND TBL = '{table.NameWithSchema}') <= @last_sync_version)
+//END TRY  
+//BEGIN CATCH  
+//PRINT ERROR_MESSAGE()
+//END CATCH";
+
+                        //SET CONTEXT_INFO @sync_client_id_binary; 
+//                        table.UpdateQuery = $@"BEGIN TRY 
+//UPDATE {table.NameWithSchema}
+//SET {string.Join(", ", tableColumns.Select(_ => "[" + _ + "] = @" + _.Replace(' ', '_')))}
+//WHERE {table.NameWithSchema}.[{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(" ", "_")}
+//AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK_{table.PrimaryColumnType} = @{table.PrimaryColumnName.Replace(" ", "_")} AND TBL = '{table.NameWithSchema}') <= @last_sync_version)
+//END TRY  
+//BEGIN CATCH  
+//PRINT ERROR_MESSAGE()
+//END CATCH";
 
                         if (table.SyncDirection == SyncDirection.UploadAndDownload ||
                             (table.SyncDirection == SyncDirection.UploadOnly && ProviderMode == ProviderMode.Local) ||
                             (table.SyncDirection == SyncDirection.DownloadOnly && ProviderMode == ProviderMode.Remote))
                         {
-                            table.IncrementalAddOrUpdatesQuery = $@"SELECT DISTINCT { string.Join(",", allColumns.Select(_ => "T.[" + _ + "]"))}, CT.OP AS __OP FROM {table.NameWithSchema} AS T 
-INNER JOIN __CORE_SYNC_CT AS CT ON T.[{table.PrimaryColumnName}] = CT.[PK_{table.PrimaryColumnType}] WHERE CT.ID > @version AND CT.TBL = '{table.NameWithSchema}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
+//                            table.IncrementalAddOrUpdatesQuery = $@"SELECT DISTINCT { string.Join(",", allColumns.Select(_ => "T.[" + _ + "]"))}, CT.OP AS __OP FROM {table.NameWithSchema} AS T 
+//INNER JOIN __CORE_SYNC_CT AS CT ON T.[{table.PrimaryColumnName}] = CT.[PK_{table.PrimaryColumnType}] WHERE CT.ID > @version AND CT.TBL = '{table.NameWithSchema}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
 
-                            table.IncrementalDeletesQuery = $@"SELECT PK_{table.PrimaryColumnType} AS [{table.PrimaryColumnName}] FROM __CORE_SYNC_CT WHERE TBL = '{table.NameWithSchema}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
+                            //table.IncrementalDeletesQuery = $@"SELECT PK_{table.PrimaryColumnType} AS [{table.PrimaryColumnName}] FROM __CORE_SYNC_CT WHERE TBL = '{table.NameWithSchema}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
                         }
                     }
                 }
