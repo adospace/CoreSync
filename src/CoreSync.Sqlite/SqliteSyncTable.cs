@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.Data.Sqlite;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -44,19 +45,47 @@ namespace CoreSync.Sqlite
         /// </summary>
         internal Dictionary<string, SqliteColumn> Columns { get; set; } = new Dictionary<string, SqliteColumn>();
 
-        internal string InitialSnapshotQuery { get; set; }
-        
-        internal string IncrementalAddOrUpdatesQuery { get; set; }
-        
-        internal string IncrementalDeletesQuery { get; set; }
+        internal string InitialSnapshotQuery => $@"SELECT * FROM [{Name}]";
 
-        internal string SelectExistingQuery { get; set; }
-        
-        internal string InsertQuery { get; set; }
+        internal string IncrementalAddOrUpdatesQuery => $@"SELECT DISTINCT {string.Join(",", Columns.Select(_ => "T.[" + _.Key + "]"))}, CT.OP AS __OP 
+                                FROM [{Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON T.[{PrimaryColumnName}] = CT.PK_{PrimaryColumnType} WHERE CT.ID > @version AND CT.TBL = '{Name}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
 
-        internal string UpdateQuery { get; set; }
+        internal string IncrementalDeletesQuery =>
+            $@"SELECT PK_{PrimaryColumnType} AS [{PrimaryColumnName}] FROM [__CORE_SYNC_CT] WHERE TBL = '{Name}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
 
-        internal string DeleteQuery { get; set; }
+        internal string SelectExistingQuery => $@"SELECT COUNT(*) FROM [{Name}] 
+            WHERE [{PrimaryColumnName}] = @{PrimaryColumnName.Replace(' ', '_')}";
 
+        internal void SetupCommand(SqliteCommand cmd, ChangeType itemChangeType, Dictionary<string, SyncItemValue> syncItemValues)
+        {
+            //take values only for existing columns (server table schema could be not in sync with local table schema)
+            var valuesForValidColumns = syncItemValues
+                .Where(value => Columns.Any(_ => StringComparer.OrdinalIgnoreCase.Compare(_.Key, value.Key) == 0))
+                .ToList();
+
+            switch (itemChangeType)
+            {
+                case ChangeType.Insert:
+                    cmd.CommandText = $@"INSERT OR IGNORE INTO [{Name}] ({string.Join(", ", valuesForValidColumns.Select(_ => "[" + _.Key + "]"))}) 
+VALUES ({string.Join(", ", valuesForValidColumns.Select(_ => "@" + _.Key.Replace(' ', '_')))});";
+                    break;
+
+                case ChangeType.Update:
+                    cmd.CommandText = $@"UPDATE [{Name}]
+SET {string.Join(", ", valuesForValidColumns.Select(_ => "[" + _.Key + "] = @" + _.Key.Replace(' ', '_')))}
+WHERE [{Name}].[{PrimaryColumnName}] = @{PrimaryColumnName.Replace(' ', '_')}
+AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK_{PrimaryColumnType} = @{PrimaryColumnName.Replace(' ', '_')} AND TBL = '{Name}') <= @last_sync_version)";
+                    break;
+
+                case ChangeType.Delete:
+                    cmd.CommandText = $@"DELETE FROM [{Name}]
+WHERE [{Name}].[{PrimaryColumnName}] = @{PrimaryColumnName.Replace(' ', '_')}
+AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK_{PrimaryColumnType} = @{PrimaryColumnName.Replace(' ', '_')} AND TBL = '{Name}') <= @last_sync_version)";
+                    break;
+            }
+
+            foreach (var valueItem in valuesForValidColumns)
+                cmd.Parameters.Add(new SqliteParameter("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value.Value ?? DBNull.Value));
+        }
     }
 }

@@ -68,27 +68,10 @@ namespace CoreSync.Sqlite
                             retryWrite:
                                 cmd.Parameters.Clear();
 
-                                switch (itemChangeType)
-                                {
-                                    case ChangeType.Insert:
-                                        cmd.CommandText = table.InsertQuery;
-                                        break;
-
-                                    case ChangeType.Update:
-                                        cmd.CommandText = table.UpdateQuery;
-                                        break;
-
-                                    case ChangeType.Delete:
-                                        cmd.CommandText = table.DeleteQuery;
-                                        break;
-                                }
+                                table.SetupCommand(cmd, itemChangeType, item.Values);
 
                                 cmd.Parameters.Add(new SqliteParameter("@last_sync_version", changeSet.TargetAnchor.Version));
                                 cmd.Parameters.Add(new SqliteParameter("@sync_force_write", syncForceWrite));
-                                //cmd.Parameters.Add(new SqliteParameter("@compoundPrimaryKey", string.Join("-", table.PrimaryColumnNames.Select(_ => item.Values[_].Value.ToString()))));
-
-                                foreach (var valueItem in item.Values)
-                                    cmd.Parameters.Add(new SqliteParameter("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value.Value ?? DBNull.Value));
 
                                 int affectedRows;
 
@@ -578,40 +561,6 @@ namespace CoreSync.Sqlite
                         {
                             throw new NotSupportedException($"Unable to configure table '{table}': it has more than one column as primary key");
                         }                        
-                    }
-
-                    foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>())
-                    {
-                        //var primaryKeyColumns = table.Columns.Where(_ => _.IsPrimaryKey).ToArray();
-                        var tableColumns = table.Columns.Select(_ => _.Value).Where(_ => !_.IsPrimaryKey).ToArray();
-
-                        table.InitialSnapshotQuery = $@"SELECT * FROM [{table.Name}]";
-
-                        table.InsertQuery = $@"INSERT OR IGNORE INTO [{table.Name}] ({string.Join(", ", table.Columns.Select(_ => "[" + _.Key + "]"))}) 
-            VALUES ({string.Join(", ", table.Columns.Select(_ => "@" + _.Key.Replace(' ', '_')))});";
-
-                        table.SelectExistingQuery = $@"SELECT COUNT(*) FROM [{table.Name}] 
-            WHERE [{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(' ', '_')}";
-
-                        table.UpdateQuery = $@"UPDATE [{table.Name}]
-            SET {string.Join(", ", tableColumns.Select(_ => "[" + _.Name + "] = @" + _.Name.Replace(' ', '_')))}
-            WHERE [{table.Name}].[{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(' ', '_')}
-            AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK_{table.PrimaryColumnType} = @{table.PrimaryColumnName.Replace(' ', '_')} AND TBL = '{table.Name}') <= @last_sync_version)";
-
-                        table.DeleteQuery = $@"DELETE FROM [{table.Name}]
-            WHERE [{table.Name}].[{table.PrimaryColumnName}] = @{table.PrimaryColumnName.Replace(' ', '_')}
-            AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK_{table.PrimaryColumnType} = @{table.PrimaryColumnName.Replace(' ', '_')} AND TBL = '{table.Name}') <= @last_sync_version)";
-
-
-                        if (table.SyncDirection == SyncDirection.UploadAndDownload ||
-                            (table.SyncDirection == SyncDirection.UploadOnly && ProviderMode == ProviderMode.Local) ||
-                            (table.SyncDirection == SyncDirection.DownloadOnly && ProviderMode == ProviderMode.Remote))
-                        {
-                            table.IncrementalAddOrUpdatesQuery = $@"SELECT DISTINCT {string.Join(",", table.Columns.Select(_ => "T.[" + _.Key + "]"))}, CT.OP AS __OP 
-                                FROM [{table.Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON T.[{table.PrimaryColumnName}] = CT.PK_{table.PrimaryColumnType} WHERE CT.ID > @version AND CT.TBL = '{table.Name}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
-
-                            table.IncrementalDeletesQuery = $@"SELECT PK_{table.PrimaryColumnType} AS [{table.PrimaryColumnName}] FROM [__CORE_SYNC_CT] WHERE TBL = '{table.Name}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
-                        }
                     }
                 }
             }
