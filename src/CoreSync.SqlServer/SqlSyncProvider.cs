@@ -50,7 +50,7 @@ namespace CoreSync.SqlServer
                     c.InfoMessage += (s, e) => messageLog.Add(e);
                     await c.OpenAsync();
 
-                    await DisableConstraintsForChangeSetTables(c, changeSet);
+                    //await DisableConstraintsForChangeSetTables(c, changeSet);
 
                     using (var cmd = new SqlCommand())
                     {
@@ -104,7 +104,7 @@ namespace CoreSync.SqlServer
                                     }
                                     catch (Exception ex)
                                     {
-                                        throw new SynchronizationException($"Unable to {item} item to store for table {table}", ex);
+                                        throw new SynchronizationException($"Unable to {itemChangeType} item {item} to store for table {table}", ex);
                                     }
 
                                     if (affectedRows == 0)
@@ -208,7 +208,7 @@ namespace CoreSync.SqlServer
                 }
                 finally
                 {
-                    await RestoreConstraintsForChangeSetTables(c, changeSet);
+                    //await RestoreConstraintsForChangeSetTables(c, changeSet);
                 }
             }
         }
