@@ -658,6 +658,79 @@ namespace CoreSync.Tests
             await TestSyncAgentDeleteWithForeignKeys(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
         }
 
+        [TestMethod]
+        public async Task Test_Sqlite_Sqlite_DeleteParentRecordInRelatedTables()
+        {
+            var localDbFile = $"{Path.GetTempPath()}Test_Sqlite_Sqlite_DeleteParentRecordInRelatedTables_local.sqlite";
+            var remoteDbFile = $"{Path.GetTempPath()}Test_Sqlite_Sqlite_DeleteParentRecordInRelatedTables_remote.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+            if (File.Exists(remoteDbFile)) File.Delete(remoteDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new SqliteBlogDbContext($"Data Source={remoteDbFile}");
+
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            remoteDb.Database.ExecuteSqlCommand("PRAGMA foreign_keys = ON;");
+            localDb.Database.ExecuteSqlCommand("PRAGMA foreign_keys = ON;");
+
+            var remoteConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+
+
+            await TestSyncAgentDeleteParentRecordInRelatedTables(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test_SqlServer_SqlServer_DeleteParentRecordInRelatedTables()
+        {
+            using var localDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test_SqlServer_SqlServer_DeleteParentRecordInRelatedTables_local");
+            using var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test_SqlServer_SqlServer_DeleteParentRecordInRelatedTables_remote");
+
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+
+            var localConfigurationBuilder =
+                new SqlSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+
+
+            await TestSyncAgentDeleteParentRecordInRelatedTables(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
     }
 
 

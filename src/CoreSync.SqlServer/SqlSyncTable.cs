@@ -57,10 +57,10 @@ namespace CoreSync.SqlServer
 
         internal string InitialSnapshotQuery => $@"SELECT * FROM {NameWithSchema}";
 
-        internal string IncrementalAddOrUpdatesQuery => $@"SELECT DISTINCT { string.Join(",", Columns.Keys.Except(SkipColumns).Select(_ => "T.[" + _ + "]"))}, CT.OP AS __OP FROM {NameWithSchema} AS T 
-INNER JOIN __CORE_SYNC_CT AS CT ON T.[{PrimaryColumnName}] = CT.[PK_{PrimaryColumnType}] WHERE CT.ID > @version AND CT.TBL = '{NameWithSchema}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
+        internal string IncrementalAddOrUpdatesQuery => $@"SELECT DISTINCT { string.Join(",", Columns.Keys.Except(SkipColumns).Select(_ => "T.[" + _ + "]"))}, CT.OP AS __OP, CT.ID AS __ID FROM {NameWithSchema} AS T 
+INNER JOIN __CORE_SYNC_CT AS CT ON T.[{PrimaryColumnName}] = CT.[PK_{PrimaryColumnType}] WHERE CT.ID > @version AND CT.TBL = '{NameWithSchema}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId) ORDER BY __ID";
 
-        internal string IncrementalDeletesQuery => $@"SELECT PK_{PrimaryColumnType} AS [{PrimaryColumnName}] FROM __CORE_SYNC_CT WHERE TBL = '{NameWithSchema}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
+        internal string IncrementalDeletesQuery => $@"SELECT PK_{PrimaryColumnType} AS [{PrimaryColumnName}] FROM __CORE_SYNC_CT WHERE TBL = '{NameWithSchema}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId) ORDER BY ID";
 
         internal string SelectExistingQuery => $@"SELECT COUNT (*) FROM {NameWithSchema}
 WHERE [{PrimaryColumnName}] = @{PrimaryColumnName.Replace(" ", "_")}";

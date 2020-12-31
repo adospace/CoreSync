@@ -1,7 +1,7 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
-namespace CoreSync.Tests.Migrations
+namespace CoreSync.Tests.Migrations.SqliteMigrations
 {
     public partial class InitialCreate : Migration
     {
@@ -40,7 +40,7 @@ namespace CoreSync.Tests.Migrations
                         column: x => x.AuthorEmail,
                         principalTable: "Users",
                         principalColumn: "Email",
-                        onDelete: ReferentialAction.Restrict);
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(

@@ -19,6 +19,16 @@ namespace CoreSync.Tests.Data
             base.OnConfiguring(optionsBuilder);
         }
 
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<Post>()
+                .HasOne(p => p.Author)
+                .WithMany(b => b.Posts)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            base.OnModelCreating(modelBuilder);
+        }
+
         public override BlogDbContext Refresh()
         {
             Dispose();

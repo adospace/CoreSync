@@ -842,5 +842,68 @@ namespace CoreSync.Tests
             (await localDb.Posts.AnyAsync()).ShouldBeFalse();
         }
 
+
+        private async Task TestSyncAgentDeleteParentRecordInRelatedTables(
+            BlogDbContext localDb,
+            ISyncProvider localSyncProvider,
+            BlogDbContext remoteDb,
+            ISyncProvider remoteSyncProvider)
+        {
+            var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
+            await syncAgent.SynchronizeAsync();
+
+            //create a user on remote store
+            User remoteUser;
+            remoteDb.Users.Add(remoteUser = new User() { Email = "user@test.com", Name = "User", Created = DateTime.Now });
+            remoteUser.Posts.Add(new Post()
+            {
+                Content = $"Content",
+                Title = $"Post",
+                Claps = 1,
+                Stars = 10
+            });
+
+            await remoteDb.SaveChangesAsync();
+
+            await syncAgent.SynchronizeAsync();
+
+            var localUser = await localDb.Users.Include(_=>_.Posts).FirstOrDefaultAsync(_ => _.Email == "user@test.com");
+            localUser.ShouldNotBeNull();
+
+            //delete user on remotedb
+            remoteDb = remoteDb.Refresh();
+
+            remoteDb.Users.Remove(await remoteDb.Users.FirstAsync(_ => _.Email == "user@test.com"));
+            remoteDb.Posts.RemoveRange(await remoteDb.Posts.ToListAsync());
+            await remoteDb.SaveChangesAsync();
+
+            //update post on local db of the user deleted on server
+            localUser.Posts[0].Claps++;
+
+            localUser.Posts.Add(new Post()
+            {
+                Author = localUser,
+                Content = $"Content created on local db",
+                Title = $"Post 2",
+                Claps = 0,
+                Stars = 2
+            });
+
+            await localDb.SaveChangesAsync();
+
+            localDb = localDb.Refresh();
+            localUser = await localDb.Users.Include(_=>_.Posts).FirstOrDefaultAsync(_ => _.Email == "user@test.com");
+            localUser.ShouldNotBeNull();
+            localUser.Posts.Count.ShouldBe(2);
+
+            await syncAgent.SynchronizeAsync();
+
+            localDb = localDb.Refresh();
+            localUser = await localDb.Users.FirstOrDefaultAsync(_ => _.Email == "user@test.com");
+            localUser.ShouldBeNull();
+
+            (await localDb.Posts.AnyAsync()).ShouldBeFalse();
+        }
+
     }
 }

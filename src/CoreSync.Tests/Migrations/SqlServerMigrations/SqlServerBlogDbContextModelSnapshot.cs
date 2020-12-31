@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
-namespace CoreSync.Tests.Migrations
+namespace CoreSync.Tests.Migrations.SqlServerMigrations
 {
     [DbContext(typeof(SqlServerBlogDbContext))]
     partial class SqlServerBlogDbContextModelSnapshot : ModelSnapshot
@@ -102,7 +102,8 @@ namespace CoreSync.Tests.Migrations
                 {
                     b.HasOne("CoreSync.Tests.Data.User", "Author")
                         .WithMany("Posts")
-                        .HasForeignKey("AuthorEmail");
+                        .HasForeignKey("AuthorEmail")
+                        .OnDelete(DeleteBehavior.Cascade);
                 });
 #pragma warning restore 612, 618
         }

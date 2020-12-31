@@ -39,7 +39,7 @@ namespace CoreSync.Sqlite
 
             _logger?.Info($"[{_storeId}] Begin ApplyChanges(source={changeSet.SourceAnchor}, target={changeSet.TargetAnchor}, {changeSet.Items.Count} items)");
 
-            using (var c = new SqliteConnection(Configuration.ConnectionString + ";Foreign Keys=False"))
+            using (var c = new SqliteConnection(Configuration.ConnectionString)) // +";Foreign Keys=False"))
             {
                 await c.OpenAsync();
 
@@ -73,7 +73,7 @@ namespace CoreSync.Sqlite
                                 cmd.Parameters.Add(new SqliteParameter("@last_sync_version", changeSet.TargetAnchor.Version));
                                 cmd.Parameters.Add(new SqliteParameter("@sync_force_write", syncForceWrite));
 
-                                int affectedRows;
+                                int affectedRows = 0;
 
                                 try
                                 {
@@ -86,7 +86,8 @@ namespace CoreSync.Sqlite
                                 }
                                 catch (Exception ex)
                                 {
-                                    throw new SynchronizationException($"Unable to {item} item to store for table {table}", ex);
+                                    //throw new SynchronizationException($"Unable to {item} item to store for table {table}", ex);
+                                    _logger?.Warning($"Unable to {item} {Environment.NewLine}{ex}");
                                 }
 
                                 if (affectedRows == 0)
@@ -101,15 +102,14 @@ namespace CoreSync.Sqlite
                                         cmd.Parameters.Clear();
                                         var valueItem = item.Values[table.PrimaryColumnName];
                                         cmd.Parameters.Add(new SqliteParameter("@" + table.PrimaryColumnName.Replace(" ", "_"), valueItem.Value ?? DBNull.Value));
-                                        if (0 == (long)await cmd.ExecuteScalarAsync())
-                                        {
-                                            throw new SynchronizationException($"Unable to {itemChangeType} item ({item}) to store for table {table} {new SyncAnchor(_storeId, version)}: affected rows was 0");
-                                        }
-                                        else
+                                        if (1 == (long)await cmd.ExecuteScalarAsync())
                                         {
                                             itemChangeType = ChangeType.Update;
                                             goto retryWrite;
-                                            //_logger?.Trace($"[{_storeId}] Existing record for {item}");
+                                        }
+                                        else
+                                        {
+                                            _logger?.Warning($"Unable to {item}: much probably there is a foreign key constraint issue logged before");
                                         }
                                     }
                                     else if (itemChangeType == ChangeType.Update ||

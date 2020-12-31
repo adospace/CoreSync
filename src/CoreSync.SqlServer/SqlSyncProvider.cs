@@ -121,15 +121,15 @@ namespace CoreSync.SqlServer
                                             {
                                                 Value = Utils.ConvertToSqlType(valueItem, table.Columns[table.PrimaryColumnName].DbType)
                                             });
-                                            if (0 == (int)await cmd.ExecuteScalarAsync())
-                                            {
-                                                throw new SynchronizationException($"Unable to {itemChangeType} item ({item}) to store for table {table} {new SyncAnchor(_storeId, version)}: affected rows was 0");
-                                            }
-                                            else
+                                            if (1 == (int)await cmd.ExecuteScalarAsync())
                                             {
                                                 itemChangeType = ChangeType.Update;
                                                 goto retryWrite;
                                                 //_logger?.Trace($"[{_storeId}] Existing record for {item}");
+                                            }
+                                            else
+                                            {
+                                                _logger?.Warning($"[{_storeId}] Unable to {itemChangeType} item {item} on table {table}. Messages: Messages:{Environment.NewLine}{string.Join(Environment.NewLine, messageLog.Select(_ => _.Message))}");
                                             }
                                         }
                                         else if (itemChangeType == ChangeType.Update ||

@@ -3,14 +3,16 @@ using System;
 using CoreSync.Tests.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
-namespace CoreSync.Tests.Migrations.SqliteBlogDb
+namespace CoreSync.Tests.Migrations.SqliteMigrations
 {
     [DbContext(typeof(SqliteBlogDbContext))]
-    partial class SqliteBlogDbContextModelSnapshot : ModelSnapshot
+    [Migration("20201231163442_InitialCreate")]
+    partial class InitialCreate
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -99,7 +101,8 @@ namespace CoreSync.Tests.Migrations.SqliteBlogDb
                 {
                     b.HasOne("CoreSync.Tests.Data.User", "Author")
                         .WithMany("Posts")
-                        .HasForeignKey("AuthorEmail");
+                        .HasForeignKey("AuthorEmail")
+                        .OnDelete(DeleteBehavior.Cascade);
                 });
 #pragma warning restore 612, 618
         }
