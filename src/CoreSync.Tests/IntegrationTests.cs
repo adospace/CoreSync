@@ -905,5 +905,100 @@ namespace CoreSync.Tests
             (await localDb.Posts.AnyAsync()).ShouldBeFalse();
         }
 
+        
+        private async Task TestDeleteLocalParentRecordInRelatedTablesUpdatedOnServer(
+            BlogDbContext localDb,
+            ISyncProvider localSyncProvider,
+            BlogDbContext remoteDb,
+            ISyncProvider remoteSyncProvider)
+        {
+            var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
+            await syncAgent.SynchronizeAsync();
+
+            //create a user on remote store
+            User remoteUser;
+            remoteDb.Users.Add(remoteUser = new User() { Email = "user@test.com", Name = "User", Created = DateTime.Now });
+            remoteUser.Posts.Add(new Post()
+            {
+                Content = $"Content",
+                Title = $"Post",
+                Claps = 1,
+                Stars = 10
+            });
+
+            await remoteDb.SaveChangesAsync();
+
+            await syncAgent.SynchronizeAsync();
+
+            var localUser = await localDb.Users.Include(_ => _.Posts).FirstOrDefaultAsync(_ => _.Email == "user@test.com");
+            localUser.ShouldNotBeNull();
+
+            //update user on remotedb
+            remoteDb = remoteDb.Refresh();
+
+            remoteUser = remoteDb.Users.First(_ => _.Email == "user@test.com");
+            remoteUser.Name = "User edited";
+            await remoteDb.SaveChangesAsync();
+
+            //delete user on local db
+            localDb.Users.Remove(localUser);
+            await localDb.SaveChangesAsync();
+
+            await syncAgent.SynchronizeAsync(conflictResolutionOnRemoteStore: ConflictResolution.ForceWrite, conflictResolutionOnLocalStore: ConflictResolution.ForceWrite);
+
+            remoteDb = remoteDb.Refresh();
+            (await remoteDb.Users.CountAsync()).ShouldBe(0);
+
+            localDb = localDb.Refresh();
+            (await localDb.Users.CountAsync()).ShouldBe(0);
+        }
+
+        private async Task TestDeleteLocalParentRecordInRelatedTablesUpdatedOnServerSkipApplyChanges(
+            BlogDbContext localDb,
+            ISyncProvider localSyncProvider,
+            BlogDbContext remoteDb,
+            ISyncProvider remoteSyncProvider)
+        {
+            var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
+            await syncAgent.SynchronizeAsync();
+
+            //create a user on remote store
+            User remoteUser;
+            remoteDb.Users.Add(remoteUser = new User() { Email = "user@test.com", Name = "User", Created = DateTime.Now });
+            remoteUser.Posts.Add(new Post()
+            {
+                Content = $"Content",
+                Title = $"Post",
+                Claps = 1,
+                Stars = 10
+            });
+
+            await remoteDb.SaveChangesAsync();
+
+            await syncAgent.SynchronizeAsync();
+
+            var localUser = await localDb.Users.Include(_ => _.Posts).FirstOrDefaultAsync(_ => _.Email == "user@test.com");
+            localUser.ShouldNotBeNull();
+
+            //update user on remotedb
+            remoteDb = remoteDb.Refresh();
+
+            remoteUser = remoteDb.Users.First(_ => _.Email == "user@test.com");
+            remoteUser.Name = "User edited";
+            await remoteDb.SaveChangesAsync();
+
+            //delete user on local db
+            localDb.Users.Remove(localUser);
+            await localDb.SaveChangesAsync();
+
+            await syncAgent.SynchronizeAsync(conflictResolutionOnRemoteStore: ConflictResolution.Skip, conflictResolutionOnLocalStore: ConflictResolution.ForceWrite);
+
+            remoteDb = remoteDb.Refresh();
+            (await remoteDb.Users.CountAsync()).ShouldBe(1);
+
+            localDb = localDb.Refresh();
+            (await localDb.Users.CountAsync()).ShouldBe(1);
+        }
+
     }
 }
