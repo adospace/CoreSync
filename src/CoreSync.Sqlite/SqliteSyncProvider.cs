@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace CoreSync.Sqlite
@@ -29,11 +30,11 @@ namespace CoreSync.Sqlite
         public SqliteSyncConfiguration Configuration { get; }
         public ProviderMode ProviderMode { get; }
 
-        public async Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, [CanBeNull] Func<SyncItem, ConflictResolution> onConflictFunc = null)
+        public async Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, [CanBeNull] Func<SyncItem, ConflictResolution> onConflictFunc = null, CancellationToken cancellationToken = default)
         {
             Validate.NotNull(changeSet, nameof(changeSet));
 
-            await InitializeStoreAsync();
+            await InitializeStoreAsync(cancellationToken);
 
             var now = DateTime.Now;
 
@@ -41,7 +42,7 @@ namespace CoreSync.Sqlite
 
             using (var c = new SqliteConnection(Configuration.ConnectionString)) // +";Foreign Keys=False"))
             {
-                await c.OpenAsync();
+                await c.OpenAsync(cancellationToken);
 
                 using (var cmd = new SqliteCommand())
                 {
@@ -53,10 +54,10 @@ namespace CoreSync.Sqlite
                         try
                         {
                             cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
-                            var version = await cmd.ExecuteLongScalarAsync();
+                            var version = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
                             cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
-                            var minVersion = await cmd.ExecuteLongScalarAsync();
+                            var minVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
                             foreach (var item in changeSet.Items)
                             {
@@ -77,12 +78,16 @@ namespace CoreSync.Sqlite
 
                                 try
                                 {
-                                    affectedRows = cmd.ExecuteNonQuery();
+                                    affectedRows = await cmd.ExecuteNonQueryAsync(cancellationToken);
 
                                     if (affectedRows > 0)
                                     {
                                         _logger?.Trace($"[{_storeId}] Successfully applied {item}");
                                     }
+                                }
+                                catch (OperationCanceledException)
+                                {
+                                    throw;
                                 }
                                 catch (Exception ex)
                                 {
@@ -102,7 +107,7 @@ namespace CoreSync.Sqlite
                                         cmd.Parameters.Clear();
                                         var valueItem = item.Values[table.PrimaryColumnName];
                                         cmd.Parameters.Add(new SqliteParameter("@" + table.PrimaryColumnName.Replace(" ", "_"), valueItem.Value ?? DBNull.Value));
-                                        if (1 == (long)await cmd.ExecuteScalarAsync())
+                                        if (1 == (long)await cmd.ExecuteScalarAsync(cancellationToken))
                                         {
                                             itemChangeType = ChangeType.Update;
                                             goto retryWrite;
@@ -156,14 +161,14 @@ namespace CoreSync.Sqlite
                                 {
                                     cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
                                     cmd.Parameters.Clear();
-                                    var currentVersion = await cmd.ExecuteLongScalarAsync();
+                                    var currentVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
                                     cmd.CommandText = "UPDATE [__CORE_SYNC_CT] SET [SRC] = @sourceId WHERE [ID] = @version";
                                     cmd.Parameters.Clear();
                                     cmd.Parameters.AddWithValue("@sourceId", changeSet.SourceAnchor.StoreId.ToString());
                                     cmd.Parameters.AddWithValue("@version", currentVersion);
 
-                                    await cmd.ExecuteNonQueryAsync();
+                                    await cmd.ExecuteNonQueryAsync(cancellationToken);
                                 }
                             }
 
@@ -172,11 +177,11 @@ namespace CoreSync.Sqlite
                             cmd.Parameters.AddWithValue("@id", changeSet.SourceAnchor.StoreId.ToString());
                             cmd.Parameters.AddWithValue("@version", changeSet.SourceAnchor.Version);
 
-                            if (0 == await cmd.ExecuteNonQueryAsync())
+                            if (0 == await cmd.ExecuteNonQueryAsync(cancellationToken))
                             {
                                 cmd.CommandText = "INSERT INTO [__CORE_SYNC_REMOTE_ANCHOR] ([ID], [REMOTE_VERSION]) VALUES (@id, @version)";
 
-                                await cmd.ExecuteNonQueryAsync();
+                                await cmd.ExecuteNonQueryAsync(cancellationToken);
                             }
 
                             tr.Commit();
@@ -198,11 +203,11 @@ namespace CoreSync.Sqlite
             }
         }
 
-        public async Task SaveVersionForStoreAsync(Guid otherStoreId, long version)
+        public async Task SaveVersionForStoreAsync(Guid otherStoreId, long version, CancellationToken cancellationToken)
         {
             using (var c = new SqliteConnection(Configuration.ConnectionString))
             {
-                await c.OpenAsync();
+                await c.OpenAsync(cancellationToken);
 
                 using (var cmd = new SqliteCommand())
                 {
@@ -217,11 +222,11 @@ namespace CoreSync.Sqlite
                             cmd.Parameters.AddWithValue("@id", otherStoreId.ToString());
                             cmd.Parameters.AddWithValue("@version", version);
 
-                            if (0 == await cmd.ExecuteNonQueryAsync())
+                            if (0 == await cmd.ExecuteNonQueryAsync(cancellationToken))
                             {
                                 cmd.CommandText = "INSERT INTO [__CORE_SYNC_REMOTE_ANCHOR] ([ID], [LOCAL_VERSION]) VALUES (@id, @version)";
 
-                                await cmd.ExecuteNonQueryAsync();
+                                await cmd.ExecuteNonQueryAsync(cancellationToken);
                             }
 
                             tr.Commit();
@@ -238,9 +243,9 @@ namespace CoreSync.Sqlite
             }
         }
 
-        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncDirection syncDirection)
+        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncDirection syncDirection, CancellationToken cancellationToken = default)
         {
-            var fromAnchor = (await GetLastLocalAnchorForStoreAsync(otherStoreId));
+            var fromAnchor = (await GetLastLocalAnchorForStoreAsync(otherStoreId, cancellationToken));
 
             //if fromVersion is 0 means that client needs actually to initialize its local datastore
 
@@ -252,7 +257,7 @@ namespace CoreSync.Sqlite
 
             using (var c = new SqliteConnection(Configuration.ConnectionString))
             {
-                await c.OpenAsync();
+                await c.OpenAsync(cancellationToken);
 
                 using (var cmd = new SqliteCommand())
                 {
@@ -266,10 +271,10 @@ namespace CoreSync.Sqlite
                         try
                         {
                             cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
-                            var version = await cmd.ExecuteLongScalarAsync();
+                            var version = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
                             cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
-                            var minVersion = await cmd.ExecuteLongScalarAsync();
+                            var minVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
                             if (!fromAnchor.IsNull() && fromAnchor.Version < minVersion - 1)
                                 throw new InvalidOperationException($"Unable to get changes, version of data requested ({fromAnchor}) is too old (min valid version {minVersion})");
@@ -285,9 +290,9 @@ namespace CoreSync.Sqlite
                                 if (fromAnchor.IsNull() && !table.SkipInitialSnapshot)
                                 {
                                     cmd.CommandText = table.InitialSnapshotQuery;
-                                    using (var r = await cmd.ExecuteReaderAsync())
+                                    using (var r = await cmd.ExecuteReaderAsync(cancellationToken))
                                     {
-                                        while (await r.ReadAsync())
+                                        while (await r.ReadAsync(cancellationToken))
                                         {
                                             var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
                                             items.Add(new SqliteSyncItem(table, ChangeType.Insert, values));
@@ -302,9 +307,9 @@ namespace CoreSync.Sqlite
                                 cmd.Parameters.AddWithValue("@version", fromAnchor.IsNull() ? 0 : fromAnchor.Version);
                                 cmd.Parameters.AddWithValue("@sourceId", otherStoreId.ToString());
 
-                                using (var r = await cmd.ExecuteReaderAsync())
+                                using (var r = await cmd.ExecuteReaderAsync(cancellationToken))
                                 {
-                                    while (await r.ReadAsync())
+                                    while (await r.ReadAsync(cancellationToken))
                                     {
                                         var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
                                         if (snapshotItems.Contains(values[table.PrimaryColumnName]))
@@ -317,9 +322,9 @@ namespace CoreSync.Sqlite
                                 }
 
                                 cmd.CommandText = table.IncrementalDeletesQuery;
-                                using (var r = await cmd.ExecuteReaderAsync())
+                                using (var r = await cmd.ExecuteReaderAsync(cancellationToken))
                                 {
-                                    while (await r.ReadAsync())
+                                    while (await r.ReadAsync(cancellationToken))
                                     {
                                         var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
                                         items.Add(new SqliteSyncItem(table, ChangeType.Delete, values));
@@ -330,7 +335,7 @@ namespace CoreSync.Sqlite
 
                             tr.Commit();
 
-                            var resChangeSet = new SyncChangeSet(new SyncAnchor(_storeId, version), await GetLastRemoteAnchorForStoreAsync(otherStoreId), items);
+                            var resChangeSet = new SyncChangeSet(new SyncAnchor(_storeId, version), await GetLastRemoteAnchorForStoreAsync(otherStoreId, cancellationToken), items);
 
                             _logger?.Info($"[{_storeId}] Completed GetChanges(to={version}, {items.Count} items) in {(DateTime.Now - now).TotalMilliseconds}ms");
 
@@ -348,20 +353,20 @@ namespace CoreSync.Sqlite
 
         }
 
-        private async Task<SyncAnchor> GetLastLocalAnchorForStoreAsync(Guid otherStoreId)
+        private async Task<SyncAnchor> GetLastLocalAnchorForStoreAsync(Guid otherStoreId, CancellationToken cancellationToken)
         {
-            await InitializeStoreAsync();
+            await InitializeStoreAsync(cancellationToken);
 
             using (var c = new SqliteConnection(Configuration.ConnectionString))
             {
-                await c.OpenAsync();
+                await c.OpenAsync(cancellationToken);
 
                 using (var cmd = c.CreateCommand())
                 {
                     cmd.CommandText = "SELECT [LOCAL_VERSION] FROM [__CORE_SYNC_REMOTE_ANCHOR] WHERE [ID] = @storeId";
                     cmd.Parameters.AddWithValue("@storeId", otherStoreId.ToString());
 
-                    var version = await cmd.ExecuteScalarAsync();
+                    var version = await cmd.ExecuteScalarAsync(cancellationToken);
 
                     if (version == null || version == DBNull.Value)
                         return SyncAnchor.Null;
@@ -371,20 +376,20 @@ namespace CoreSync.Sqlite
             }
         }
 
-        private async Task<SyncAnchor> GetLastRemoteAnchorForStoreAsync(Guid otherStoreId)
+        private async Task<SyncAnchor> GetLastRemoteAnchorForStoreAsync(Guid otherStoreId, CancellationToken cancellationToken)
         {
             //await InitializeAsync();
 
             using (var c = new SqliteConnection(Configuration.ConnectionString))
             {
-                await c.OpenAsync();
+                await c.OpenAsync(cancellationToken);
 
                 using (var cmd = c.CreateCommand())
                 {
                     cmd.CommandText = "SELECT [REMOTE_VERSION] FROM [__CORE_SYNC_REMOTE_ANCHOR] WHERE [ID] = @storeId";
                     cmd.Parameters.AddWithValue("@storeId", otherStoreId.ToString());
 
-                    var version = await cmd.ExecuteScalarAsync();
+                    var version = await cmd.ExecuteScalarAsync(cancellationToken);
 
                     if (version == null || version == DBNull.Value)
                         return SyncAnchor.Null;
@@ -394,9 +399,9 @@ namespace CoreSync.Sqlite
             }
         }
 
-        public async Task<Guid> GetStoreIdAsync()
+        public async Task<Guid> GetStoreIdAsync(CancellationToken cancellationToken)
         {
-            await InitializeStoreAsync();
+            await InitializeStoreAsync(cancellationToken);
 
             return _storeId;
         }
@@ -479,42 +484,42 @@ namespace CoreSync.Sqlite
             return "%s";
         }
 
-        private async Task InitializeStoreAsync()
+        private async Task InitializeStoreAsync(CancellationToken cancellationToken)
         {
             if (_initialized)
                 return;
 
             using (var connection = new SqliteConnection(Configuration.ConnectionString))
             {
-                await connection.OpenAsync();
+                await connection.OpenAsync(cancellationToken);
 
                 using (var cmd = connection.CreateCommand())
                 {
                     cmd.CommandText = $@"CREATE TABLE IF NOT EXISTS __CORE_SYNC_CT 
 (ID INTEGER PRIMARY KEY, TBL TEXT NOT NULL COLLATE NOCASE, OP CHAR NOT NULL, PK_{SqlitePrimaryColumnType.Int} INTEGER NULL, PK_{SqlitePrimaryColumnType.Text} TEXT NULL COLLATE NOCASE, PK_{SqlitePrimaryColumnType.Blob} BLOB NULL, SRC TEXT NULL COLLATE NOCASE)";
-                    await cmd.ExecuteNonQueryAsync();
+                    await cmd.ExecuteNonQueryAsync(cancellationToken);
 
                     cmd.CommandText = $"CREATE INDEX IF NOT EXISTS __CORE_SYNC_CT_PK_{SqlitePrimaryColumnType.Int}_INDEX ON __CORE_SYNC_CT(PK_{SqlitePrimaryColumnType.Int})";
-                    await cmd.ExecuteNonQueryAsync();
+                    await cmd.ExecuteNonQueryAsync(cancellationToken);
                     cmd.CommandText = $"CREATE INDEX IF NOT EXISTS __CORE_SYNC_CT_PK_{SqlitePrimaryColumnType.Text}_INDEX ON __CORE_SYNC_CT(PK_{SqlitePrimaryColumnType.Text})";
-                    await cmd.ExecuteNonQueryAsync();
+                    await cmd.ExecuteNonQueryAsync(cancellationToken);
                     cmd.CommandText = $"CREATE INDEX IF NOT EXISTS __CORE_SYNC_CT_PK_{SqlitePrimaryColumnType.Blob}_INDEX ON __CORE_SYNC_CT(PK_{SqlitePrimaryColumnType.Blob})";
-                    await cmd.ExecuteNonQueryAsync();
+                    await cmd.ExecuteNonQueryAsync(cancellationToken);
 
                     cmd.CommandText = $"CREATE TABLE IF NOT EXISTS __CORE_SYNC_REMOTE_ANCHOR (ID TEXT NOT NULL PRIMARY KEY, LOCAL_VERSION LONG NULL, REMOTE_VERSION LONG NULL)";
-                    await cmd.ExecuteNonQueryAsync();
+                    await cmd.ExecuteNonQueryAsync(cancellationToken);
 
                     cmd.CommandText = $"CREATE TABLE IF NOT EXISTS __CORE_SYNC_LOCAL_ID (ID TEXT NOT NULL PRIMARY KEY)";
-                    await cmd.ExecuteNonQueryAsync();
+                    await cmd.ExecuteNonQueryAsync(cancellationToken);
 
                     cmd.CommandText = $"SELECT ID FROM __CORE_SYNC_LOCAL_ID LIMIT 1";
-                    var localId = await cmd.ExecuteScalarAsync();
+                    var localId = await cmd.ExecuteScalarAsync(cancellationToken);
                     if (localId == null)
                     {
                         localId = Guid.NewGuid().ToString();
                         cmd.CommandText = $"INSERT INTO __CORE_SYNC_LOCAL_ID (ID) VALUES (@localId)";
                         cmd.Parameters.Add(new SqliteParameter("@localId", localId));
-                        if (1 != await cmd.ExecuteNonQueryAsync())
+                        if (1 != await cmd.ExecuteNonQueryAsync(cancellationToken))
                         {
                             throw new InvalidOperationException();
                         }
@@ -526,13 +531,13 @@ namespace CoreSync.Sqlite
                     foreach (SqliteSyncTable table in Configuration.Tables)
                     {
                         cmd.CommandText = $"PRAGMA table_info('{table.Name}')";
-                        using (var reader = await cmd.ExecuteReaderAsync())
+                        using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
                         {
                             /*
                             cid         name        type        notnull     dflt_value  pk
                             ----------  ----------  ----------  ----------  ----------  ----------
                             */
-                            while (await reader.ReadAsync())
+                            while (await reader.ReadAsync(cancellationToken))
                             {
                                 var colName = reader.GetString(1);
                                 var colType = reader.GetString(2);
@@ -568,16 +573,16 @@ namespace CoreSync.Sqlite
             _initialized = true;
         }
 
-        public async Task ApplyProvisionAsync()
+        public async Task ApplyProvisionAsync(CancellationToken cancellationToken)
         {
             //if (_initialized)
             //    return;
 
-            await InitializeStoreAsync();
+            await InitializeStoreAsync(cancellationToken);
 
             using (var connection = new SqliteConnection(Configuration.ConnectionString))
             {
-                await connection.OpenAsync();
+                await connection.OpenAsync(cancellationToken);
 
                 using (var cmd = connection.CreateCommand())
                 {
@@ -590,11 +595,11 @@ namespace CoreSync.Sqlite
                             (table.SyncDirection == SyncDirection.UploadOnly && ProviderMode == ProviderMode.Local) ||
                             (table.SyncDirection == SyncDirection.DownloadOnly && ProviderMode == ProviderMode.Remote))
                         {
-                            await SetupTableForFullChangeDetection(table, cmd);
+                            await SetupTableForFullChangeDetection(table, cmd, cancellationToken);
                         }
                         else
                         {
-                            await SetupTableForUpdatesOrDeletesOnly(table, cmd);
+                            await SetupTableForUpdatesOrDeletesOnly(table, cmd, cancellationToken);
                         }
                     }
                 }
@@ -603,7 +608,7 @@ namespace CoreSync.Sqlite
             //_initialized = true;
         }
 
-        private async Task SetupTableForFullChangeDetection(SqliteSyncTable table, SqliteCommand cmd)
+        private async Task SetupTableForFullChangeDetection(SqliteSyncTable table, SqliteCommand cmd, CancellationToken cancellationToken)
         {
             var commandTextBase = new Func<string, string>((op) => $@"CREATE TRIGGER IF NOT EXISTS [__{table.Name}_ct-{op}__]
     AFTER {op} ON [{table.Name}]
@@ -612,16 +617,16 @@ namespace CoreSync.Sqlite
     INSERT INTO [__CORE_SYNC_CT] (TBL, OP, PK_{table.PrimaryColumnType}) VALUES ('{table.Name}', '{op[0]}', {(op == "DELETE" ? "OLD" : "NEW")}.[{table.PrimaryColumnName}]);
     END");
             cmd.CommandText = commandTextBase("INSERT");
-            await cmd.ExecuteNonQueryAsync();
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
 
             cmd.CommandText = commandTextBase("UPDATE");
-            await cmd.ExecuteNonQueryAsync();
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
 
             cmd.CommandText = commandTextBase("DELETE");
-            await cmd.ExecuteNonQueryAsync();
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        private async Task SetupTableForUpdatesOrDeletesOnly(SqliteSyncTable table, SqliteCommand cmd)
+        private async Task SetupTableForUpdatesOrDeletesOnly(SqliteSyncTable table, SqliteCommand cmd, CancellationToken cancellationToken)
         {
             var commandTextBase = new Func<string, string>((op) => $@"CREATE TRIGGER IF NOT EXISTS [__{table.Name}_ct-{op}__]
     AFTER {op} ON [{table.Name}]
@@ -631,17 +636,17 @@ namespace CoreSync.Sqlite
     END");
 
             cmd.CommandText = commandTextBase("UPDATE");
-            await cmd.ExecuteNonQueryAsync();
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
 
             cmd.CommandText = commandTextBase("DELETE");
-            await cmd.ExecuteNonQueryAsync();
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        public async Task RemoveProvisionAsync()
+        public async Task RemoveProvisionAsync(CancellationToken cancellationToken)
         {
             using (var connection = new SqliteConnection(Configuration.ConnectionString))
             {
-                await connection.OpenAsync();
+                await connection.OpenAsync(cancellationToken);
 
                 //1. discover tables
                 using (var cmd = connection.CreateCommand())
@@ -650,13 +655,13 @@ namespace CoreSync.Sqlite
                     foreach (SqliteSyncTable table in Configuration.Tables)
                     {
                         cmd.CommandText = $"PRAGMA table_info('{table.Name}')";
-                        using (var reader = await cmd.ExecuteReaderAsync())
+                        using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
                         {
                             /*
                             cid         name        type        notnull     dflt_value  pk
                             ----------  ----------  ----------  ----------  ----------  ----------
                             */
-                            while (await reader.ReadAsync())
+                            while (await reader.ReadAsync(cancellationToken))
                             {
                                 var colName = reader.GetString(1);
 
@@ -700,15 +705,15 @@ namespace CoreSync.Sqlite
             }
         }
         
-        public async Task<SyncVersion> GetSyncVersionAsync()
+        public async Task<SyncVersion> GetSyncVersionAsync(CancellationToken cancellationToken)
         {
-            await InitializeStoreAsync();
+            await InitializeStoreAsync(cancellationToken);
 
             using (var c = new SqliteConnection(Configuration.ConnectionString))
             {
                 try
                 {
-                    await c.OpenAsync();
+                    await c.OpenAsync(cancellationToken);
 
                     using (var cmd = new SqliteCommand())
                     {
@@ -718,10 +723,10 @@ namespace CoreSync.Sqlite
                             cmd.Transaction = tr;
 
                             cmd.CommandText = "SELECT MAX(ID) FROM __CORE_SYNC_CT";
-                            var version = await cmd.ExecuteLongScalarAsync();
+                            var version = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
                             cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
-                            var minVersion = await cmd.ExecuteLongScalarAsync();
+                            var minVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
                             return new SyncVersion(version, minVersion);
                         }
@@ -734,9 +739,9 @@ namespace CoreSync.Sqlite
             }
         }
 
-        public async Task<SyncVersion> ApplyRetentionPolicyAsync(int minVersion)
+        public async Task<SyncVersion> ApplyRetentionPolicyAsync(int minVersion, CancellationToken cancellationToken)
         {
-            await InitializeStoreAsync();
+            await InitializeStoreAsync(cancellationToken);
 
             using (var c = new SqliteConnection(Configuration.ConnectionString))
             {
@@ -754,13 +759,13 @@ namespace CoreSync.Sqlite
                             try
                             {
                                 cmd.CommandText = $"DELETE FROM __CORE_SYNC_CT WHERE ID < {minVersion}";
-                                await cmd.ExecuteNonQueryAsync();
+                                await cmd.ExecuteNonQueryAsync(cancellationToken);
 
                                 cmd.CommandText = "SELECT MAX(ID) FROM __CORE_SYNC_CT";
-                                var version = await cmd.ExecuteLongScalarAsync();
+                                var version = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
                                 cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
-                                var newMinVersion = await cmd.ExecuteLongScalarAsync();
+                                var newMinVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
                                 tr.Commit();
 

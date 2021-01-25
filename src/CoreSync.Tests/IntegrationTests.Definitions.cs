@@ -31,7 +31,7 @@ namespace CoreSync.Tests
                 .Table("Posts")
                 .Table("Comments");
 
-            var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            ISyncProvider remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
             await remoteSyncProvider.ApplyProvisionAsync();
 
             var localConfigurationBuilder =
@@ -40,7 +40,7 @@ namespace CoreSync.Tests
                 .Table("Posts")
                 .Table("Comments");
 
-            var localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            ISyncProvider localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
             await localSyncProvider.ApplyProvisionAsync();
 
 
@@ -67,7 +67,7 @@ namespace CoreSync.Tests
                 .Table("Posts")
                 .Table("Comments");
 
-            var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            ISyncProvider remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
             await remoteSyncProvider.ApplyProvisionAsync();
 
             var localConfigurationBuilder =
@@ -76,7 +76,7 @@ namespace CoreSync.Tests
                 .Table("Posts")
                 .Table("Comments");
 
-            var localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            ISyncProvider localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
             await localSyncProvider.ApplyProvisionAsync();
 
             await Test2(localDb,
@@ -108,7 +108,7 @@ namespace CoreSync.Tests
                     .Table<Post>("Posts")
                     .Table<Comment>("Comments");
 
-            var remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            ISyncProvider remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
             await remoteSyncProvider.ApplyProvisionAsync();
 
             var localConfigurationBuilder =
@@ -117,7 +117,7 @@ namespace CoreSync.Tests
                     .Table<Post>("Posts")
                     .Table<Comment>("Comments");
 
-            var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            ISyncProvider localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
             await localSyncProvider.ApplyProvisionAsync();
 
 
@@ -145,7 +145,7 @@ namespace CoreSync.Tests
                     .Table<Post>("Posts")
                     .Table<Comment>("Comments");
 
-            var remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            ISyncProvider remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
             await remoteSyncProvider.ApplyProvisionAsync();
 
             var localConfigurationBuilder =
@@ -155,7 +155,7 @@ namespace CoreSync.Tests
                     .Table("Comments");
 
 
-            var localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            ISyncProvider localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
             await localSyncProvider.ApplyProvisionAsync();
 
 
@@ -185,7 +185,7 @@ namespace CoreSync.Tests
                     .Table<Post>("Posts")
                     .Table<Comment>("Comments");
 
-            var remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            ISyncProvider remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
             await remoteSyncProvider.ApplyProvisionAsync();
 
             var localConfigurationBuilder =
@@ -194,7 +194,7 @@ namespace CoreSync.Tests
                     .Table<Post>("Posts")
                     .Table<Comment>("Comments");
 
-            var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            ISyncProvider localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
             await localSyncProvider.ApplyProvisionAsync();
 
             await Test2(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
@@ -221,7 +221,7 @@ namespace CoreSync.Tests
                     .Table("Posts")
                     .Table("Comments");
 
-            var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build());
+            ISyncProvider remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build());
             await remoteSyncProvider.ApplyProvisionAsync();
 
             var localConfigurationBuilder =
@@ -230,7 +230,7 @@ namespace CoreSync.Tests
                     .Table<Post>("Posts")
                     .Table<Comment>("Comments");
 
-            var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build());
+            ISyncProvider localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build());
             await localSyncProvider.ApplyProvisionAsync();
 
 
@@ -258,7 +258,7 @@ namespace CoreSync.Tests
                     .Table("Posts")
                     .Table("Comments");
 
-            var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            ISyncProvider remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
             await remoteSyncProvider.ApplyProvisionAsync();
 
             var localConfigurationBuilder =
@@ -267,7 +267,7 @@ namespace CoreSync.Tests
                     .Table<Post>("Posts")
                     .Table<Comment>("Comments");
 
-            var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            ISyncProvider localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
             await localSyncProvider.ApplyProvisionAsync();
 
 

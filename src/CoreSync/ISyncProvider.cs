@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace CoreSync
@@ -9,24 +10,22 @@ namespace CoreSync
     public interface ISyncProvider
     {
         [NotNull]
-        Task<Guid> GetStoreIdAsync();
-
-        //Task<SyncChangeSet> GetInitialSnapshotAsync(Guid otherStoreId, SyncDirection syncDirection = SyncDirection.UploadAndDownload);
+        Task<Guid> GetStoreIdAsync(CancellationToken cancellationToken = default);
 
         [NotNull, ItemNotNull]
-        Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, [CanBeNull] Func<SyncItem, ConflictResolution> onConflictFunc = null);
+        Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, [CanBeNull] Func<SyncItem, ConflictResolution> onConflictFunc = null, CancellationToken cancellationToken = default);
 
         [NotNull, ItemNotNull]
-        Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncDirection syncDirection = SyncDirection.UploadAndDownload);
+        Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncDirection syncDirection = SyncDirection.UploadAndDownload, CancellationToken cancellationToken = default);
 
-        Task SaveVersionForStoreAsync(Guid otherStoreId, long version);
+        Task SaveVersionForStoreAsync(Guid otherStoreId, long version, CancellationToken cancellationToken = default);
 
-        Task ApplyProvisionAsync();
+        Task ApplyProvisionAsync(CancellationToken cancellationToken = default);
 
-        Task RemoveProvisionAsync();
+        Task RemoveProvisionAsync(CancellationToken cancellationToken = default);
 
-        Task<SyncVersion> GetSyncVersionAsync();
+        Task<SyncVersion> GetSyncVersionAsync(CancellationToken cancellationToken = default);
 
-        Task<SyncVersion> ApplyRetentionPolicyAsync(int minVersion);
+        Task<SyncVersion> ApplyRetentionPolicyAsync(int minVersion, CancellationToken cancellationToken = default);
     }
 }
