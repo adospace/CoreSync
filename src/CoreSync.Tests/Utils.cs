@@ -35,7 +35,7 @@ namespace CoreSync.Tests
             var sql = ToSql(query);
             foreach (var parameter in parameters)
             {
-                sql = sql.Replace($"'{parameter}'", parameter);
+                sql = sql.Replace($"N'{parameter}'", parameter).Replace($"'{parameter}'", parameter);
             }
             return sql;
         }

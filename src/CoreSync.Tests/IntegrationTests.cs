@@ -344,20 +344,23 @@ namespace CoreSync.Tests
             Assert.AreEqual("user2", localUser2.Name);
             Assert.AreEqual(new DateTime(2019, 1, 1), localUser2.Created);
 
-            localUser.Posts.Add(new Post()
+            localDb.Posts.Add(new Post()
             {
+                Author = localUser,
                 Content = "This is first post from user 1",
                 Updated = new DateTime(2019, 1, 1)
             });
 
-            localUser.Posts.Add(new Post()
+            localDb.Posts.Add(new Post()
             {
+                Author = localUser,
                 Content = "This is second post from user 1",
                 Updated = new DateTime(2019, 1, 2)
             });
 
-            localUser2.Posts.Add(new Post()
+            localDb.Posts.Add(new Post()
             {
+                Author = localUser2,
                 Content = "This is first post from user 2",
                 Updated = DateTime.Now
             });
@@ -439,8 +442,9 @@ namespace CoreSync.Tests
             Assert.AreEqual(1, localUser.Posts.Count);
 
 
-            remoteUser2.Posts.Add(new Post()
+            remoteDb.Posts.Add(new Post()
             {
+                Author = remoteUser2,
                 Content = "Post add to remote user while user is delete on local db",
                 Updated = DateTime.Now
             });
@@ -475,14 +479,14 @@ namespace CoreSync.Tests
             User remoteUser;
             remoteDb.Users.Add(remoteUser = new User() { Email = "user@test.com", Name = "User created before sync", Created = DateTime.Now });
 
-            remoteUser.Posts.Add(new Post() { Content = "This is a post created before sync of the client", Title = "Initial post of user 1", Claps = 1, Stars = 10 });
-            remoteUser.Posts.Add(new Post() { Content = "This is a second post created before sync of the client", Title = "Initial post 2 of user 1", Claps = 2, Stars = 1 });
+            remoteDb.Posts.Add(new Post() { Author = remoteUser, Content = "This is a post created before sync of the client", Title = "Initial post of user 1", Claps = 1, Stars = 10 });
+            remoteDb.Posts.Add(new Post() { Author = remoteUser, Content = "This is a second post created before sync of the client", Title = "Initial post 2 of user 1", Claps = 2, Stars = 1 });
 
             await remoteDb.SaveChangesAsync();
 
             await remoteSyncProvider.ApplyProvisionAsync();
 
-            remoteUser.Posts.Add(new Post() { Content = "This is a third post created before sync of the client but after applying provision to remote db", Title = "Initial post 3 of user 1", Claps = 3, Stars = 1 });
+            remoteDb.Posts.Add(new Post() { Author = remoteUser, Content = "This is a third post created before sync of the client but after applying provision to remote db", Title = "Initial post 3 of user 1", Claps = 3, Stars = 1 });
 
             await remoteDb.SaveChangesAsync();
 
@@ -513,7 +517,7 @@ namespace CoreSync.Tests
 
             await syncAgent.SynchronizeAsync();
 
-            localUser.Posts.Add(new Post() { Content = "Post created on local db after first sync", Title = "Post created on local db", Claps = 4 });
+            localDb.Posts.Add(new Post() { Author = localUser, Content = "Post created on local db after first sync", Title = "Post created on local db", Claps = 4 });
             localUserPosts[0].Title = "Post edited on local db";
 
             await localDb.SaveChangesAsync();
@@ -558,24 +562,27 @@ namespace CoreSync.Tests
             User remoteUser;
             remoteDb.Users.Add(remoteUser = new User() { Email = "user@test.com", Name = "User created before sync", Created = DateTime.Now });
 
-            remoteUser.Posts.Add(new Post()
+            remoteDb.Posts.Add(new Post()
             {
+                Author = remoteUser,
                 Content = "This is a post created before sync of the client",
                 Title = "Initial post of user 1",
                 Claps = 1,
                 Stars = 10
             });
 
-            remoteUser.Posts.Add(new Post()
+            remoteDb.Posts.Add(new Post()
             {
+                Author = remoteUser,
                 Content = "This is a second post created before sync of the client",
                 Title = "Initial post 2 of user 1",
                 Claps = 2,
                 Stars = 1
             });
 
-            remoteUser.Posts.Add(new Post()
+            remoteDb.Posts.Add(new Post()
             {
+                Author = remoteUser,
                 Content = "This is a third post created before sync of the client",
                 Title = "Initial post 3 of user 1",
                 Claps = 3,
