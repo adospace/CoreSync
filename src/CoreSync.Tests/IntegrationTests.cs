@@ -217,7 +217,8 @@ namespace CoreSync.Tests
             await localSyncProvider.ApplyChangesAsync(changeSetAfterApplyChangesToRemoteDb);
             await remoteSyncProvider.SaveVersionForStoreAsync(localStoreId, changeSetAfterApplyChangesToRemoteDb.SourceAnchor.Version);
 
-            newUserLocal.Posts[0].Comments.Add(new Comment() { Content = "my first comment on post", Created = new DateTime(2018, 3, 2) });
+            localDb.Comments.Add(new Comment() { Post = newUserLocal.Posts[0], Content = "my first comment on post", Created = new DateTime(2018, 3, 2) });
+
             newUserLocal.Posts[0].Stars = 4.0f;
             newUserLocal.Posts[0].Updated = new DateTime(2018, 3, 2);
             await localDb.SaveChangesAsync();
@@ -258,8 +259,8 @@ namespace CoreSync.Tests
             Assert.AreEqual(new DateTime(2018, 1, 1), localUser.Created);
 
             //create an article for user locally
-            var localPost = new Post() { Content = "this is my first post", Title = "First Post", Updated = DateTime.Now.Date };
-            localUser.Posts.Add(localPost);
+            var localPost = new Post() { Author = localUser, Content = "this is my first post", Title = "First Post", Updated = DateTime.Now.Date };
+            localDb.Posts.Add(localPost);
             await localDb.SaveChangesAsync();
 
             //sync with remote server
@@ -715,8 +716,9 @@ namespace CoreSync.Tests
 
             for (int i = 1; i <= 10; i++)
             {
-                remoteUser.Posts.Add(new Post()
+                remoteDb.Posts.Add(new Post()
                 {
+                    Author = remoteUser,
                     Content = $"Content of Post {i}",
                     Title = $"Post {i}",
                     Claps = 1,
@@ -756,8 +758,9 @@ namespace CoreSync.Tests
             remoteDb = remoteDb.Refresh();
             remoteUser = await remoteDb.Users.FirstAsync(_ => _.Email == "user@test.com");
 
-            remoteUser.Posts.Add(new Post()
+            remoteDb.Posts.Add(new Post()
             {
+                Author = remoteUser,
                 Content = $"Another post on server",
                 Title = $"New post on server",
                 Claps = 1,
@@ -768,8 +771,9 @@ namespace CoreSync.Tests
 
             var localUser = await localDb.Users.FirstAsync(_ => _.Email == "user@test.com");
 
-            localUser.Posts.Add(new Post()
+            localDb.Posts.Add(new Post()
             {
+                Author = localUser,
                 Content = $"A post from client",
                 Title = $"New post on client",
                 Claps = 1,
@@ -811,8 +815,9 @@ namespace CoreSync.Tests
             //create a user on remote store
             User remoteUser;
             remoteDb.Users.Add(remoteUser = new User() { Email = "user@test.com", Name = "User", Created = DateTime.Now });
-            remoteUser.Posts.Add(new Post()
+            remoteDb.Posts.Add(new Post()
             {
+                Author = remoteUser,
                 Content = $"Content",
                 Title = $"Post",
                 Claps = 1,
@@ -855,8 +860,9 @@ namespace CoreSync.Tests
             //create a user on remote store
             User remoteUser;
             remoteDb.Users.Add(remoteUser = new User() { Email = "user@test.com", Name = "User", Created = DateTime.Now });
-            remoteUser.Posts.Add(new Post()
+            remoteDb.Posts.Add(new Post()
             {
+                Author = remoteUser,
                 Content = $"Content",
                 Title = $"Post",
                 Claps = 1,
@@ -880,7 +886,7 @@ namespace CoreSync.Tests
             //update post on local db of the user deleted on server
             localUser.Posts[0].Claps++;
 
-            localUser.Posts.Add(new Post()
+            localDb.Posts.Add(new Post()
             {
                 Author = localUser,
                 Content = $"Content created on local db",
@@ -918,8 +924,9 @@ namespace CoreSync.Tests
             //create a user on remote store
             User remoteUser;
             remoteDb.Users.Add(remoteUser = new User() { Email = "user@test.com", Name = "User", Created = DateTime.Now });
-            remoteUser.Posts.Add(new Post()
+            remoteDb.Posts.Add(new Post()
             {
+                Author = remoteUser,
                 Content = $"Content",
                 Title = $"Post",
                 Claps = 1,
@@ -966,8 +973,9 @@ namespace CoreSync.Tests
             //create a user on remote store
             User remoteUser;
             remoteDb.Users.Add(remoteUser = new User() { Email = "user@test.com", Name = "User", Created = DateTime.Now });
-            remoteUser.Posts.Add(new Post()
+            remoteDb.Posts.Add(new Post()
             {
+                Author = remoteUser,
                 Content = $"Content",
                 Title = $"Post",
                 Claps = 1,
