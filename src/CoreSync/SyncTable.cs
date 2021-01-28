@@ -6,14 +6,15 @@ namespace CoreSync
 {
     public abstract class SyncTable
     {
-        protected SyncTable(string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload, bool skipInitialSnapshot = false, string selectQuery = null)
+        protected SyncTable(string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload, bool skipInitialSnapshot = false, string selectIncrementalQuery = null, string customSnapshotQuery = null)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
 
             Name = name;
             SyncDirection = syncDirection;
             SkipInitialSnapshot = skipInitialSnapshot;
-            SelectQuery = selectQuery;
+            SelectIncrementalQuery = selectIncrementalQuery;
+            CustomSnapshotQuery = customSnapshotQuery;
         }
 
         /// <summary>
@@ -21,11 +22,13 @@ namespace CoreSync
         /// </summary>
         public string Name { get; }
 
-        public SyncDirection SyncDirection { get; }
+        public SyncDirection SyncDirection { get; set; }
 
-        public bool SkipInitialSnapshot { get; }
+        public bool SkipInitialSnapshot { get; set; }
 
-        public string SelectQuery { get; }
+        public string CustomSnapshotQuery { get; set; }
+
+        public string SelectIncrementalQuery { get; set; }
 
         public override string ToString()
         {

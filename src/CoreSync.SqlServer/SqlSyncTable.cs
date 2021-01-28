@@ -9,8 +9,8 @@ namespace CoreSync.SqlServer
 {
     public class SqlSyncTable : SyncTable
     {
-        internal SqlSyncTable(string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = "dbo", bool skipInitialSnapshot = false, string selectQuery = null) 
-            : base(name, syncDirection, skipInitialSnapshot, selectQuery)
+        internal SqlSyncTable(string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = "dbo", bool skipInitialSnapshot = false, string selectIncrementalQuery = null, string customSnapshotQuery = null) 
+            : base(name, syncDirection, skipInitialSnapshot, selectIncrementalQuery, customSnapshotQuery)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
             Validate.NotNullOrEmptyOrWhiteSpace(schema, nameof(schema));
@@ -56,12 +56,12 @@ namespace CoreSync.SqlServer
         /// </summary>
         internal Dictionary<string, SqlColumn> Columns { get; set; } = new Dictionary<string, SqlColumn>();
 
-        internal string InitialSnapshotQuery => SelectQuery ?? $@"SELECT * FROM {NameWithSchema}";
+        internal string InitialSnapshotQuery => (CustomSnapshotQuery ?? SelectIncrementalQuery) ?? $@"SELECT * FROM {NameWithSchema}";
        
-        private string SelectQueryWithFilter
-            => SelectQuery != null ? $"({SelectQuery})" : $"{NameWithSchema}";
+        private string SelectIncrementalQueryWithFilter
+            => SelectIncrementalQuery != null ? $"({SelectIncrementalQuery})" : $"{NameWithSchema}";
 
-        internal string IncrementalAddOrUpdatesQuery => $@"SELECT DISTINCT { string.Join(",", Columns.Keys.Except(SkipColumns).Select(_ => "T.[" + _ + "]"))}, CT.OP AS __OP FROM {SelectQueryWithFilter} AS T 
+        internal string IncrementalAddOrUpdatesQuery => $@"SELECT DISTINCT { string.Join(",", Columns.Keys.Except(SkipColumns).Select(_ => "T.[" + _ + "]"))}, CT.OP AS __OP FROM {SelectIncrementalQueryWithFilter} AS T 
 INNER JOIN __CORE_SYNC_CT AS CT ON T.[{PrimaryColumnName}] = CT.[PK_{PrimaryColumnType}] WHERE CT.ID > @version AND CT.TBL = '{NameWithSchema}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
 
         internal string IncrementalDeletesQuery 

@@ -1036,9 +1036,9 @@ namespace CoreSync.Tests
 
             var remoteConfigurationBuilder =
                 new SqliteSyncConfigurationBuilder(remoteDb.ConnectionString)
-                    .Table("Users", selectQuery: remoteDb.Users.Where(_ => _.Email == "@userId").ToSql("@userId"))
-                    .Table("Posts", selectQuery: remoteDb.Posts.Where(_ => _.Author.Email == "@userId").ToSql("@userId"))
-                    .Table("Comments", selectQuery: remoteDb.Comments.Where(_ => _.Post.Author.Email == "@userId").ToSql("@userId"));
+                    .Table("Users", selectIncrementalQuery: remoteDb.Users.Where(_ => _.Email == "@userId").ToSql("@userId"))
+                    .Table("Posts", selectIncrementalQuery: remoteDb.Posts.Where(_ => _.Author.Email == "@userId").ToSql("@userId"))
+                    .Table("Comments", selectIncrementalQuery: remoteDb.Comments.Where(_ => _.Post.Author.Email == "@userId").ToSql("@userId"));
 
             var remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
             await remoteSyncProvider.ApplyProvisionAsync();
@@ -1072,9 +1072,9 @@ namespace CoreSync.Tests
 
             var remoteConfigurationBuilder =
                 new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
-                    .Table("Users", selectQuery: remoteDb.Users.Where(_ => _.Email == "@userId").ToSql("@userId"))
-                    .Table("Posts", selectQuery: remoteDb.Posts.Where(_ => _.Author.Email == "@userId").ToSql("@userId"))
-                    .Table("Comments", selectQuery: remoteDb.Comments.Where(_ => _.Post.Author.Email == "@userId").ToSql("@userId"));
+                    .Table("Users", selectIncrementalQuery: remoteDb.Users.Where(_ => _.Email == "@userId").ToSql("@userId"))
+                    .Table("Posts", selectIncrementalQuery: remoteDb.Posts.Where(_ => _.Author.Email == "@userId").ToSql("@userId"))
+                    .Table("Comments", selectIncrementalQuery: remoteDb.Comments.Where(_ => _.Post.Author.Email == "@userId").ToSql("@userId"));
 
             var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
             await remoteSyncProvider.ApplyProvisionAsync();
@@ -1110,9 +1110,9 @@ namespace CoreSync.Tests
 
             var remoteConfigurationBuilder =
                 new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
-                    .Table("Users", selectQuery: remoteDb.Users.Where(_ => _.Email == "@userId").ToSql("@userId"))
-                    .Table("Posts", selectQuery: remoteDb.Posts.Where(_ => _.Author.Email == "@userId").ToSql("@userId"))
-                    .Table("Comments", selectQuery: remoteDb.Comments.Where(_ => _.Post.Author.Email == "@userId").ToSql("@userId"));
+                    .Table("Users", selectIncrementalQuery: remoteDb.Users.Where(_ => _.Email == "@userId").ToSql("@userId"))
+                    .Table("Posts", selectIncrementalQuery: remoteDb.Posts.Where(_ => _.Author.Email == "@userId").ToSql("@userId"))
+                    .Table("Comments", selectIncrementalQuery: remoteDb.Comments.Where(_ => _.Post.Author.Email == "@userId").ToSql("@userId"));
 
             var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
             await remoteSyncProvider.ApplyProvisionAsync();

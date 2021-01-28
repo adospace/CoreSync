@@ -33,7 +33,8 @@ namespace CoreSync.SqlServer
             SyncDirection syncDirection = SyncDirection.UploadAndDownload, 
             string schema = null, 
             bool skipInitialSnapshot = false,
-            string selectQuery = null)
+            string selectIncrementalQuery = null,
+            string customSnapshotQuery = null)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
 
@@ -44,7 +45,7 @@ namespace CoreSync.SqlServer
             if (_tables.Any(_ => string.CompareOrdinal(_.NameWithSchema, nameWithSchema) == 0))
                 throw new InvalidOperationException($"Table with name '{nameWithSchema}' already added");
 
-            _tables.Add(new SqlSyncTable(name, syncDirection, schema ?? _schema, skipInitialSnapshot, selectQuery));
+            _tables.Add(new SqlSyncTable(name, syncDirection, schema ?? _schema, skipInitialSnapshot, selectIncrementalQuery, customSnapshotQuery));
             return this;
         }
 
@@ -52,7 +53,8 @@ namespace CoreSync.SqlServer
             SyncDirection syncDirection = SyncDirection.UploadAndDownload, 
             string schema = null, 
             bool skipInitialSnapshot = false,
-            string selectQuery = null)
+            string selectIncrementalQuery = null,
+            string customSnapshotQuery = null)
         {
             var name = typeof(T).Name;
             var tableAttribute = (TableAttribute)Attribute.GetCustomAttribute(typeof(T), typeof(TableAttribute));
@@ -67,7 +69,7 @@ namespace CoreSync.SqlServer
             if (_tables.Any(_ => string.CompareOrdinal(_.NameWithSchema, nameWithSchema) == 0))
                 throw new InvalidOperationException($"Table with name '{nameWithSchema}' already added");
 
-            return Table(name, syncDirection, schema ?? _schema, skipInitialSnapshot, selectQuery);
+            return Table(name, syncDirection, schema ?? _schema, skipInitialSnapshot, selectIncrementalQuery, customSnapshotQuery);
         }
 
         /// <summary>
@@ -89,6 +91,50 @@ namespace CoreSync.SqlServer
             //remove duplicates
 
             lastTable.SkipColumns = columnNames;
+            return this;
+        }
+
+        /// <summary>
+        /// Specify a custom query to select incremental updates for the table
+        /// </summary>
+        /// <param name="selectIncrementalQuery">Query to select incremental updates</param>
+        /// <returns>The current Sql configuration builder</returns>
+        public SqlSyncConfigurationBuilder SelectIncrementalQuery(string selectIncrementalQuery)
+        {
+            if (string.IsNullOrWhiteSpace(selectIncrementalQuery))
+            {
+                throw new ArgumentException($"'{nameof(selectIncrementalQuery)}' cannot be null or whitespace", nameof(selectIncrementalQuery));
+            }
+
+            var lastTable = _tables.LastOrDefault();
+            if (lastTable == null)
+            {
+                throw new InvalidOperationException("SelectIncrementalQuery requires a table");
+            }
+
+            lastTable.SelectIncrementalQuery = selectIncrementalQuery;
+            return this;
+        }
+
+        /// <summary>
+        /// Specify a custom snapshot query to select initial records to synchronize
+        /// </summary>
+        /// <param name="customSnapshotQuery">Query to select initial records</param>
+        /// <returns>The current Sql configuration builder</returns>
+        public SqlSyncConfigurationBuilder CustomSnapshotQuery(string customSnapshotQuery)
+        {
+            if (string.IsNullOrWhiteSpace(customSnapshotQuery))
+            {
+                throw new ArgumentException($"'{nameof(customSnapshotQuery)}' cannot be null or whitespace", nameof(customSnapshotQuery));
+            }
+
+            var lastTable = _tables.LastOrDefault();
+            if (lastTable == null)
+            {
+                throw new InvalidOperationException("CustomSnapshotQuery requires a table");
+            }
+
+            lastTable.CustomSnapshotQuery = customSnapshotQuery;
             return this;
         }
 
