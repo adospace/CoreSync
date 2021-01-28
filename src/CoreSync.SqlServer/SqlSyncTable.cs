@@ -9,7 +9,8 @@ namespace CoreSync.SqlServer
 {
     public class SqlSyncTable : SyncTable
     {
-        internal SqlSyncTable(string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = "dbo", bool skipInitialSnapshot = false) : base(name, syncDirection, skipInitialSnapshot)
+        internal SqlSyncTable(string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = "dbo", bool skipInitialSnapshot = false, string selectQuery = null) 
+            : base(name, syncDirection, skipInitialSnapshot, selectQuery)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
             Validate.NotNullOrEmptyOrWhiteSpace(schema, nameof(schema));
@@ -55,12 +56,16 @@ namespace CoreSync.SqlServer
         /// </summary>
         internal Dictionary<string, SqlColumn> Columns { get; set; } = new Dictionary<string, SqlColumn>();
 
-        internal string InitialSnapshotQuery => $@"SELECT * FROM {NameWithSchema}";
+        internal string InitialSnapshotQuery => SelectQuery ?? $@"SELECT * FROM {NameWithSchema}";
+       
+        private string SelectQueryWithFilter
+            => SelectQuery != null ? $"({SelectQuery})" : $"{NameWithSchema}";
 
-        internal string IncrementalAddOrUpdatesQuery => $@"SELECT DISTINCT { string.Join(",", Columns.Keys.Except(SkipColumns).Select(_ => "T.[" + _ + "]"))}, CT.OP AS __OP FROM {NameWithSchema} AS T 
+        internal string IncrementalAddOrUpdatesQuery => $@"SELECT DISTINCT { string.Join(",", Columns.Keys.Except(SkipColumns).Select(_ => "T.[" + _ + "]"))}, CT.OP AS __OP FROM {SelectQueryWithFilter} AS T 
 INNER JOIN __CORE_SYNC_CT AS CT ON T.[{PrimaryColumnName}] = CT.[PK_{PrimaryColumnType}] WHERE CT.ID > @version AND CT.TBL = '{NameWithSchema}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
 
-        internal string IncrementalDeletesQuery => $@"SELECT PK_{PrimaryColumnType} AS [{PrimaryColumnName}] FROM __CORE_SYNC_CT WHERE TBL = '{NameWithSchema}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
+        internal string IncrementalDeletesQuery 
+            => $@"SELECT PK_{PrimaryColumnType} AS [{PrimaryColumnName}] FROM __CORE_SYNC_CT WHERE TBL = '{NameWithSchema}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
 
         internal string SelectExistingQuery => $@"SELECT COUNT (*) FROM {NameWithSchema}
 WHERE [{PrimaryColumnName}] = @{PrimaryColumnName.Replace(" ", "_")}";

@@ -1,13 +1,17 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace CoreSync
 {
     public static class SyncProviderExtenstions
     {
-        public static Task<SyncAnchor> ApplyChangesAsync(this ISyncProvider provider, SyncChangeSet changeSet, ConflictResolution updateResultion, ConflictResolution deleteResolution)
+        public static Task<SyncAnchor> ApplyChangesAsync(this ISyncProvider provider, 
+            SyncChangeSet changeSet, 
+            ConflictResolution updateResultion, 
+            ConflictResolution deleteResolution)
         {
             Validate.NotNull(provider, nameof(provider));
 
@@ -22,5 +26,12 @@ namespace CoreSync
                     return ConflictResolution.Skip;
                 }));
         }
+
+        public static Task<SyncChangeSet> GetChangesAsync(this ISyncProvider provider,
+            Guid otherStoreId,
+            SyncDirection syncDirection = SyncDirection.UploadAndDownload,
+            CancellationToken cancellationToken = default) 
+            => provider.GetChangesAsync(otherStoreId, null, syncDirection, cancellationToken);
+
     }
 }

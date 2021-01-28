@@ -122,7 +122,7 @@ namespace CoreSync.SqlServer
                                             {
                                                 Value = Utils.ConvertToSqlType(valueItem, table.Columns[table.PrimaryColumnName].DbType)
                                             });
-                                            if (1 == (int)await cmd.ExecuteScalarAsync(cancellationToken))
+                                            if (1 == (int)await cmd.ExecuteScalarAsync(cancellationToken) && !syncForceWrite)
                                             {
                                                 itemChangeType = ChangeType.Update;
                                                 goto retryWrite;
@@ -709,8 +709,10 @@ END");
             }
         }
 
-        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncDirection syncDirection, CancellationToken cancellationToken)
+        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncFilterParameter[] syncFilterParameters, SyncDirection syncDirection, CancellationToken cancellationToken)
         {
+            syncFilterParameters = syncFilterParameters ?? new SyncFilterParameter[] { };
+
             var fromAnchor = (await GetLastLocalAnchorForStoreAsync(otherStoreId, cancellationToken));
 
             var now = DateTime.Now;
@@ -753,6 +755,10 @@ END");
                                 if (fromAnchor.IsNull() && !table.SkipInitialSnapshot)
                                 {
                                     cmd.CommandText = table.InitialSnapshotQuery;
+                                    foreach (var syncFilterParameter in syncFilterParameters)
+                                    {
+                                        cmd.Parameters.AddWithValue(syncFilterParameter.Name, syncFilterParameter.Value);
+                                    }
 
                                     using (var r = await cmd.ExecuteReaderAsync(cancellationToken))
                                     {
@@ -764,8 +770,6 @@ END");
                                             {
                                                 if (string.CompareOrdinal(skipColumn, table.PrimaryColumnName) == 0)
                                                     throw new InvalidOperationException($"Column to skip in synchronization ('{skipColumn}') can't be the primary column");
-                                                //if (!values.Remove(skipColumn))
-                                                //    throw new InvalidOperationException($"Column to skip '{skipColumn}' does not exist in table '{table.NameWithSchema}'");
                                             }
 
                                             items.Add(new SqlSyncItem(table, ChangeType.Insert, values));
@@ -779,6 +783,10 @@ END");
                                 cmd.Parameters.Clear();
                                 cmd.Parameters.AddWithValue("@version", fromAnchor.IsNull() ? 0 : fromAnchor.Version);
                                 cmd.Parameters.AddWithValue("@sourceId", otherStoreId);
+                                foreach (var syncFilterParameter in syncFilterParameters)
+                                {
+                                    cmd.Parameters.AddWithValue(syncFilterParameter.Name, syncFilterParameter.Value);
+                                }
 
                                 using (var r = await cmd.ExecuteReaderAsync(cancellationToken))
                                 {
@@ -793,8 +801,6 @@ END");
                                         {
                                             if (string.CompareOrdinal(skipColumn, table.PrimaryColumnName) == 0)
                                                 throw new InvalidOperationException($"Column to skip in synchronization ('{skipColumn}') can't be the primary column");
-                                            //if (!values.Remove(skipColumn))
-                                            //    throw new InvalidOperationException($"Column to skip '{skipColumn}' does not exist in table '{table.NameWithSchema}'");
                                         }
 
                                         items.Add(new SqlSyncItem(table, DetectChangeType(values),

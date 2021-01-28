@@ -107,7 +107,7 @@ namespace CoreSync.Sqlite
                                         cmd.Parameters.Clear();
                                         var valueItem = item.Values[table.PrimaryColumnName];
                                         cmd.Parameters.Add(new SqliteParameter("@" + table.PrimaryColumnName.Replace(" ", "_"), valueItem.Value ?? DBNull.Value));
-                                        if (1 == (long)await cmd.ExecuteScalarAsync(cancellationToken))
+                                        if (1 == (long)await cmd.ExecuteScalarAsync(cancellationToken) && !syncForceWrite)
                                         {
                                             itemChangeType = ChangeType.Update;
                                             goto retryWrite;
@@ -131,8 +131,8 @@ namespace CoreSync.Sqlite
                                             }
                                             else
                                             {
-                                                //if user wants to update forcely a delete record means
-                                                //he wants to actually insert it again in store
+                                                //if user wants to update forcely a deleted record means that
+                                                //he asctually wants to insert it again in store
                                                 _logger?.Trace($"[{_storeId}] Insert on delete conflict occurred for {item}");
                                                 itemChangeType = ChangeType.Insert;
                                                 goto retryWrite;
@@ -243,8 +243,10 @@ namespace CoreSync.Sqlite
             }
         }
 
-        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncDirection syncDirection, CancellationToken cancellationToken = default)
+        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncFilterParameter[] syncFilterParameters, SyncDirection syncDirection, CancellationToken cancellationToken = default)
         {
+            syncFilterParameters = syncFilterParameters ?? new SyncFilterParameter[] { };
+
             var fromAnchor = (await GetLastLocalAnchorForStoreAsync(otherStoreId, cancellationToken));
 
             //if fromVersion is 0 means that client needs actually to initialize its local datastore
@@ -290,6 +292,12 @@ namespace CoreSync.Sqlite
                                 if (fromAnchor.IsNull() && !table.SkipInitialSnapshot)
                                 {
                                     cmd.CommandText = table.InitialSnapshotQuery;
+                                    cmd.Parameters.Clear();
+                                    foreach (var syncFilterParameter in syncFilterParameters)
+                                    {
+                                        cmd.Parameters.AddWithValue(syncFilterParameter.Name, syncFilterParameter.Value);
+                                    }
+
                                     using (var r = await cmd.ExecuteReaderAsync(cancellationToken))
                                     {
                                         while (await r.ReadAsync(cancellationToken))
@@ -306,6 +314,10 @@ namespace CoreSync.Sqlite
                                 cmd.Parameters.Clear();
                                 cmd.Parameters.AddWithValue("@version", fromAnchor.IsNull() ? 0 : fromAnchor.Version);
                                 cmd.Parameters.AddWithValue("@sourceId", otherStoreId.ToString());
+                                foreach (var syncFilterParameter in syncFilterParameters)
+                                {
+                                    cmd.Parameters.AddWithValue(syncFilterParameter.Name, syncFilterParameter.Value);
+                                }
 
                                 using (var r = await cmd.ExecuteReaderAsync(cancellationToken))
                                 {

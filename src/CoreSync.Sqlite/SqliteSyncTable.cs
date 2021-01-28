@@ -7,7 +7,8 @@ namespace CoreSync.Sqlite
 {
     public class SqliteSyncTable : SyncTable
     {
-        internal SqliteSyncTable(string name, Type recordType = null, SyncDirection syncDirection = SyncDirection.UploadAndDownload, bool skipInitialSnapshot = false) : base(name, syncDirection, skipInitialSnapshot)
+        internal SqliteSyncTable(string name, Type recordType = null, SyncDirection syncDirection = SyncDirection.UploadAndDownload, bool skipInitialSnapshot = false, string selectQuery = null)
+            : base(name, syncDirection, skipInitialSnapshot, selectQuery)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
 
@@ -45,13 +46,18 @@ namespace CoreSync.Sqlite
         /// </summary>
         internal Dictionary<string, SqliteColumn> Columns { get; set; } = new Dictionary<string, SqliteColumn>();
 
-        internal string InitialSnapshotQuery => $@"SELECT * FROM [{Name}]";
+        internal string InitialSnapshotQuery => SelectQuery ?? $@"SELECT * FROM [{Name}]";
+
+        private string SelectQueryWithFilter
+            => SelectQuery != null ? $"({SelectQuery})" : $"[{Name}]";
 
         internal string IncrementalAddOrUpdatesQuery => $@"SELECT DISTINCT {string.Join(",", Columns.Select(_ => "T.[" + _.Key + "]"))}, CT.OP AS __OP 
-                                FROM [{Name}] AS T INNER JOIN __CORE_SYNC_CT AS CT ON T.[{PrimaryColumnName}] = CT.PK_{PrimaryColumnType} WHERE CT.ID > @version AND CT.TBL = '{Name}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
+                                FROM {SelectQueryWithFilter} AS T INNER JOIN __CORE_SYNC_CT AS CT ON T.[{PrimaryColumnName}] = CT.PK_{PrimaryColumnType} WHERE CT.ID > @version AND CT.TBL = '{Name}' AND (CT.SRC IS NULL OR CT.SRC != @sourceId)";
 
-        internal string IncrementalDeletesQuery =>
+        internal string IncrementalDeletesQuery => 
             $@"SELECT PK_{PrimaryColumnType} AS [{PrimaryColumnName}] FROM [__CORE_SYNC_CT] WHERE TBL = '{Name}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
+
+
 
         internal string SelectExistingQuery => $@"SELECT COUNT(*) FROM [{Name}] 
             WHERE [{PrimaryColumnName}] = @{PrimaryColumnName.Replace(' ', '_')}";

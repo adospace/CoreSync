@@ -20,7 +20,9 @@ namespace CoreSync
         public async Task SynchronizeAsync(
             Func<SyncItem, ConflictResolution> remoteConflictResolutionFunc = null, 
             Func<SyncItem, ConflictResolution> localConflictResolutionFunc = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            SyncFilterParameter[] remoteSyncFilterParameters = null,
+            SyncFilterParameter[] localSyncFilterParameters = null)
         {
             try
             {
@@ -30,11 +32,11 @@ namespace CoreSync
                 var localStoreId = await LocalSyncProvider.GetStoreIdAsync(cancellationToken);
                 var remoteStoreId = await RemoteSyncProvider.GetStoreIdAsync(cancellationToken);
 
-                var localChangeSet = await LocalSyncProvider.GetChangesAsync(remoteStoreId, SyncDirection.UploadOnly, cancellationToken: cancellationToken);
+                var localChangeSet = await LocalSyncProvider.GetChangesAsync(remoteStoreId, localSyncFilterParameters, SyncDirection.UploadOnly, cancellationToken: cancellationToken);
                 await RemoteSyncProvider.ApplyChangesAsync(localChangeSet, remoteConflictResolutionFunc, cancellationToken: cancellationToken);
                 await LocalSyncProvider.SaveVersionForStoreAsync(remoteStoreId, localChangeSet.SourceAnchor.Version, cancellationToken: cancellationToken);
 
-                var remoteChangeSet = await RemoteSyncProvider.GetChangesAsync(localStoreId, SyncDirection.DownloadOnly, cancellationToken: cancellationToken);
+                var remoteChangeSet = await RemoteSyncProvider.GetChangesAsync(localStoreId, remoteSyncFilterParameters, SyncDirection.DownloadOnly, cancellationToken: cancellationToken);
                 await LocalSyncProvider.ApplyChangesAsync(remoteChangeSet, localConflictResolutionFunc, cancellationToken: cancellationToken);
                 await RemoteSyncProvider.SaveVersionForStoreAsync(localStoreId, remoteChangeSet.SourceAnchor.Version, cancellationToken: cancellationToken);
 

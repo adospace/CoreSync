@@ -19,7 +19,12 @@ namespace CoreSync.Sqlite
             _connectionString = connectionString;
         }
 
-        public SqliteSyncConfigurationBuilder Table([NotNull] string name, Type recordType = null, SyncDirection syncDirection = SyncDirection.UploadAndDownload, bool skipInitialSnapshot = false)
+        public SqliteSyncConfigurationBuilder Table(
+            [NotNull] string name, 
+            Type recordType = null, 
+            SyncDirection syncDirection = SyncDirection.UploadAndDownload, 
+            bool skipInitialSnapshot = false, 
+            string selectQuery = null)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
 
@@ -27,11 +32,15 @@ namespace CoreSync.Sqlite
             if (_tables.Any(_ => string.CompareOrdinal(_.Name, name) == 0))
                 throw new InvalidOperationException($"Table with name '{name}' already added");
 
-            _tables.Add(new SqliteSyncTable(name, recordType: recordType, syncDirection: syncDirection, skipInitialSnapshot: skipInitialSnapshot));
+            _tables.Add(new SqliteSyncTable(name, recordType: recordType, syncDirection: syncDirection, skipInitialSnapshot: skipInitialSnapshot, selectQuery: selectQuery));
             return this;
         }
 
-        public SqliteSyncConfigurationBuilder Table<T>(string name = null, SyncDirection syncDirection = SyncDirection.UploadAndDownload, bool skipInitialSnapshot = false)
+        public SqliteSyncConfigurationBuilder Table<T>(
+            string name = null, 
+            SyncDirection syncDirection = SyncDirection.UploadAndDownload, 
+            bool skipInitialSnapshot = false, 
+            string selectQuery = null)
         {
             if (name == null)
             {
@@ -48,7 +57,7 @@ namespace CoreSync.Sqlite
             if (_tables.Any(_ => string.CompareOrdinal(_.Name, name) == 0))
                 throw new InvalidOperationException($"Table with name '{name}' already added");
 
-            return Table(name, typeof(T), syncDirection, skipInitialSnapshot);
+            return Table(name, typeof(T), syncDirection, skipInitialSnapshot, selectQuery);
         }
 
         public SqliteSyncConfiguration Build() => new SqliteSyncConfiguration(_connectionString, _tables.ToArray());

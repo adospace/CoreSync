@@ -953,6 +953,7 @@ namespace CoreSync.Tests
             (await localDb.Users.CountAsync()).ShouldBe(0);
         }
 
+
         private async Task TestDeleteLocalParentRecordInRelatedTablesUpdatedOnServerSkipApplyChanges(
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
@@ -998,6 +999,138 @@ namespace CoreSync.Tests
 
             localDb = localDb.Refresh();
             (await localDb.Users.CountAsync()).ShouldBe(1);
+        }
+
+
+        private async Task TestSynchronizationWithFilter(
+            BlogDbContext localDb,
+            ISyncProvider localSyncProvider,
+            BlogDbContext remoteDb,
+            ISyncProvider remoteSyncProvider)
+        {
+            //NOTE: remoteSyncProvider is already configured to accept a sync filter @userId on user (see definition)
+
+            //add 3 users and sync data linked to only one of them
+            var remoteUser1 = new User() { Email = "user1@test.com", Name = "User 1", Created = DateTime.Now };
+            remoteDb.Users.Add(remoteUser1);
+            var remoteUser1Post = new Post()
+            {
+                Author = remoteUser1,
+                Content = $"Content from user 1",
+                Title = $"Post from user 1"
+            };
+            remoteDb.Comments.Add(new Comment()
+            {
+                Post = remoteUser1Post,
+                Author = remoteUser1,
+                Content = "Comment from user 1 on post created by user 1",
+                Created = DateTime.Now,
+            });
+
+            var remoteUser2 = new User() { Email = "user2@test.com", Name = "User 2", Created = DateTime.Now };
+            var remoteUser3 = new User() { Email = "user3@test.com", Name = "User 3", Created = DateTime.Now };
+            remoteDb.Users.Add(remoteUser2);
+            remoteDb.Users.Add(remoteUser3);
+            var remoteUser2Post = new Post()
+            {
+                Author = remoteUser2,
+                Content = $"Content",
+                Title = $"Post",
+                Claps = 1,
+                Stars = 10
+            };
+            remoteDb.Posts.Add(remoteUser2Post);
+            remoteDb.Comments.Add(new Comment()
+            { 
+                Post = remoteUser2Post,
+                Author = remoteUser3,
+                Content = "Comment from user 3 on post created by user 2",
+                Created = DateTime.Now,
+            });
+
+            await remoteDb.SaveChangesAsync();
+
+            var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
+            await syncAgent.SynchronizeAsync(remoteSyncFilterParameters: new[] { new SyncFilterParameter("@userId", "user1@test.com") });
+
+            //create a user on remote store
+            remoteDb = remoteDb.Refresh();
+            User remoteUser = await remoteDb.Users.Include(_ => _.Posts).FirstAsync(_ => _.Email == "user1@test.com");
+            remoteDb.Posts.Add(new Post()
+            {
+                Author = remoteUser,
+                Content = $"Content",
+                Title = $"Post",
+                Claps = 1,
+                Stars = 10
+            });
+
+            await remoteDb.SaveChangesAsync();
+
+            await syncAgent.SynchronizeAsync(remoteSyncFilterParameters: new[] { new SyncFilterParameter("@userId", "user1@test.com") });
+
+            (await localDb.Users.CountAsync()).ShouldBe(1);
+
+            var localUser = await localDb.Users.Include(_ => _.Posts).ThenInclude(_=>_.Comments).SingleOrDefaultAsync(_ => _.Email == "user1@test.com");
+            localUser.ShouldNotBeNull();
+
+            //update user on remotedb
+            remoteDb = remoteDb.Refresh();
+
+            //editing user, post and comment remotely forcely recreate that records locally
+            remoteUser = await remoteDb.Users.Include(_ => _.Posts).ThenInclude(_ => _.Comments).FirstAsync(_ => _.Email == "user1@test.com");
+            remoteUser.Name = "User edited";
+            remoteUser.Posts[0].Content = remoteUser.Posts[0].Content + " edited";
+            remoteUser.Comments[0].Content = remoteUser.Comments[0].Content + " edited";
+            await remoteDb.SaveChangesAsync();
+
+            //delete user on local db
+            localDb.Users.Remove(localUser);
+            await localDb.SaveChangesAsync();
+
+            await syncAgent.SynchronizeAsync(
+                conflictResolutionOnRemoteStore: ConflictResolution.Skip, 
+                conflictResolutionOnLocalStore: ConflictResolution.ForceWrite,
+                remoteSyncFilterParameters: new[] { new SyncFilterParameter("@userId", "user1@test.com") });
+
+            remoteDb = remoteDb.Refresh();
+            (await remoteDb.Users.CountAsync()).ShouldBe(3);
+
+            localDb = localDb.Refresh();
+            (await localDb.Users.CountAsync()).ShouldBe(1);
+            (await localDb.Posts.CountAsync()).ShouldBe(1);
+            (await localDb.Comments.CountAsync()).ShouldBe(1);
+
+            //delete remote comment that should not be pulled down to localdb (so nothing should change locally)
+            var commentToRemove = remoteDb.Comments.Single(_ => _.Author.Email == "user3@test.com");
+            remoteDb.Comments.Remove(commentToRemove);
+            await remoteDb.SaveChangesAsync();
+
+            await syncAgent.SynchronizeAsync(remoteSyncFilterParameters: new[] { new SyncFilterParameter("@userId", "user1@test.com") });
+
+            remoteDb = remoteDb.Refresh();
+            (await remoteDb.Users.CountAsync()).ShouldBe(3);
+
+            localDb = localDb.Refresh();
+            (await localDb.Users.CountAsync()).ShouldBe(1);
+            (await localDb.Posts.CountAsync()).ShouldBe(1);
+            (await localDb.Comments.CountAsync()).ShouldBe(1);
+
+            //now remove the comment remotely and verify that is now correctly removed locally too
+            var commentOfUser1ToRemove = remoteDb.Comments.Single(_ => _.Author.Email == "user1@test.com");
+            remoteDb.Comments.Remove(commentOfUser1ToRemove);
+            await remoteDb.SaveChangesAsync();
+
+            await syncAgent.SynchronizeAsync(remoteSyncFilterParameters: new[] { new SyncFilterParameter("@userId", "user1@test.com") });
+
+            remoteDb = remoteDb.Refresh();
+            (await remoteDb.Users.CountAsync()).ShouldBe(3);
+
+            localDb = localDb.Refresh();
+            (await localDb.Users.CountAsync()).ShouldBe(1);
+            (await localDb.Posts.CountAsync()).ShouldBe(1);
+            (await localDb.Comments.CountAsync()).ShouldBe(0);
+
         }
 
     }

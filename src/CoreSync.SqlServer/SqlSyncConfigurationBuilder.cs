@@ -28,7 +28,12 @@ namespace CoreSync.SqlServer
             return this;
         }
 
-        public SqlSyncConfigurationBuilder Table([NotNull] string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = null, bool skipInitialSnapshot = false)
+        public SqlSyncConfigurationBuilder Table(
+            [NotNull] string name, 
+            SyncDirection syncDirection = SyncDirection.UploadAndDownload, 
+            string schema = null, 
+            bool skipInitialSnapshot = false,
+            string selectQuery = null)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
 
@@ -39,11 +44,15 @@ namespace CoreSync.SqlServer
             if (_tables.Any(_ => string.CompareOrdinal(_.NameWithSchema, nameWithSchema) == 0))
                 throw new InvalidOperationException($"Table with name '{nameWithSchema}' already added");
 
-            _tables.Add(new SqlSyncTable(name, syncDirection, schema ?? _schema, skipInitialSnapshot));
+            _tables.Add(new SqlSyncTable(name, syncDirection, schema ?? _schema, skipInitialSnapshot, selectQuery));
             return this;
         }
 
-        public SqlSyncConfigurationBuilder Table<T>(SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = null, bool skipInitialSnapshot = false)
+        public SqlSyncConfigurationBuilder Table<T>(
+            SyncDirection syncDirection = SyncDirection.UploadAndDownload, 
+            string schema = null, 
+            bool skipInitialSnapshot = false,
+            string selectQuery = null)
         {
             var name = typeof(T).Name;
             var tableAttribute = (TableAttribute)Attribute.GetCustomAttribute(typeof(T), typeof(TableAttribute));
@@ -58,7 +67,7 @@ namespace CoreSync.SqlServer
             if (_tables.Any(_ => string.CompareOrdinal(_.NameWithSchema, nameWithSchema) == 0))
                 throw new InvalidOperationException($"Table with name '{nameWithSchema}' already added");
 
-            return Table(name, syncDirection, schema ?? _schema, skipInitialSnapshot);
+            return Table(name, syncDirection, schema ?? _schema, skipInitialSnapshot, selectQuery);
         }
 
         /// <summary>
