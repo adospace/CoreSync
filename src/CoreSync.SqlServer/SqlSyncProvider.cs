@@ -736,9 +736,11 @@ END");
                         try
                         {
                             cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
+                            cmd.Parameters.Clear(); 
                             var version = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
                             cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
+                            cmd.Parameters.Clear(); 
                             var minVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
                             if (!fromAnchor.IsNull() && fromAnchor.Version < minVersion - 1)
@@ -755,6 +757,7 @@ END");
                                 if (fromAnchor.IsNull() && !table.SkipInitialSnapshot)
                                 {
                                     cmd.CommandText = table.InitialSnapshotQuery;
+                                    cmd.Parameters.Clear(); 
                                     foreach (var syncFilterParameter in syncFilterParameters)
                                     {
                                         cmd.Parameters.AddWithValue(syncFilterParameter.Name, syncFilterParameter.Value);
@@ -810,6 +813,9 @@ END");
                                 }
 
                                 cmd.CommandText = table.IncrementalDeletesQuery;
+                                cmd.Parameters.Clear();
+                                cmd.Parameters.AddWithValue("@version", fromAnchor.IsNull() ? 0 : fromAnchor.Version);
+                                cmd.Parameters.AddWithValue("@sourceId", otherStoreId);
                                 using (var r = await cmd.ExecuteReaderAsync(cancellationToken))
                                 {
                                     while (await r.ReadAsync(cancellationToken))

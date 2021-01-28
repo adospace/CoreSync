@@ -15,7 +15,7 @@ namespace CoreSync
         {
         }
 
-        public SynchronizationException(string message, Exception innerException) : base($"{message}:{innerException.Message}", innerException)
+        public SynchronizationException(string message, Exception innerException) : base($"{message}: {innerException.Message}", innerException)
         {
         }
 
