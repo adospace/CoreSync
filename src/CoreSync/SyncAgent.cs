@@ -8,14 +8,14 @@ namespace CoreSync
 {
     public class SyncAgent
     {
-        public SyncAgent(ISyncProvider localSyncProvider, ISyncProvider remoteSyncProvider)
+        public SyncAgent(ISyncProviderBase localSyncProvider, ISyncProviderBase remoteSyncProvider)
         {
             LocalSyncProvider = localSyncProvider ?? throw new ArgumentNullException(nameof(localSyncProvider));
             RemoteSyncProvider = remoteSyncProvider ?? throw new ArgumentNullException(nameof(remoteSyncProvider));
         }
 
-        public ISyncProvider LocalSyncProvider { get; }
-        public ISyncProvider RemoteSyncProvider { get; }
+        public ISyncProviderBase LocalSyncProvider { get; }
+        public ISyncProviderBase RemoteSyncProvider { get; }
 
         public async Task SynchronizeAsync(
             Func<SyncItem, ConflictResolution> remoteConflictResolutionFunc = null, 
@@ -40,8 +40,8 @@ namespace CoreSync
                 await LocalSyncProvider.ApplyChangesAsync(remoteChangeSet, localConflictResolutionFunc, cancellationToken: cancellationToken);
                 await RemoteSyncProvider.SaveVersionForStoreAsync(localStoreId, remoteChangeSet.SourceAnchor.Version, cancellationToken: cancellationToken);
 
-                await LocalSyncProvider.ApplyProvisionAsync(cancellationToken: cancellationToken);
-                await RemoteSyncProvider.ApplyProvisionAsync(cancellationToken: cancellationToken);
+                //await LocalSyncProvider.ApplyProvisionAsync(cancellationToken: cancellationToken);
+                //await RemoteSyncProvider.ApplyProvisionAsync(cancellationToken: cancellationToken);
             }
             catch (Exception ex)
             {

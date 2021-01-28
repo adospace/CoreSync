@@ -493,6 +493,8 @@ namespace CoreSync.Tests
             var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
             await syncAgent.SynchronizeAsync();
 
+            await localSyncProvider.ApplyProvisionAsync();
+
             var localUser = await localDb.Users.Include(_ => _.Posts).FirstOrDefaultAsync(_ => _.Email == "user@test.com");
             localUser.ShouldNotBeNull();
             localUser.Email.ShouldBe("user@test.com");
@@ -753,6 +755,9 @@ namespace CoreSync.Tests
             //now let's sync
             var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
             await syncAgent.SynchronizeAsync();
+
+            //setup change tracking locally
+            await localSyncProvider.ApplyProvisionAsync();
 
             localSyncVersion = await localSyncProvider.GetSyncVersionAsync();
             localSyncVersion.Minimum.ShouldBe(0);

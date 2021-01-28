@@ -590,7 +590,7 @@ namespace CoreSync.Sqlite
             _initialized = true;
         }
 
-        public async Task ApplyProvisionAsync(CancellationToken cancellationToken)
+        public async Task ApplyProvisionAsync(CancellationToken cancellationToken = default)
         {
             //if (_initialized)
             //    return;
