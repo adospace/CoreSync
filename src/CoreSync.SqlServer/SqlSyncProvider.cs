@@ -214,7 +214,7 @@ namespace CoreSync.SqlServer
             }
         }
 
-        private async Task DisableConstraintsForChangeSetTables(SqlConnection connection, SyncChangeSet changeSet, CancellationToken cancellationToken)
+        private async Task DisableConstraintsForChangeSetTables(SqlConnection connection, SyncChangeSet changeSet, CancellationToken cancellationToken = default)
         {
             using (var cmd = new SqlCommand())
             {
@@ -231,7 +231,7 @@ namespace CoreSync.SqlServer
             }
         }
 
-        private async Task RestoreConstraintsForChangeSetTables(SqlConnection connection, SyncChangeSet changeSet, CancellationToken cancellationToken)
+        private async Task RestoreConstraintsForChangeSetTables(SqlConnection connection, SyncChangeSet changeSet, CancellationToken cancellationToken = default)
         {
             using (var cmd = new SqlCommand())
             {
@@ -248,7 +248,7 @@ namespace CoreSync.SqlServer
             }
         }
 
-        public async Task SaveVersionForStoreAsync(Guid otherStoreId, long version, CancellationToken cancellationToken)
+        public async Task SaveVersionForStoreAsync(Guid otherStoreId, long version, CancellationToken cancellationToken = default)
         {
             using (var c = new SqlConnection(Configuration.ConnectionString))
             {
@@ -287,7 +287,7 @@ namespace CoreSync.SqlServer
             }
         }
 
-        private async Task<SyncAnchor> GetLastLocalAnchorForStoreAsync(Guid otherStoreId, CancellationToken cancellationToken)
+        private async Task<SyncAnchor> GetLastLocalAnchorForStoreAsync(Guid otherStoreId, CancellationToken cancellationToken = default)
         {
             await InitializeStoreAsync(cancellationToken);
 
@@ -310,7 +310,7 @@ namespace CoreSync.SqlServer
             }
         }
 
-        private async Task<SyncAnchor> GetLastRemoteAnchorForStoreAsync(Guid otherStoreId, CancellationToken cancellationToken)
+        private async Task<SyncAnchor> GetLastRemoteAnchorForStoreAsync(Guid otherStoreId, CancellationToken cancellationToken = default)
         {
             using (var c = new SqlConnection(Configuration.ConnectionString))
             {
@@ -331,7 +331,7 @@ namespace CoreSync.SqlServer
             }
         }
 
-        public async Task<Guid> GetStoreIdAsync(CancellationToken cancellationToken)
+        public async Task<Guid> GetStoreIdAsync(CancellationToken cancellationToken = default)
         {
             await InitializeStoreAsync(cancellationToken);
 
@@ -361,7 +361,7 @@ namespace CoreSync.SqlServer
             return ChangeType.Insert;
         }
 
-        private async Task InitializeStoreAsync(CancellationToken cancellationToken)
+        private async Task InitializeStoreAsync(CancellationToken cancellationToken = default)
         {
             if (_initialized)
                 return;
@@ -568,7 +568,7 @@ INCLUDE([TBL]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMP
             }
         }
 
-        private async Task SetupTableForFullChangeDetection(SqlSyncTable table, SqlCommand cmd, CancellationToken cancellationToken)
+        private async Task SetupTableForFullChangeDetection(SqlSyncTable table, SqlCommand cmd, CancellationToken cancellationToken = default)
         {
             var existsTriggerCommand = new Func<string, string>((op) => $@"select COUNT(*) from sys.objects where schema_id=SCHEMA_ID('{table.Schema}') AND type='TR' and name='__{table.NameWithSchemaRaw}_ct-{op}__'");
             var createTriggerCommand = new Func<string, string>((op) => $@"CREATE TRIGGER [__{table.NameWithSchemaRaw}_ct-{op}__]
@@ -607,7 +607,7 @@ END");
             }
         }
 
-        private async Task SetupTableForUpdatesOrDeletesOnly(SqlSyncTable table, SqlCommand cmd, CancellationToken cancellationToken)
+        private async Task SetupTableForUpdatesOrDeletesOnly(SqlSyncTable table, SqlCommand cmd, CancellationToken cancellationToken = default)
         {
             var existsTriggerCommand = new Func<string, string>((op) => $@"select COUNT(*) from sys.objects where schema_id=SCHEMA_ID('{table.Schema}') AND type='TR' and name='__{table.NameWithSchemaRaw}_ct-{op}__'");
             var createTriggerCommand = new Func<string, string>((op) => $@"CREATE TRIGGER [__{table.NameWithSchemaRaw}_ct-{op}__]
@@ -639,7 +639,7 @@ END");
             }
         }
 
-        public async Task RemoveProvisionAsync(CancellationToken cancellationToken)
+        public async Task RemoveProvisionAsync(CancellationToken cancellationToken = default)
         {
             var connStringBuilder = new SqlConnectionStringBuilder(Configuration.ConnectionString);
             if (string.IsNullOrWhiteSpace(connStringBuilder.InitialCatalog))
@@ -709,7 +709,7 @@ END");
             }
         }
 
-        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncFilterParameter[] syncFilterParameters, SyncDirection syncDirection, CancellationToken cancellationToken)
+        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncFilterParameter[] syncFilterParameters, SyncDirection syncDirection, CancellationToken cancellationToken = default)
         {
             syncFilterParameters = syncFilterParameters ?? new SyncFilterParameter[] { };
 
@@ -846,7 +846,7 @@ END");
             }
         }
 
-        public async Task<SyncVersion> GetSyncVersionAsync(CancellationToken cancellationToken)
+        public async Task<SyncVersion> GetSyncVersionAsync(CancellationToken cancellationToken = default)
         {
             await InitializeStoreAsync(cancellationToken);
 
@@ -880,7 +880,7 @@ END");
             }
         }
 
-        public async Task<SyncVersion> ApplyRetentionPolicyAsync(int minVersion, CancellationToken cancellationToken)
+        public async Task<SyncVersion> ApplyRetentionPolicyAsync(int minVersion, CancellationToken cancellationToken = default)
         {
             await InitializeStoreAsync(cancellationToken);
 

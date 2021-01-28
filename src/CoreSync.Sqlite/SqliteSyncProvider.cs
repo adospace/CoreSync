@@ -203,7 +203,7 @@ namespace CoreSync.Sqlite
             }
         }
 
-        public async Task SaveVersionForStoreAsync(Guid otherStoreId, long version, CancellationToken cancellationToken)
+        public async Task SaveVersionForStoreAsync(Guid otherStoreId, long version, CancellationToken cancellationToken = default)
         {
             using (var c = new SqliteConnection(Configuration.ConnectionString))
             {
@@ -370,7 +370,7 @@ namespace CoreSync.Sqlite
 
         }
 
-        private async Task<SyncAnchor> GetLastLocalAnchorForStoreAsync(Guid otherStoreId, CancellationToken cancellationToken)
+        private async Task<SyncAnchor> GetLastLocalAnchorForStoreAsync(Guid otherStoreId, CancellationToken cancellationToken = default)
         {
             await InitializeStoreAsync(cancellationToken);
 
@@ -393,7 +393,7 @@ namespace CoreSync.Sqlite
             }
         }
 
-        private async Task<SyncAnchor> GetLastRemoteAnchorForStoreAsync(Guid otherStoreId, CancellationToken cancellationToken)
+        private async Task<SyncAnchor> GetLastRemoteAnchorForStoreAsync(Guid otherStoreId, CancellationToken cancellationToken = default)
         {
             //await InitializeAsync();
 
@@ -416,7 +416,7 @@ namespace CoreSync.Sqlite
             }
         }
 
-        public async Task<Guid> GetStoreIdAsync(CancellationToken cancellationToken)
+        public async Task<Guid> GetStoreIdAsync(CancellationToken cancellationToken = default)
         {
             await InitializeStoreAsync(cancellationToken);
 
@@ -501,7 +501,7 @@ namespace CoreSync.Sqlite
             return "%s";
         }
 
-        private async Task InitializeStoreAsync(CancellationToken cancellationToken)
+        private async Task InitializeStoreAsync(CancellationToken cancellationToken = default)
         {
             if (_initialized)
                 return;
@@ -625,7 +625,7 @@ namespace CoreSync.Sqlite
             //_initialized = true;
         }
 
-        private async Task SetupTableForFullChangeDetection(SqliteSyncTable table, SqliteCommand cmd, CancellationToken cancellationToken)
+        private async Task SetupTableForFullChangeDetection(SqliteSyncTable table, SqliteCommand cmd, CancellationToken cancellationToken = default)
         {
             var commandTextBase = new Func<string, string>((op) => $@"CREATE TRIGGER IF NOT EXISTS [__{table.Name}_ct-{op}__]
     AFTER {op} ON [{table.Name}]
@@ -643,7 +643,7 @@ namespace CoreSync.Sqlite
             await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        private async Task SetupTableForUpdatesOrDeletesOnly(SqliteSyncTable table, SqliteCommand cmd, CancellationToken cancellationToken)
+        private async Task SetupTableForUpdatesOrDeletesOnly(SqliteSyncTable table, SqliteCommand cmd, CancellationToken cancellationToken = default)
         {
             var commandTextBase = new Func<string, string>((op) => $@"CREATE TRIGGER IF NOT EXISTS [__{table.Name}_ct-{op}__]
     AFTER {op} ON [{table.Name}]
@@ -659,7 +659,7 @@ namespace CoreSync.Sqlite
             await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        public async Task RemoveProvisionAsync(CancellationToken cancellationToken)
+        public async Task RemoveProvisionAsync(CancellationToken cancellationToken = default)
         {
             using (var connection = new SqliteConnection(Configuration.ConnectionString))
             {
@@ -722,7 +722,7 @@ namespace CoreSync.Sqlite
             }
         }
         
-        public async Task<SyncVersion> GetSyncVersionAsync(CancellationToken cancellationToken)
+        public async Task<SyncVersion> GetSyncVersionAsync(CancellationToken cancellationToken = default)
         {
             await InitializeStoreAsync(cancellationToken);
 
@@ -756,7 +756,7 @@ namespace CoreSync.Sqlite
             }
         }
 
-        public async Task<SyncVersion> ApplyRetentionPolicyAsync(int minVersion, CancellationToken cancellationToken)
+        public async Task<SyncVersion> ApplyRetentionPolicyAsync(int minVersion, CancellationToken cancellationToken = default)
         {
             await InitializeStoreAsync(cancellationToken);
 
