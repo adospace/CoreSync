@@ -752,7 +752,7 @@ END");
                                     table.SyncDirection != syncDirection)
                                     continue;
 
-                                var snapshotItems = new HashSet<object>();
+                                //var snapshotItems = new HashSet<object>();
 
                                 if (fromAnchor.IsNull() && !table.SkipInitialSnapshot)
                                 {
@@ -776,56 +776,58 @@ END");
                                             }
 
                                             items.Add(new SqlSyncItem(table, ChangeType.Insert, values));
-                                            snapshotItems.Add(values[table.PrimaryColumnName]);
+                                            //snapshotItems.Add(values[table.PrimaryColumnName]);
                                             _logger?.Trace($"[{_storeId}] Initial snapshot {items.Last()}");
                                         }
                                     }
                                 }
 
-                                cmd.CommandText = table.IncrementalAddOrUpdatesQuery;
-                                cmd.Parameters.Clear();
-                                cmd.Parameters.AddWithValue("@version", fromAnchor.IsNull() ? 0 : fromAnchor.Version);
-                                cmd.Parameters.AddWithValue("@sourceId", otherStoreId);
-                                foreach (var syncFilterParameter in syncFilterParameters)
+                                if (!fromAnchor.IsNull())
                                 {
-                                    cmd.Parameters.AddWithValue(syncFilterParameter.Name, syncFilterParameter.Value);
-                                }
-
-                                using (var r = await cmd.ExecuteReaderAsync(cancellationToken))
-                                {
-                                    while (await r.ReadAsync(cancellationToken))
+                                    cmd.CommandText = table.IncrementalAddOrUpdatesQuery;
+                                    cmd.Parameters.Clear();
+                                    cmd.Parameters.AddWithValue("@version", fromAnchor.Version);
+                                    cmd.Parameters.AddWithValue("@sourceId", otherStoreId);
+                                    foreach (var syncFilterParameter in syncFilterParameters)
                                     {
-                                        var values = Enumerable.Range(0, r.FieldCount)
-                                            .ToDictionary(index => r.GetName(index), index => r.GetValue(index), StringComparer.OrdinalIgnoreCase);
-                                        if (snapshotItems.Contains(values[table.PrimaryColumnName]))
-                                            continue;
+                                        cmd.Parameters.AddWithValue(syncFilterParameter.Name, syncFilterParameter.Value);
+                                    }
 
-                                        foreach (var skipColumn in table.SkipColumns)
+                                    using (var r = await cmd.ExecuteReaderAsync(cancellationToken))
+                                    {
+                                        while (await r.ReadAsync(cancellationToken))
                                         {
-                                            if (string.CompareOrdinal(skipColumn, table.PrimaryColumnName) == 0)
-                                                throw new InvalidOperationException($"Column to skip in synchronization ('{skipColumn}') can't be the primary column");
+                                            var values = Enumerable.Range(0, r.FieldCount)
+                                                .ToDictionary(index => r.GetName(index), index => r.GetValue(index), StringComparer.OrdinalIgnoreCase);
+                                            //if (snapshotItems.Contains(values[table.PrimaryColumnName]))
+                                            //    continue;
+
+                                            foreach (var skipColumn in table.SkipColumns)
+                                            {
+                                                if (string.CompareOrdinal(skipColumn, table.PrimaryColumnName) == 0)
+                                                    throw new InvalidOperationException($"Column to skip in synchronization ('{skipColumn}') can't be the primary column");
+                                            }
+
+                                            items.Add(new SqlSyncItem(table, DetectChangeType(values),
+                                                values.Where(_ => _.Key != "__OP").ToDictionary(_ => _.Key, _ => _.Value == DBNull.Value ? null : _.Value)));
+                                            _logger?.Trace($"[{_storeId}] Incremental add or update {items.Last()}");
                                         }
-
-                                        items.Add(new SqlSyncItem(table, DetectChangeType(values),
-                                            values.Where(_ => _.Key != "__OP").ToDictionary(_ => _.Key, _ => _.Value == DBNull.Value ? null : _.Value)));
-                                        _logger?.Trace($"[{_storeId}] Incremental add or update {items.Last()}");
                                     }
-                                }
 
-                                cmd.CommandText = table.IncrementalDeletesQuery;
-                                cmd.Parameters.Clear();
-                                cmd.Parameters.AddWithValue("@version", fromAnchor.IsNull() ? 0 : fromAnchor.Version);
-                                cmd.Parameters.AddWithValue("@sourceId", otherStoreId);
-                                using (var r = await cmd.ExecuteReaderAsync(cancellationToken))
-                                {
-                                    while (await r.ReadAsync(cancellationToken))
+                                    cmd.CommandText = table.IncrementalDeletesQuery;
+                                    cmd.Parameters.Clear();
+                                    cmd.Parameters.AddWithValue("@version", fromAnchor.Version);
+                                    cmd.Parameters.AddWithValue("@sourceId", otherStoreId);
+                                    using (var r = await cmd.ExecuteReaderAsync(cancellationToken))
                                     {
-                                        var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => r.GetValue(_));
-                                        items.Add(new SqlSyncItem(table, ChangeType.Delete, values));
-                                        _logger?.Trace($"[{_storeId}] Incremental delete {items.Last()}");
+                                        while (await r.ReadAsync(cancellationToken))
+                                        {
+                                            var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => r.GetValue(_));
+                                            items.Add(new SqlSyncItem(table, ChangeType.Delete, values));
+                                            _logger?.Trace($"[{_storeId}] Incremental delete {items.Last()}");
+                                        }
                                     }
                                 }
-
                             }
 
                             tr.Commit();
