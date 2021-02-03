@@ -8,7 +8,7 @@ namespace CoreSync
 {
     public static class SyncProviderExtenstions
     {
-        public static Task<SyncAnchor> ApplyChangesAsync(this ISyncProvider provider, 
+        public static Task<SyncAnchor> ApplyChangesAsync(this ISyncProviderBase provider, 
             SyncChangeSet changeSet, 
             ConflictResolution updateResultion, 
             ConflictResolution deleteResolution)
@@ -27,7 +27,7 @@ namespace CoreSync
                 }));
         }
 
-        public static Task<SyncChangeSet> GetChangesAsync(this ISyncProvider provider,
+        public static Task<SyncChangeSet> GetChangesAsync(this ISyncProviderBase provider,
             Guid otherStoreId,
             SyncDirection syncDirection = SyncDirection.UploadAndDownload,
             CancellationToken cancellationToken = default) 
