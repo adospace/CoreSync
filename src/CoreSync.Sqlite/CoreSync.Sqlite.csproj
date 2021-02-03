@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <Version Condition=" '$(APPVEYOR_BUILD_VERSION)' == '' ">0.0.1-local</Version>
-    <Version Condition=" '$(APPVEYOR_BUILD_VERSION)' != '' ">$(APPVEYOR_BUILD_VERSION)-beta</Version>
+    <Version Condition=" '$(APPVEYOR_BUILD_VERSION)' != '' ">$(APPVEYOR_BUILD_VERSION)</Version>
     <TargetFramework>netstandard2.0</TargetFramework>
     <Authors>adospace</Authors>
     <Description>CoreSync is a .NET standard library that provides data synchronization functions between databases. This is the SQLite provider assembly.</Description>
