@@ -79,7 +79,12 @@ namespace CoreSync.SqlServer
 
                                 foreach (var item in changeSet.Items)
                                 {
-                                    var table = (SqlSyncTable)Configuration.Tables.First(_ => _.Name == item.TableName);
+                                    var table = (SqlSyncTable)Configuration.Tables.FirstOrDefault(_ => _.Name == item.TableName);
+
+                                    if (table == null)
+                                    {
+                                        continue;
+                                    }
 
                                     bool syncForceWrite = false;
                                     var itemChangeType = item.ChangeType;
