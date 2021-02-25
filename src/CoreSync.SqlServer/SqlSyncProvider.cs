@@ -1,6 +1,7 @@
 ﻿using JetBrains.Annotations;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Data;
 using System.Data.SqlClient;
 using System.Linq;
@@ -546,7 +547,7 @@ INCLUDE([TBL]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMP
 
                         var primaryKeyColumns = await connection.GetIndexColumnNamesAsync(table, primaryKeyIndexName, cancellationToken); //primaryKeyIndexName.IndexedColumns.Cast<IndexedColumn>().ToList();
                         var allColumns = (await connection.GetTableColumnsAsync(table, cancellationToken)).Select(_=>_.Item1).ToArray();
-                        var tableColumns = allColumns.Where(_ => !primaryKeyColumns.Any(kc => kc == _)).ToArray();
+                        //var tableColumns = allColumns.Where(_ => !primaryKeyColumns.Any(kc => kc == _)).ToArray();
 
                         //if (primaryKeyColumns.Length != 1)
                         //{
@@ -686,29 +687,7 @@ END");
                 {
                     foreach (SqlSyncTable table in Configuration.Tables)
                     {
-                        var existsTriggerCommand = new Func<string, string>((op) => $@"select COUNT(*) from sys.objects where schema_id=SCHEMA_ID('{table.Schema}') AND type='TR' and name='__{table.NameWithSchemaRaw}_ct-{op}__'");
-                        var dropTriggerCommand = new Func<string, string>((op) => $@"DROP TRIGGER [__{table.NameWithSchemaRaw}_ct-{op}__]");
-
-                        cmd.CommandText = existsTriggerCommand("INSERT");
-                        if (((int)await cmd.ExecuteScalarAsync(cancellationToken)) == 1)
-                        {
-                            cmd.CommandText = dropTriggerCommand("INSERT");
-                            await cmd.ExecuteNonQueryAsync(cancellationToken);
-                        }
-
-                        cmd.CommandText = existsTriggerCommand("UPDATE");
-                        if (((int)await cmd.ExecuteScalarAsync(cancellationToken)) == 1)
-                        {
-                            cmd.CommandText = dropTriggerCommand("UPDATE");
-                            await cmd.ExecuteNonQueryAsync(cancellationToken);
-                        }
-
-                        cmd.CommandText = existsTriggerCommand("DELETE");
-                        if (((int)await cmd.ExecuteScalarAsync(cancellationToken)) == 1)
-                        {
-                            cmd.CommandText = dropTriggerCommand("DELETE");
-                            await cmd.ExecuteNonQueryAsync(cancellationToken);
-                        }
+                        await DisableChangeTrackingForTable(cmd, table, cancellationToken);
                     }
                 }
             }
@@ -931,6 +910,102 @@ END");
                 {
                     throw new InvalidOperationException($"Unable to apply version {minVersion} to tracking table of the store", ex);
                 }
+            }
+        }
+
+        public async Task EnableChangeTrackingForTable(string name, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                throw new ArgumentException($"'{nameof(name)}' cannot be null or whitespace", nameof(name));
+            }
+
+            var table = Configuration.Tables.Cast<SqlSyncTable>().FirstOrDefault(_ => _.NameWithSchema == name);
+
+            if (table == null)
+            {
+                table = Configuration.Tables.Cast<SqlSyncTable>().FirstOrDefault(_ => _.Name == name);
+            }
+
+            if (table == null)
+            {
+                throw new InvalidOperationException($"Unable to find table '{name}'");
+            }
+
+            using (var connection = new SqlConnection(Configuration.ConnectionString))
+            {
+                await connection.OpenAsync(cancellationToken);
+
+                using (var cmd = connection.CreateCommand())
+                {
+                    if (table.SyncDirection == SyncDirection.UploadAndDownload ||
+                        (table.SyncDirection == SyncDirection.UploadOnly && ProviderMode == ProviderMode.Local) ||
+                        (table.SyncDirection == SyncDirection.DownloadOnly && ProviderMode == ProviderMode.Remote))
+                    {
+                        await SetupTableForFullChangeDetection(table, cmd, cancellationToken);
+                    }
+                    else
+                    {
+                        await SetupTableForUpdatesOrDeletesOnly(table, cmd, cancellationToken);
+                    }
+                }
+            }
+        }
+
+        public async Task DisableChangeTrackingForTable(string name, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                throw new ArgumentException($"'{nameof(name)}' cannot be null or whitespace", nameof(name));
+            }
+
+            var table = Configuration.Tables.Cast<SqlSyncTable>().FirstOrDefault(_ => _.NameWithSchema == name);
+
+            if (table == null)
+            {
+                table = Configuration.Tables.Cast<SqlSyncTable>().FirstOrDefault(_ => _.Name == name);
+            }
+
+            if (table == null)
+            {
+                throw new InvalidOperationException($"Unable to find table '{name}'");
+            }
+
+            using (var connection = new SqlConnection(Configuration.ConnectionString))
+            {
+                await connection.OpenAsync(cancellationToken);
+
+                using (var cmd = connection.CreateCommand())
+                {
+                    await DisableChangeTrackingForTable(cmd, table, cancellationToken);
+                }
+            }
+        }
+
+        private async Task DisableChangeTrackingForTable(SqlCommand cmd, SqlSyncTable table, CancellationToken cancellationToken)
+        {
+            var existsTriggerCommand = new Func<string, string>((op) => $@"select COUNT(*) from sys.objects where schema_id=SCHEMA_ID('{table.Schema}') AND type='TR' and name='__{table.NameWithSchemaRaw}_ct-{op}__'");
+            var dropTriggerCommand = new Func<string, string>((op) => $@"DROP TRIGGER [__{table.NameWithSchemaRaw}_ct-{op}__]");
+
+            cmd.CommandText = existsTriggerCommand("INSERT");
+            if (((int)await cmd.ExecuteScalarAsync(cancellationToken)) == 1)
+            {
+                cmd.CommandText = dropTriggerCommand("INSERT");
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            cmd.CommandText = existsTriggerCommand("UPDATE");
+            if (((int)await cmd.ExecuteScalarAsync(cancellationToken)) == 1)
+            {
+                cmd.CommandText = dropTriggerCommand("UPDATE");
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            cmd.CommandText = existsTriggerCommand("DELETE");
+            if (((int)await cmd.ExecuteScalarAsync(cancellationToken)) == 1)
+            {
+                cmd.CommandText = dropTriggerCommand("DELETE");
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
             }
         }
     }

@@ -1130,6 +1130,78 @@ namespace CoreSync.Tests
             await TestSynchronizationWithFilter(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
         }
 
+        [TestMethod]
+        public async Task Test_Sqlite_SqlServer_TestSynchronizationAfterDisabledChangeTrackingForTable()
+        {
+            var localDbFile = $"{Path.GetTempPath()}Test_Sqlite_SqlServer_TestSynchronizationAfterDisabledChangeTrackingForTable.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test_Sqlite_SqlServer_TestSynchronizationAfterDisabledChangeTrackingForTable_remote");
+
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+
+            await TestSynchronizationAfterDisabledChangeTrackingForTable(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test_Sqlite_Sqlite_TestSynchronizationAfterDisabledChangeTrackingForTable()
+        {
+            using var localDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test_Sqlite_Sqlite_TestSynchronizationAfterDisabledChangeTrackingForTable_local");
+            using var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test_Sqlite_Sqlite_TestSynchronizationAfterDisabledChangeTrackingForTable_remote");
+
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqlSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+
+            await TestSynchronizationAfterDisabledChangeTrackingForTable(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
     }
 
 

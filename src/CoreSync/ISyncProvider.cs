@@ -12,5 +12,11 @@ namespace CoreSync
         Task<SyncVersion> GetSyncVersionAsync(CancellationToken cancellationToken = default);
 
         Task<SyncVersion> ApplyRetentionPolicyAsync(int minVersion, CancellationToken cancellationToken = default);
+
+        Task EnableChangeTrackingForTable(
+            string tableName, CancellationToken cancellationToken = default);
+
+        Task DisableChangeTrackingForTable(
+            string tableName, CancellationToken cancellationToken = default);
     }
 }

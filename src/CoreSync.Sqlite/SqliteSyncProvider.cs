@@ -2,6 +2,7 @@
 using Microsoft.Data.Sqlite;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -714,16 +715,7 @@ namespace CoreSync.Sqlite
                     //5. drop triggers
                     foreach (var tableName in listOfTables)
                     {
-                        var commandTextBase = new Func<string, string>((op) => $@"DROP TRIGGER IF EXISTS [__{tableName}_ct-{op}__]");
-                        cmd.CommandText = commandTextBase("INSERT");
-                        await cmd.ExecuteNonQueryAsync();
-
-                        cmd.CommandText = commandTextBase("UPDATE");
-                        await cmd.ExecuteNonQueryAsync();
-
-                        cmd.CommandText = commandTextBase("DELETE");
-                        await cmd.ExecuteNonQueryAsync();
-
+                        await DisableChangeTrackingForTable(cmd, tableName, cancellationToken);
                     }
                 }
             }
@@ -808,6 +800,79 @@ namespace CoreSync.Sqlite
                     throw new InvalidOperationException($"Unable to apply version {minVersion} to tracking table of the store", ex);
                 }
             }
+        }
+
+        public async Task EnableChangeTrackingForTable(string name, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                throw new ArgumentException($"'{nameof(name)}' cannot be null or whitespace", nameof(name));
+            }
+
+            var table = Configuration.Tables.Cast<SqliteSyncTable>().FirstOrDefault(_ => _.Name == name);
+
+            if (table == null)
+            {
+                throw new InvalidOperationException($"Unable to find table with name '{name}'");
+            }
+
+            using (var connection = new SqliteConnection(Configuration.ConnectionString))
+            {
+                await connection.OpenAsync(cancellationToken);
+
+                using (var cmd = connection.CreateCommand())
+                {
+
+                    if (table.SyncDirection == SyncDirection.UploadAndDownload ||
+                        (table.SyncDirection == SyncDirection.UploadOnly && ProviderMode == ProviderMode.Local) ||
+                        (table.SyncDirection == SyncDirection.DownloadOnly && ProviderMode == ProviderMode.Remote))
+                    {
+                        await SetupTableForFullChangeDetection(table, cmd, cancellationToken);
+                    }
+                    else
+                    {
+                        await SetupTableForUpdatesOrDeletesOnly(table, cmd, cancellationToken);
+                    }
+                }
+            }
+        }
+         
+        public async Task DisableChangeTrackingForTable(string name = null, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                throw new ArgumentException($"'{nameof(name)}' cannot be null or whitespace", nameof(name));
+            }
+
+            var table = Configuration.Tables.Cast<SqliteSyncTable>().FirstOrDefault(_ => _.Name == name);
+
+            if (table == null)
+            {
+                throw new InvalidOperationException($"Unable to find table with name '{name}'");
+            }
+
+            using (var connection = new SqliteConnection(Configuration.ConnectionString))
+            {
+                await connection.OpenAsync(cancellationToken);
+
+                using (var cmd = connection.CreateCommand())
+                {
+                    await DisableChangeTrackingForTable(cmd, name, cancellationToken);
+                }
+            }
+        }
+
+        private async Task DisableChangeTrackingForTable(SqliteCommand cmd, string tableName, CancellationToken cancellationToken)
+        { 
+            var commandTextBase = new Func<string, string>((op) => $@"DROP TRIGGER IF EXISTS [__{tableName}_ct-{op}__]");
+            cmd.CommandText = commandTextBase("INSERT");
+            await cmd.ExecuteNonQueryAsync();
+
+            cmd.CommandText = commandTextBase("UPDATE");
+            await cmd.ExecuteNonQueryAsync();
+
+            cmd.CommandText = commandTextBase("DELETE");
+            await cmd.ExecuteNonQueryAsync();        
         }
 
     }

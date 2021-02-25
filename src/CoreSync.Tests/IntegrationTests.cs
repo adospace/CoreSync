@@ -1153,5 +1153,80 @@ namespace CoreSync.Tests
 
         }
 
+        private async Task TestSynchronizationAfterDisabledChangeTrackingForTable(
+    BlogDbContext localDb,
+    ISyncProvider localSyncProvider,
+    BlogDbContext remoteDb,
+    ISyncProvider remoteSyncProvider)
+        {
+            //add 1 users and sync data linked to only one of them
+            var remoteUser1 = new User() { Email = "user1@test.com", Name = "User 1", Created = DateTime.Now };
+            remoteDb.Users.Add(remoteUser1);
+
+            await remoteDb.SaveChangesAsync();
+
+            var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
+            await syncAgent.SynchronizeAsync();
+
+            var localUsers = await localDb.Users.ToListAsync();
+
+            localUsers.Count.ShouldBe(1);
+
+            localUsers[0].Email.ShouldBe("user1@test.com");
+            localUsers[0].Name.ShouldBe("User 1");
+
+            //now disable change tracking for table and make a change on remote entity
+
+            await remoteSyncProvider.DisableChangeTrackingForTable("Users");
+            
+            remoteDb = remoteDb.Refresh();
+            remoteDb.Users.First().Name = "User 1 edited with CT disabled";
+            await remoteDb.SaveChangesAsync();
+
+            await syncAgent.SynchronizeAsync();
+
+            localDb = localDb.Refresh();
+            
+            localUsers = await localDb.Users.ToListAsync();
+
+            localUsers.Count.ShouldBe(1);
+
+            //nothing should be changed
+            localUsers[0].Email.ShouldBe("user1@test.com");
+            localUsers[0].Name.ShouldBe("User 1");
+
+            //re-enable the change tracking
+            await remoteSyncProvider.EnableChangeTrackingForTable("Users");
+
+            await syncAgent.SynchronizeAsync();
+
+            localDb = localDb.Refresh();
+
+            localUsers = await localDb.Users.ToListAsync();
+
+            localUsers.Count.ShouldBe(1);
+
+            //nothing should be changed again
+            localUsers[0].Email.ShouldBe("user1@test.com");
+            localUsers[0].Name.ShouldBe("User 1");
+
+            //finally make a remote change sync and verufy that sync works again
+            remoteDb = remoteDb.Refresh();
+            remoteDb.Users.First().Name = "User 1 edited after CT re-enabled";
+            await remoteDb.SaveChangesAsync();
+
+            await syncAgent.SynchronizeAsync();
+
+            localDb = localDb.Refresh();
+
+            localUsers = await localDb.Users.ToListAsync();
+
+            localUsers.Count.ShouldBe(1);
+
+            //change received
+            localUsers[0].Email.ShouldBe("user1@test.com");
+            localUsers[0].Name.ShouldBe("User 1 edited after CT re-enabled");
+        }
+
     }
 }
