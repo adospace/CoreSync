@@ -920,6 +920,8 @@ END");
                 throw new ArgumentException($"'{nameof(name)}' cannot be null or whitespace", nameof(name));
             }
 
+            await InitializeStoreAsync(cancellationToken);
+
             var table = Configuration.Tables.Cast<SqlSyncTable>().FirstOrDefault(_ => _.NameWithSchema == name);
 
             if (table == null)

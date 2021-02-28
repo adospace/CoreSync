@@ -809,6 +809,8 @@ namespace CoreSync.Sqlite
                 throw new ArgumentException($"'{nameof(name)}' cannot be null or whitespace", nameof(name));
             }
 
+            await InitializeStoreAsync(cancellationToken);
+
             var table = Configuration.Tables.Cast<SqliteSyncTable>().FirstOrDefault(_ => _.Name == name);
 
             if (table == null)
