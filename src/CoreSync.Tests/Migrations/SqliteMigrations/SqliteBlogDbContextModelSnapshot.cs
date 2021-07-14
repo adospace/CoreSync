@@ -14,22 +14,28 @@ namespace CoreSync.Tests.Migrations.SqliteMigrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "2.1.1-rtm-30846");
+                .HasAnnotation("ProductVersion", "3.1.11");
 
             modelBuilder.Entity("CoreSync.Tests.Data.Comment", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd();
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
 
-                    b.Property<string>("AuthorEmail");
+                    b.Property<string>("AuthorEmail")
+                        .HasColumnType("TEXT");
 
-                    b.Property<string>("Content");
+                    b.Property<string>("Content")
+                        .HasColumnType("TEXT");
 
-                    b.Property<DateTime>("Created");
+                    b.Property<DateTime>("Created")
+                        .HasColumnType("TEXT");
 
-                    b.Property<Guid?>("PostId");
+                    b.Property<Guid?>("PostId")
+                        .HasColumnType("TEXT");
 
-                    b.Property<Guid?>("ReplyToId");
+                    b.Property<Guid?>("ReplyToId")
+                        .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 
@@ -45,19 +51,26 @@ namespace CoreSync.Tests.Migrations.SqliteMigrations
             modelBuilder.Entity("CoreSync.Tests.Data.Post", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd();
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
 
-                    b.Property<string>("AuthorEmail");
+                    b.Property<string>("AuthorEmail")
+                        .HasColumnType("TEXT");
 
-                    b.Property<int>("Claps");
+                    b.Property<int>("Claps")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<string>("Content");
+                    b.Property<string>("Content")
+                        .HasColumnType("TEXT");
 
-                    b.Property<float>("Stars");
+                    b.Property<float>("Stars")
+                        .HasColumnType("REAL");
 
-                    b.Property<string>("Title");
+                    b.Property<string>("Title")
+                        .HasColumnType("TEXT");
 
-                    b.Property<DateTime>("Updated");
+                    b.Property<DateTime>("Updated")
+                        .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 
@@ -69,11 +82,14 @@ namespace CoreSync.Tests.Migrations.SqliteMigrations
             modelBuilder.Entity("CoreSync.Tests.Data.User", b =>
                 {
                     b.Property<string>("Email")
-                        .ValueGeneratedOnAdd();
+                        .HasColumnType("TEXT");
 
-                    b.Property<DateTime>("Created");
+                    b.Property<DateTime>("Created")
+                        .HasColumnName("Date Created(date/$time)")
+                        .HasColumnType("TEXT");
 
-                    b.Property<string>("Name");
+                    b.Property<string>("Name")
+                        .HasColumnType("TEXT");
 
                     b.HasKey("Email");
 

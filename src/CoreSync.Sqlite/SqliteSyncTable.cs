@@ -58,7 +58,7 @@ namespace CoreSync.Sqlite
             $@"SELECT PK_{PrimaryColumnType} AS [{PrimaryColumnName}] FROM [__CORE_SYNC_CT] WHERE TBL = '{Name}' AND ID > @version AND OP = 'D' AND (SRC IS NULL OR SRC != @sourceId)";
 
         internal string SelectExistingQuery => $@"SELECT COUNT(*) FROM [{Name}] 
-            WHERE [{PrimaryColumnName}] = @{PrimaryColumnName.Replace(' ', '_')}";
+            WHERE [{PrimaryColumnName}] = @PrimaryColumnParameter";
 
         internal void SetupCommand(SqliteCommand cmd, ChangeType itemChangeType, Dictionary<string, SyncItemValue> syncItemValues)
         {
@@ -70,26 +70,47 @@ namespace CoreSync.Sqlite
             switch (itemChangeType)
             {
                 case ChangeType.Insert:
-                    cmd.CommandText = $@"INSERT OR IGNORE INTO [{Name}] ({string.Join(", ", valuesForValidColumns.Select(_ => "[" + _.Key + "]"))}) 
-VALUES ({string.Join(", ", valuesForValidColumns.Select(_ => "@" + _.Key.Replace(' ', '_')))});";
+                    {
+                        cmd.CommandText = $@"INSERT OR IGNORE INTO [{Name}] ({string.Join(", ", valuesForValidColumns.Select(_ => "[" + _.Key + "]"))}) 
+VALUES ({string.Join(", ", valuesForValidColumns.Select((_, index) => $"@p{index}"))});";
+
+                        int pIndex = 0;
+                        foreach (var valueItem in valuesForValidColumns)
+                        {
+                            cmd.Parameters.Add(new SqliteParameter($"@p{pIndex}", valueItem.Value.Value ?? DBNull.Value));
+                            pIndex++;
+                        }
+                    }
                     break;
 
                 case ChangeType.Update:
-                    cmd.CommandText = $@"UPDATE [{Name}]
-SET {string.Join(", ", valuesForValidColumns.Select(_ => "[" + _.Key + "] = @" + _.Key.Replace(' ', '_')))}
-WHERE [{Name}].[{PrimaryColumnName}] = @{PrimaryColumnName.Replace(' ', '_')}
-AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK_{PrimaryColumnType} = @{PrimaryColumnName.Replace(' ', '_')} AND TBL = '{Name}') <= @last_sync_version)";
+                    {
+                        cmd.CommandText = $@"UPDATE [{Name}]
+SET {string.Join(", ", valuesForValidColumns.Select((_, index) => $"[{_.Key}] = @p{index}"))}
+WHERE [{Name}].[{PrimaryColumnName}] = @PrimaryColumnParameter
+AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK_{PrimaryColumnType} = @PrimaryColumnParameter AND TBL = '{Name}') <= @last_sync_version)";
+
+                        cmd.Parameters.Add(new SqliteParameter("@PrimaryColumnParameter", syncItemValues[PrimaryColumnName].Value ?? DBNull.Value));
+
+                        int pIndex = 0;
+                        foreach (var valueItem in valuesForValidColumns)
+                        {
+                            cmd.Parameters.Add(new SqliteParameter($"@p{pIndex}", valueItem.Value.Value ?? DBNull.Value));
+                            pIndex++;
+                        }
+                    }
                     break;
 
                 case ChangeType.Delete:
-                    cmd.CommandText = $@"DELETE FROM [{Name}]
-WHERE [{Name}].[{PrimaryColumnName}] = @{PrimaryColumnName.Replace(' ', '_')}
-AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK_{PrimaryColumnType} = @{PrimaryColumnName.Replace(' ', '_')} AND TBL = '{Name}') <= @last_sync_version)";
+                    {
+                        cmd.CommandText = $@"DELETE FROM [{Name}]
+WHERE [{Name}].[{PrimaryColumnName}] = @PrimaryColumnParameter
+AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK_{PrimaryColumnType} = @PrimaryColumnParameter AND TBL = '{Name}') <= @last_sync_version)";
+
+                        cmd.Parameters.Add(new SqliteParameter("@PrimaryColumnParameter", syncItemValues[PrimaryColumnName].Value ?? DBNull.Value));
+                    }
                     break;
             }
-
-            foreach (var valueItem in valuesForValidColumns)
-                cmd.Parameters.Add(new SqliteParameter("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value.Value ?? DBNull.Value));
         }
     }
 }

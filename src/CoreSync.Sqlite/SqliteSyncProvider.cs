@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -97,7 +98,7 @@ namespace CoreSync.Sqlite
                                 catch (Exception ex)
                                 {
                                     //throw new SynchronizationException($"Unable to {item} item to store for table {table}", ex);
-                                    _logger?.Warning($"Unable to {item} {Environment.NewLine}{ex}");
+                                    _logger?.Error($"Unable to {itemChangeType} item {item} to store for table {table}.{Environment.NewLine}{ex}{Environment.NewLine}Generated SQL:{Environment.NewLine}{cmd.CommandText}");
                                 }
 
                                 if (affectedRows == 0)
@@ -111,7 +112,7 @@ namespace CoreSync.Sqlite
                                         cmd.CommandText = table.SelectExistingQuery;
                                         cmd.Parameters.Clear();
                                         var valueItem = item.Values[table.PrimaryColumnName];
-                                        cmd.Parameters.Add(new SqliteParameter("@" + table.PrimaryColumnName.Replace(" ", "_"), valueItem.Value ?? DBNull.Value));
+                                        cmd.Parameters.Add(new SqliteParameter("@PrimaryColumnParameter", valueItem.Value ?? DBNull.Value));
                                         if (1 == (long)await cmd.ExecuteScalarAsync(cancellationToken) && !syncForceWrite)
                                         {
                                             itemChangeType = ChangeType.Update;
@@ -463,6 +464,20 @@ namespace CoreSync.Sqlite
                 return r.GetValue(columnOrdinal);
 
             var property = table.RecordType.GetProperty(columnName);
+            if (property != null)
+                return GetValueFromRecord(r, columnOrdinal, property.PropertyType);
+
+            property = table.RecordType.GetProperties().FirstOrDefault(_ =>
+            {
+                var columnAttribute = _.GetCustomAttribute<ColumnAttribute>(false);
+                if (columnAttribute != null)
+                {
+                    return columnAttribute.Name == columnName;
+                }
+
+                return false;
+            });
+
             if (property != null)
                 return GetValueFromRecord(r, columnOrdinal, property.PropertyType);
 

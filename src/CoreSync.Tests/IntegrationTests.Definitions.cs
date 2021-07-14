@@ -1169,10 +1169,10 @@ namespace CoreSync.Tests
         }
 
         [TestMethod]
-        public async Task Test_Sqlite_Sqlite_TestSynchronizationAfterDisabledChangeTrackingForTable()
+        public async Task Test_SqlServer_SqlServer_TestSynchronizationAfterDisabledChangeTrackingForTable()
         {
-            using var localDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test_Sqlite_Sqlite_TestSynchronizationAfterDisabledChangeTrackingForTable_local");
-            using var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test_Sqlite_Sqlite_TestSynchronizationAfterDisabledChangeTrackingForTable_remote");
+            using var localDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test_SqlServer_SqlServer_TestSynchronizationAfterDisabledChangeTrackingForTable_local");
+            using var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test_SqlServer_SqlServer_TestSynchronizationAfterDisabledChangeTrackingForTable_remote");
 
             await localDb.Database.EnsureDeletedAsync();
             await remoteDb.Database.EnsureDeletedAsync();

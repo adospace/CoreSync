@@ -71,7 +71,7 @@ namespace CoreSync.Tests
                 Assert.AreEqual(1, changeSetAfterUserEdit.Items.Count);
                 Assert.AreEqual(newUser.Email, changeSetAfterUserEdit.Items[0].Values["Email"].Value);
                 Assert.AreEqual(newUser.Name, changeSetAfterUserEdit.Items[0].Values["Name"].Value);
-                Assert.AreEqual(newUser.Created, changeSetAfterUserEdit.Items[0].Values["Created"].Value);
+                Assert.AreEqual(newUser.Created, changeSetAfterUserEdit.Items[0].Values["Date Created(date/$time)"].Value);                
             }
 
             {

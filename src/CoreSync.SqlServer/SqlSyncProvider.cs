@@ -111,6 +111,7 @@ namespace CoreSync.SqlServer
                                     }
                                     catch (Exception ex)
                                     {
+                                        _logger?.Error($"Unable to {itemChangeType} item {item} to store for table {table}.{Environment.NewLine}Generated SQL:{Environment.NewLine}{cmd.CommandText}");
                                         throw new SynchronizationException($"Unable to {itemChangeType} item {item} to store for table {table}", ex);
                                     }
 
@@ -124,7 +125,7 @@ namespace CoreSync.SqlServer
                                             cmd.CommandText = table.SelectExistingQuery;
                                             cmd.Parameters.Clear();
                                             var valueItem = item.Values[table.PrimaryColumnName];
-                                            cmd.Parameters.Add(new SqlParameter("@" + table.PrimaryColumnName.Replace(" ", "_"), table.Columns[table.PrimaryColumnName].DbType)
+                                            cmd.Parameters.Add(new SqlParameter("@PrimaryColumnParameter", table.Columns[table.PrimaryColumnName].DbType)
                                             {
                                                 Value = Utils.ConvertToSqlType(valueItem, table.Columns[table.PrimaryColumnName].DbType)
                                             });
