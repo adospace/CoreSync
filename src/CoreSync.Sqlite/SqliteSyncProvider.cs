@@ -299,6 +299,11 @@ namespace CoreSync.Sqlite
 
                                 if (fromAnchor.IsNull() && !table.SkipInitialSnapshot)
                                 {
+                                    if (string.IsNullOrWhiteSpace(table.InitialSnapshotQuery))
+                                    {
+                                        throw new InvalidOperationException($"InitialSnapshotQuery not specified for table");
+                                    }
+
                                     cmd.CommandText = table.InitialSnapshotQuery;
                                     cmd.Parameters.Clear();
                                     foreach (var syncFilterParameter in syncFilterParameters)
