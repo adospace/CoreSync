@@ -9,7 +9,7 @@ namespace CoreSync.SqlServer
 {
     public class SqlSyncTable : SyncTable
     {
-        internal SqlSyncTable(string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = "dbo", bool skipInitialSnapshot = false, string selectIncrementalQuery = null, string customSnapshotQuery = null) 
+        internal SqlSyncTable(string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = "dbo", bool skipInitialSnapshot = false, string? selectIncrementalQuery = null, string? customSnapshotQuery = null) 
             : base(name, syncDirection, skipInitialSnapshot, selectIncrementalQuery, customSnapshotQuery)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));

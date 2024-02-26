@@ -6,8 +6,8 @@ namespace CoreSync
 {
     public class SyncChangeSet
     {
-        public SyncChangeSet()
-        { }
+        //public SyncChangeSet()
+        //{ }
 
         public SyncChangeSet(SyncAnchor sourceAnchor, SyncAnchor targetAnchor, IReadOnlyList<SyncItem> items)
         {

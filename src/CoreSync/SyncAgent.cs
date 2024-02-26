@@ -18,16 +18,16 @@ namespace CoreSync
         public ISyncProviderBase RemoteSyncProvider { get; }
 
         public async Task SynchronizeAsync(
-            Func<SyncItem, ConflictResolution> remoteConflictResolutionFunc = null, 
-            Func<SyncItem, ConflictResolution> localConflictResolutionFunc = null,
+            Func<SyncItem, ConflictResolution>? remoteConflictResolutionFunc = null, 
+            Func<SyncItem, ConflictResolution>? localConflictResolutionFunc = null,
             CancellationToken cancellationToken = default,
-            SyncFilterParameter[] remoteSyncFilterParameters = null,
-            SyncFilterParameter[] localSyncFilterParameters = null)
+            SyncFilterParameter[]? remoteSyncFilterParameters = null,
+            SyncFilterParameter[]? localSyncFilterParameters = null)
         {
             try
             {
-                remoteConflictResolutionFunc = remoteConflictResolutionFunc ?? ((_) => ConflictResolution.Skip);
-                localConflictResolutionFunc = localConflictResolutionFunc ?? ((_) => ConflictResolution.ForceWrite);
+                remoteConflictResolutionFunc ??= ((_) => ConflictResolution.Skip);
+                localConflictResolutionFunc ??= ((_) => ConflictResolution.ForceWrite);
 
                 var localStoreId = await LocalSyncProvider.GetStoreIdAsync(cancellationToken);
                 var remoteStoreId = await RemoteSyncProvider.GetStoreIdAsync(cancellationToken);

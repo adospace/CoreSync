@@ -12,8 +12,8 @@ namespace CoreSync
             ConflictResolution conflictResolutionOnRemoteStore = ConflictResolution.Skip, 
             ConflictResolution conflictResolutionOnLocalStore = ConflictResolution.ForceWrite, 
             CancellationToken cancellationToken = default,
-            SyncFilterParameter[] remoteSyncFilterParameters = null,
-            SyncFilterParameter[] localSyncFilterParameters = null)
+            SyncFilterParameter[]? remoteSyncFilterParameters = null,
+            SyncFilterParameter[]? localSyncFilterParameters = null)
             => syncAgent.SynchronizeAsync(_ => conflictResolutionOnRemoteStore, _ => conflictResolutionOnLocalStore, 
                 cancellationToken: cancellationToken, 
                 remoteSyncFilterParameters: remoteSyncFilterParameters, 
@@ -23,8 +23,8 @@ namespace CoreSync
             Func<SyncItem, ConflictResolution> remoteConflictResolutionFunc, 
             ConflictResolution conflictResolutionOnLocalStore, 
             CancellationToken cancellationToken = default,
-            SyncFilterParameter[] remoteSyncFilterParameters = null,
-            SyncFilterParameter[] localSyncFilterParameters = null)
+            SyncFilterParameter[]? remoteSyncFilterParameters = null,
+            SyncFilterParameter[]? localSyncFilterParameters = null)
             => syncAgent.SynchronizeAsync(remoteConflictResolutionFunc, _ => conflictResolutionOnLocalStore, 
                 cancellationToken: cancellationToken, 
                 remoteSyncFilterParameters: remoteSyncFilterParameters, 
@@ -34,8 +34,8 @@ namespace CoreSync
             ConflictResolution conflictResolutionOnRemoteStore, 
             Func<SyncItem, ConflictResolution> localConflictResolutionFunc, 
             CancellationToken cancellationToken = default,
-            SyncFilterParameter[] remoteSyncFilterParameters = null,
-            SyncFilterParameter[] localSyncFilterParameters = null)
+            SyncFilterParameter[]? remoteSyncFilterParameters = null,
+            SyncFilterParameter[]? localSyncFilterParameters = null)
             => syncAgent.SynchronizeAsync(_ => conflictResolutionOnRemoteStore, localConflictResolutionFunc, 
                 cancellationToken: cancellationToken, 
                 remoteSyncFilterParameters: remoteSyncFilterParameters, 

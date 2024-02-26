@@ -14,9 +14,9 @@ namespace CoreSync.Sqlite
     {
         private bool _initialized = false;
         private Guid _storeId;
-        private readonly ISyncLogger _logger;
+        private readonly ISyncLogger? _logger;
 
-        public SqliteSyncProvider(SqliteSyncConfiguration configuration, ProviderMode providerMode = ProviderMode.Bidirectional, ISyncLogger logger = null)
+        public SqliteSyncProvider(SqliteSyncConfiguration configuration, ProviderMode providerMode = ProviderMode.Bidirectional, ISyncLogger? logger = null)
         {
             Configuration = configuration;
             ProviderMode = providerMode;
@@ -32,9 +32,11 @@ namespace CoreSync.Sqlite
         public SqliteSyncConfiguration Configuration { get; }
         public ProviderMode ProviderMode { get; }
 
-        public async Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, [CanBeNull] Func<SyncItem, ConflictResolution> onConflictFunc = null, CancellationToken cancellationToken = default)
+        public async Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, [CanBeNull] Func<SyncItem, ConflictResolution>? onConflictFunc = null, CancellationToken cancellationToken = default)
         {
             Validate.NotNull(changeSet, nameof(changeSet));
+            Validate.NotNull(changeSet.SourceAnchor, nameof(changeSet.SourceAnchor));
+            Validate.NotNull(changeSet.TargetAnchor, nameof(changeSet.TargetAnchor));
 
             await InitializeStoreAsync(cancellationToken);
 
@@ -198,8 +200,9 @@ namespace CoreSync.Sqlite
 
                             return resAnchor;
                         }
-                        catch (Exception)
+                        catch (Exception ex)
                         {
+                            _logger?.Error($"[{_storeId}] Unable to complete the apply changes:{Environment.NewLine}{ex}");
                             tr.Rollback();
                             throw;
                         }
@@ -859,29 +862,19 @@ namespace CoreSync.Sqlite
             }
         }
          
-        public async Task DisableChangeTrackingForTable(string name = null, CancellationToken cancellationToken = default)
+        public async Task DisableChangeTrackingForTable(string name, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(name))
             {
                 throw new ArgumentException($"'{nameof(name)}' cannot be null or whitespace", nameof(name));
             }
 
-            var table = Configuration.Tables.Cast<SqliteSyncTable>().FirstOrDefault(_ => _.Name == name);
+            var table = Configuration.Tables.Cast<SqliteSyncTable>().FirstOrDefault(_ => _.Name == name) ?? throw new InvalidOperationException($"Unable to find table with name '{name}'");
+            using var connection = new SqliteConnection(Configuration.ConnectionString);
+            await connection.OpenAsync(cancellationToken);
 
-            if (table == null)
-            {
-                throw new InvalidOperationException($"Unable to find table with name '{name}'");
-            }
-
-            using (var connection = new SqliteConnection(Configuration.ConnectionString))
-            {
-                await connection.OpenAsync(cancellationToken);
-
-                using (var cmd = connection.CreateCommand())
-                {
-                    await DisableChangeTrackingForTable(cmd, name, cancellationToken);
-                }
-            }
+            using var cmd = connection.CreateCommand();
+            await DisableChangeTrackingForTable(cmd, name, cancellationToken);
         }
 
         private async Task DisableChangeTrackingForTable(SqliteCommand cmd, string tableName, CancellationToken cancellationToken)

@@ -45,7 +45,7 @@ namespace CoreSync
                 throw new NotSupportedException($"Type of value ('{value.GetType()}') is not supported for synchronization");
         }
 
-        public object Value { get; set; }
+        public object? Value { get; set; }
 
         public SyncItemValueType Type { get; set; }
     }
