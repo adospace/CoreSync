@@ -472,7 +472,7 @@ INCLUDE([TBL]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMP
                 {
                     foreach (SqlSyncTable table in Configuration.Tables)
                     {
-                        var primaryKeyIndexName = (await connection.GetClusteredPrimaryKeyIndexesAsync(table, cancellationToken)).FirstOrDefault();
+                        var primaryKeyIndexName = (await connection.GetPrimaryKeyIndexesAsync(table, cancellationToken)).FirstOrDefault();
                         if (primaryKeyIndexName == null)
                         {
                             throw new InvalidOperationException($"Table '{table.NameWithSchema}' doesn't exist or it doesn't have a primary key");
@@ -533,7 +533,7 @@ INCLUDE([TBL]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMP
                 {
                     foreach (SqlSyncTable table in Configuration.Tables)
                     {
-                        var primaryKeyIndexName = (await connection.GetClusteredPrimaryKeyIndexesAsync(table, cancellationToken)).FirstOrDefault(); //dbTable.Indexes.Cast<Index>().FirstOrDefault(_ => _.IsClustered && _.IndexKeyType == IndexKeyType.DriPrimaryKey);
+                        var primaryKeyIndexName = (await connection.GetPrimaryKeyIndexesAsync(table, cancellationToken)).FirstOrDefault(); //dbTable.Indexes.Cast<Index>().FirstOrDefault(_ => _.IsClustered && _.IndexKeyType == IndexKeyType.DriPrimaryKey);
                         if (primaryKeyIndexName == null)
                         {
                             throw new InvalidOperationException($"Table '{table.NameWithSchema}' doesn't have a primary key");
