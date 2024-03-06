@@ -9,7 +9,7 @@ namespace CoreSync.Sqlite
         public SqliteSyncItem()
         { }
 
-        public SqliteSyncItem(SqliteSyncTable table, ChangeType changeType, Dictionary<string, object> values) :
+        public SqliteSyncItem(SqliteSyncTable table, ChangeType changeType, Dictionary<string, object?> values) :
             base(table.Name, changeType, values)
         {
         }

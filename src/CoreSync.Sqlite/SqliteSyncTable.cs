@@ -7,7 +7,7 @@ namespace CoreSync.Sqlite
 {
     public class SqliteSyncTable : SyncTable
     {
-        internal SqliteSyncTable(string name, Type recordType = null, SyncDirection syncDirection = SyncDirection.UploadAndDownload, bool skipInitialSnapshot = false, string selectIncrementalQuery = null, string customSnapshotQuery = null)
+        internal SqliteSyncTable(string name, Type? recordType = null, SyncDirection syncDirection = SyncDirection.UploadAndDownload, bool skipInitialSnapshot = false, string? selectIncrementalQuery = null, string? customSnapshotQuery = null)
             : base(name, syncDirection, skipInitialSnapshot, selectIncrementalQuery, customSnapshotQuery)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
@@ -19,7 +19,7 @@ namespace CoreSync.Sqlite
         /// Record type can be useful to cast back to correct types record values 
         /// when are read from Sqlite database
         /// </summary>
-        public Type RecordType { get; }
+        public Type? RecordType { get; }
 
         internal string PrimaryColumnName => Columns.First(_ => _.Value.IsPrimaryKey).Value.Name;
 

@@ -12,7 +12,7 @@ namespace CoreSync
         
         }
 
-        public SyncItem(string tableName, ChangeType changeType, Dictionary<string, object> values)
+        public SyncItem(string tableName, ChangeType changeType, Dictionary<string, object?> values)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(tableName, nameof(tableName));
             Validate.NotNull(values, nameof(values));
@@ -22,9 +22,9 @@ namespace CoreSync
             Values = values.ToDictionary(_ => _.Key, _ => new SyncItemValue(_.Value));
         }
 
-        public string TableName { get; set; }
+        public string TableName { get; set; } = default!;
         public ChangeType ChangeType { get; set; }
-        public Dictionary<string, SyncItemValue> Values { get; set; }
+        public Dictionary<string, SyncItemValue> Values { get; set; } = default!;
 
         public override string ToString() => $"{ChangeType} on {TableName}: {{{GetValuesAsJson()}}}";
 
@@ -32,7 +32,8 @@ namespace CoreSync
 
         private static string GetValueAsJson(SyncItemValue syncItemValue)
         {
-            if (syncItemValue.Type == SyncItemValueType.Null)
+            if (syncItemValue.Type == SyncItemValueType.Null ||
+                syncItemValue.Value == null)
                 return "null";
             if (syncItemValue.Type == SyncItemValueType.String)
                 return $"\"{syncItemValue.Value}\"";

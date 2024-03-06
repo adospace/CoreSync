@@ -9,13 +9,13 @@ namespace CoreSync
         public SyncItemValue()
         { }
 
-        public SyncItemValue(object value)
+        public SyncItemValue(object? value)
         {
             Value = value == DBNull.Value ? null : value;
             DetectTypeOfObject(value);
         }
 
-        private void DetectTypeOfObject(object value)
+        private void DetectTypeOfObject(object? value)
         {
             if (value == null || value is DBNull)
                 Type = SyncItemValueType.Null;

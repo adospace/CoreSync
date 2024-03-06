@@ -747,8 +747,9 @@ END");
                                         cmd.Parameters.AddWithValue(syncFilterParameter.Name, syncFilterParameter.Value);
                                     }
 
-                                    using (var r = await cmd.ExecuteReaderAsync(cancellationToken))
+                                    try
                                     {
+                                        using var r = await cmd.ExecuteReaderAsync(cancellationToken);
                                         while (await r.ReadAsync(cancellationToken))
                                         {
                                             try
@@ -766,13 +767,18 @@ END");
                                                 //snapshotItems.Add(values[table.PrimaryColumnName]);
                                                 _logger?.Trace($"[{_storeId}] Initial snapshot {items.Last()}");
                                             }
-                                            catch (ArgumentException) 
+                                            catch (ArgumentException)
                                             {
                                                 var duplicateColumns = Enumerable.Range(0, r.FieldCount).Select(index => r.GetName(index)).GroupBy(_ => _).Where(_ => _.Count() > 1).Select(_ => _.Key).ToArray();
-                                                _logger?.Error($"Duplicate columns found in table {table.NameWithSchema}: {string.Join(",", duplicateColumns)}"); 
+                                                _logger?.Error($"Duplicate columns found in table {table.NameWithSchema}: {string.Join(",", duplicateColumns)}");
                                                 throw;
                                             }
                                         }
+                                    }
+                                    catch (Exception)
+                                    {
+                                        _logger?.Error($"InitialSnapshotQuery: {cmd.CommandText}");
+                                        throw;
                                     }
                                 }
 
@@ -787,8 +793,9 @@ END");
                                         cmd.Parameters.AddWithValue(syncFilterParameter.Name, syncFilterParameter.Value);
                                     }
 
-                                    using (var r = await cmd.ExecuteReaderAsync(cancellationToken))
+                                    try
                                     {
+                                        using var r = await cmd.ExecuteReaderAsync(cancellationToken);
                                         while (await r.ReadAsync(cancellationToken))
                                         {
                                             var values = Enumerable.Range(0, r.FieldCount)
@@ -806,19 +813,31 @@ END");
                                             _logger?.Trace($"[{_storeId}] Incremental add or update {items.Last()}");
                                         }
                                     }
+                                    catch (Exception)
+                                    {
+                                        _logger?.Error($"IncrementalAddOrUpdatesQuery: {cmd.CommandText}");
+                                        throw;
+                                    }
 
                                     cmd.CommandText = table.IncrementalDeletesQuery;
                                     cmd.Parameters.Clear();
                                     cmd.Parameters.AddWithValue("@version", fromAnchor.Version);
                                     cmd.Parameters.AddWithValue("@sourceId", otherStoreId);
-                                    using (var r = await cmd.ExecuteReaderAsync(cancellationToken))
+
+                                    try
                                     {
+                                        using var r = await cmd.ExecuteReaderAsync(cancellationToken);
                                         while (await r.ReadAsync(cancellationToken))
                                         {
                                             var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => r.GetValue(_));
                                             items.Add(new SqlSyncItem(table, ChangeType.Delete, values));
                                             _logger?.Trace($"[{_storeId}] Incremental delete {items.Last()}");
                                         }
+                                    }
+                                    catch (Exception)
+                                    {
+                                        _logger?.Error($"IncrementalDeletesQuery: {cmd.CommandText}");
+                                        throw;
                                     }
                                 }
                             }

@@ -11,7 +11,7 @@ namespace CoreSync.Sqlite
         private readonly string _connectionString;
 
         //do not use dictionary because order is important
-        private readonly List<SqliteSyncTable> _tables = new List<SqliteSyncTable>();
+        private readonly List<SqliteSyncTable> _tables = [];
 
         public SqliteSyncConfigurationBuilder([NotNull] string connectionString)
         {
@@ -21,11 +21,11 @@ namespace CoreSync.Sqlite
 
         public SqliteSyncConfigurationBuilder Table(
             [NotNull] string name, 
-            Type recordType = null, 
+            Type? recordType = null, 
             SyncDirection syncDirection = SyncDirection.UploadAndDownload, 
             bool skipInitialSnapshot = false, 
-            string selectIncrementalQuery = null,
-            string customSnapshotQuery = null)
+            string? selectIncrementalQuery = null,
+            string? customSnapshotQuery = null)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
 
@@ -38,11 +38,11 @@ namespace CoreSync.Sqlite
         }
 
         public SqliteSyncConfigurationBuilder Table<T>(
-            string name = null, 
+            string? name = null, 
             SyncDirection syncDirection = SyncDirection.UploadAndDownload, 
             bool skipInitialSnapshot = false, 
-            string selectIncrementalQuery = null,
-            string customSnapshotQuery = null)
+            string? selectIncrementalQuery = null,
+            string? customSnapshotQuery = null)
         {
             if (name == null)
             {
