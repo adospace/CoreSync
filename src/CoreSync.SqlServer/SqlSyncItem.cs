@@ -10,7 +10,7 @@ namespace CoreSync.SqlServer
         { 
         }
 
-        public SqlSyncItem(SqlSyncTable table, ChangeType changeType, Dictionary<string, object> values) :
+        public SqlSyncItem(SqlSyncTable table, ChangeType changeType, Dictionary<string, object?> values) :
             base(table.Name, changeType, values)
         {
         }

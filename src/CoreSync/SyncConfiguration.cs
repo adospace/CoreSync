@@ -4,8 +4,8 @@ using System.Text;
 
 namespace CoreSync
 {
-    public abstract class SyncConfiguration
+    public abstract class SyncConfiguration(SyncTable[] tables)
     {
-        public SyncTable[] Tables { get; protected set; }
+        public SyncTable[] Tables { get; } = tables;
     }
 }

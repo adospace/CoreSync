@@ -340,11 +340,11 @@ namespace CoreSync.SqlServer
             return _storeId;
         }
 
-        private ChangeType DetectChangeType(Dictionary<string, object> values)
+        private ChangeType DetectChangeType(Dictionary<string, object?> values)
         {
             if (values.TryGetValue("__OP", out var syncChangeOperation))
             {
-                switch (syncChangeOperation.ToString())
+                switch (syncChangeOperation?.ToString())
                 {
                     case "I":
                         return ChangeType.Insert;
@@ -689,9 +689,9 @@ END");
             }
         }
 
-        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncFilterParameter[] syncFilterParameters, SyncDirection syncDirection, CancellationToken cancellationToken = default)
+        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncFilterParameter[]? syncFilterParameters, SyncDirection syncDirection, CancellationToken cancellationToken = default)
         {
-            syncFilterParameters = syncFilterParameters ?? new SyncFilterParameter[] { };
+            syncFilterParameters ??= [];
 
             var fromAnchor = (await GetLastLocalAnchorForStoreAsync(otherStoreId, cancellationToken));
 
@@ -757,7 +757,15 @@ END");
                                             try
                                             {
                                                 var values = Enumerable.Range(0, r.FieldCount)
-                                                    .ToDictionary(index => r.GetName(index), index => r.GetValue(index), StringComparer.OrdinalIgnoreCase);
+                                                    .ToDictionary(index => r.GetName(index), index => 
+                                                    { 
+                                                        var dbValue = r.GetValue(index);
+                                                        if (dbValue == DBNull.Value)
+                                                        { 
+                                                            return null;
+                                                        } 
+                                                        return dbValue;
+                                                    }, StringComparer.OrdinalIgnoreCase);
 
                                                 foreach (var skipColumn in table.SkipColumns)
                                                 {
@@ -801,7 +809,15 @@ END");
                                         while (await r.ReadAsync(cancellationToken))
                                         {
                                             var values = Enumerable.Range(0, r.FieldCount)
-                                                .ToDictionary(index => r.GetName(index), index => r.GetValue(index), StringComparer.OrdinalIgnoreCase);
+                                                .ToDictionary(index => r.GetName(index), index =>
+                                                {
+                                                    var dbValue = r.GetValue(index);
+                                                    if (dbValue == DBNull.Value)
+                                                    {
+                                                        return null;
+                                                    }
+                                                    return dbValue;
+                                                }, StringComparer.OrdinalIgnoreCase);
 
                                             foreach (var skipColumn in table.SkipColumns)
                                             {
@@ -831,7 +847,16 @@ END");
                                         using var r = await cmd.ExecuteReaderAsync(cancellationToken);
                                         while (await r.ReadAsync(cancellationToken))
                                         {
-                                            var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => r.GetValue(_));
+                                            var values = Enumerable.Range(0, r.FieldCount)
+                                                .ToDictionary(_ => r.GetName(_), _ =>
+                                                {
+                                                    var dbValue = r.GetValue(_);
+                                                    if (dbValue == DBNull.Value)
+                                                    {
+                                                        return null;
+                                                    }
+                                                    return dbValue;
+                                                });
                                             items.Add(new SqlSyncItem(table, ChangeType.Delete, values));
                                             _logger?.Trace($"[{_storeId}] Incremental delete {items.Last()}");
                                         }

@@ -31,10 +31,10 @@ namespace CoreSync.SqlServer
         public SqlSyncConfigurationBuilder Table(
             [NotNull] string name, 
             SyncDirection syncDirection = SyncDirection.UploadAndDownload, 
-            string schema = null, 
+            string? schema = null, 
             bool skipInitialSnapshot = false,
-            string selectIncrementalQuery = null,
-            string customSnapshotQuery = null)
+            string? selectIncrementalQuery = null,
+            string? customSnapshotQuery = null)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
 
@@ -51,10 +51,10 @@ namespace CoreSync.SqlServer
 
         public SqlSyncConfigurationBuilder Table<T>(
             SyncDirection syncDirection = SyncDirection.UploadAndDownload, 
-            string schema = null, 
+            string? schema = null, 
             bool skipInitialSnapshot = false,
-            string selectIncrementalQuery = null,
-            string customSnapshotQuery = null)
+            string? selectIncrementalQuery = null,
+            string? customSnapshotQuery = null)
         {
             var name = typeof(T).Name;
             var tableAttribute = (TableAttribute)Attribute.GetCustomAttribute(typeof(T), typeof(TableAttribute));

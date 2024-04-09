@@ -9,6 +9,9 @@ namespace CoreSync.SqlServer
 {
     public class SqlSyncTable : SyncTable
     {
+        private string? _primaryColumnName;
+        private string[]? _primaryKeyColumns;
+
         internal SqlSyncTable(string name, SyncDirection syncDirection = SyncDirection.UploadAndDownload, string schema = "dbo", bool skipInitialSnapshot = false, string? selectIncrementalQuery = null, string? customSnapshotQuery = null) 
             : base(name, syncDirection, skipInitialSnapshot, selectIncrementalQuery, customSnapshotQuery)
         {
@@ -26,29 +29,23 @@ namespace CoreSync.SqlServer
 
         public string NameWithSchemaRaw => $"{(Schema == null ? string.Empty : Schema + ".")}{Name}";
 
-        internal string PrimaryColumnName { get; set; }
+        internal string PrimaryColumnName
+        {
+            get => _primaryColumnName ?? throw new InvalidOperationException();
+            set => _primaryColumnName = value;
+        }
 
         internal SqlPrimaryColumnType PrimaryColumnType => GetPrimaryColumnType(Columns[PrimaryColumnName].DbType);
 
         private SqlPrimaryColumnType GetPrimaryColumnType(SqlDbType dbType)
         {
-            switch (dbType)
+            return dbType switch
             {
-                case SqlDbType.Int:
-                case SqlDbType.SmallInt:
-                case SqlDbType.BigInt:
-                    return SqlPrimaryColumnType.Int;
-                case SqlDbType.Char:
-                case SqlDbType.NVarChar:
-                case SqlDbType.VarChar:
-                case SqlDbType.NChar:
-                    return SqlPrimaryColumnType.String;
-                case SqlDbType.UniqueIdentifier:
-                    return SqlPrimaryColumnType.Guid;
-
-            }
-
-            throw new NotSupportedException($"Table {NameWithSchema} primary key type {dbType}");
+                SqlDbType.Int or SqlDbType.SmallInt or SqlDbType.BigInt => SqlPrimaryColumnType.Int,
+                SqlDbType.Char or SqlDbType.NVarChar or SqlDbType.VarChar or SqlDbType.NChar => SqlPrimaryColumnType.String,
+                SqlDbType.UniqueIdentifier => SqlPrimaryColumnType.Guid,
+                _ => throw new NotSupportedException($"Table {NameWithSchema} primary key type {dbType}"),
+            };
         }
 
         /// <summary>
@@ -74,7 +71,11 @@ WHERE [{PrimaryColumnName}] = @PrimaryColumnParameter";
 
         internal bool HasTableIdentityColumn { get; set; }
 
-        internal string[] PrimaryKeyColumns { get; set; }
+        internal string[] PrimaryKeyColumns
+        {
+            get => _primaryKeyColumns ?? throw new InvalidOperationException();
+            set => _primaryKeyColumns = value;
+        }
 
         internal void SetupCommand(SqlCommand cmd, ChangeType itemChangeType, Dictionary<string, SyncItemValue> syncItemValues)
         {

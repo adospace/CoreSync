@@ -314,15 +314,14 @@ namespace CoreSync.Sqlite
                                         cmd.Parameters.AddWithValue(syncFilterParameter.Name, syncFilterParameter.Value);
                                     }
 
-                                    using (var r = await cmd.ExecuteReaderAsync(cancellationToken))
+                                    using var r = await cmd.ExecuteReaderAsync(cancellationToken);
+                                    while (await r.ReadAsync(cancellationToken))
                                     {
-                                        while (await r.ReadAsync(cancellationToken))
-                                        {
-                                            var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
-                                            items.Add(new SqliteSyncItem(table, ChangeType.Insert, values));
-                                            //snapshotItems.Add(values[table.PrimaryColumnName]);
-                                            _logger?.Trace($"[{_storeId}] Initial snapshot {items.Last()}");
-                                        }
+                                        var values = Enumerable.Range(0, r.FieldCount)
+                                            .ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
+                                        items.Add(new SqliteSyncItem(table, ChangeType.Insert, values));
+                                        //snapshotItems.Add(values[table.PrimaryColumnName]);
+                                        _logger?.Trace($"[{_storeId}] Initial snapshot {items.Last()}");
                                     }
                                 }
 
@@ -440,11 +439,11 @@ namespace CoreSync.Sqlite
             return _storeId;
         }
 
-        private static ChangeType DetectChangeType(Dictionary<string, object> values)
+        private static ChangeType DetectChangeType(Dictionary<string, object?> values)
         {
             if (values.TryGetValue("__OP", out var syncChangeOperation))
             {
-                switch (syncChangeOperation.ToString())
+                switch (syncChangeOperation?.ToString())
                 {
                     case "I":
                         return ChangeType.Insert;
@@ -463,7 +462,7 @@ namespace CoreSync.Sqlite
             return ChangeType.Insert;
         }
 
-        private static object GetValueFromRecord(SqliteSyncTable table, string columnName, int columnOrdinal, SqliteDataReader r)
+        private static object? GetValueFromRecord(SqliteSyncTable table, string columnName, int columnOrdinal, SqliteDataReader r)
         {
             if (r.IsDBNull(columnOrdinal))
                 return null;
