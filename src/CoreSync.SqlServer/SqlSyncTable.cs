@@ -70,7 +70,7 @@ INNER JOIN __CORE_SYNC_CT AS CT ON T.[{PrimaryColumnName}] = CT.[PK_{PrimaryColu
         internal string SelectExistingQuery => $@"SELECT COUNT (*) FROM {NameWithSchema}
 WHERE [{PrimaryColumnName}] = @PrimaryColumnParameter";
 
-        internal string[] SkipColumns { get; set; } = new string[] { };
+        internal string[] SkipColumns { get; set; } = [];
 
         internal bool HasTableIdentityColumn { get; set; }
 
@@ -91,7 +91,24 @@ WHERE [{PrimaryColumnName}] = @PrimaryColumnParameter";
             {
                 case ChangeType.Insert:
                     {
-                        cmd.CommandText = $@"{(HasTableIdentityColumn ? $"SET IDENTITY_INSERT {NameWithSchema} ON" : string.Empty)}
+                        var identityInsertCommand = string.Empty;
+                        if (IdentityInsert == IdentityInsertMode.Auto)
+                        {
+                            if (HasTableIdentityColumn)
+                            {
+                                identityInsertCommand = $"SET IDENTITY_INSERT {NameWithSchema} ON";
+                            }
+                        }
+                        else if (IdentityInsert == IdentityInsertMode.On)
+                        {
+                            identityInsertCommand = $"SET IDENTITY_INSERT {NameWithSchema} ON";
+                        }
+                        else if (IdentityInsert == IdentityInsertMode.Off)
+                        {
+                            identityInsertCommand = $"SET IDENTITY_INSERT {NameWithSchema} OFF";
+                        }
+
+                        cmd.CommandText = $@"{identityInsertCommand}
 BEGIN TRY 
 INSERT INTO {NameWithSchema} ({string.Join(", ", allSyncItems.Select(_ => "[" + _.Key + "]"))}) 
 VALUES ({string.Join(", ", allSyncItems.Select((_, index) => $"@p{index}"))});
@@ -99,7 +116,7 @@ END TRY
 BEGIN CATCH  
 PRINT ERROR_MESSAGE()
 END CATCH
-{(HasTableIdentityColumn ? $"SET IDENTITY_INSERT {NameWithSchema} OFF" : string.Empty)}";
+"; //{(setIdentityInsertOn ? $"SET IDENTITY_INSERT {NameWithSchema} OFF" : string.Empty)}
 
 
                         int pIndex = 0;
@@ -168,5 +185,24 @@ END CATCH";
 
         }
 
+        internal IdentityInsertMode IdentityInsert { get; set; }
+    }
+
+    public enum IdentityInsertMode
+    {
+        /// <summary>
+        /// Auto discover the identity column
+        /// </summary>
+        Auto,
+
+        /// <summary>
+        /// Set IDENTITY_INSERT to ON
+        /// </summary>
+        On,
+
+        /// <summary>
+        /// Set IDENTITY_INSERT to OFF
+        /// </summary>
+        Off
     }
 }

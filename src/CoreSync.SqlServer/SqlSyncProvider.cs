@@ -120,6 +120,8 @@ namespace CoreSync.SqlServer
                                 //If we can't apply an insert means that we already
                                 //applied the insert or another record with same values (see primary key)
                                 //is already present in table.
+                                var executedCommand = cmd.CommandText;
+
                                 cmd.CommandText = table.SelectExistingQuery;
                                 cmd.Parameters.Clear();
                                 var valueItem = item.Values[table.PrimaryColumnName];
@@ -135,7 +137,7 @@ namespace CoreSync.SqlServer
                                 }
                                 else
                                 {
-                                    _logger?.Warning($"[{_storeId}] Unable to {itemChangeType} item {item} on table {table}. Messages: Messages:{Environment.NewLine}{string.Join(Environment.NewLine, messageLog.Select(_ => _.Message))}");
+                                    _logger?.Warning($"[{_storeId}] Unable to {itemChangeType} item {item} on table {table}. Messages: Messages:{Environment.NewLine}{string.Join(Environment.NewLine, messageLog.Select(_ => _.Message))}{Environment.NewLine}Generated SQL:{Environment.NewLine}{executedCommand}");
                                 }
                             }
                             else if (itemChangeType == ChangeType.Update ||

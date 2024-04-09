@@ -79,18 +79,12 @@ namespace CoreSync.SqlServer
         /// <returns>The current Sql configuration builder</returns>
         public SqlSyncConfigurationBuilder SkipColumns(params string[] columnNames)
         {
-            if (columnNames == null)
-                throw new ArgumentNullException();
-
-            var lastTable = _tables.LastOrDefault();
-            if (lastTable == null)
-            {
-                throw new InvalidOperationException("SkipColumns requires a table");
-            }
+            var lastTable = _tables.LastOrDefault() 
+                ?? throw new InvalidOperationException("SkipColumns requires a table");
 
             //remove duplicates
 
-            lastTable.SkipColumns = columnNames;
+            lastTable.SkipColumns = columnNames ?? throw new ArgumentNullException();
             return this;
         }
 
@@ -135,6 +129,25 @@ namespace CoreSync.SqlServer
             }
 
             lastTable.CustomSnapshotQuery = customSnapshotQuery;
+            return this;
+        }
+
+
+        /// <summary>
+        /// Specify an IDENTITY_INSERT ON/OFF before issuing an insert command to SqlServer
+        /// </summary>
+        /// <param name="mode">Mode to set IDENTITY_INSERT</param>
+        /// <returns>The current Sql configuration builder</returns>
+        /// <exception cref="InvalidOperationException"></exception>
+        public SqlSyncConfigurationBuilder IdentityInsert(IdentityInsertMode mode)
+        {
+            var lastTable = _tables.LastOrDefault()
+                ?? throw new InvalidOperationException("IdentityInsert requires a table");
+
+            //remove duplicates
+
+            lastTable.IdentityInsert = mode;
+
             return this;
         }
 
