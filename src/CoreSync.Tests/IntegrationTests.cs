@@ -4,6 +4,7 @@ using CoreSync.Tests.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Shouldly;
+using SQLite;
 using System;
 using System.IO;
 using System.Linq;
@@ -17,7 +18,7 @@ namespace CoreSync.Tests
                                                  throw new ArgumentException(
                                                      "Set CORE-SYNC_CONNECTION_STRING environmental variable containing connection string to Sql Server");
 
-        private async Task Test1(
+        private static async Task Test1(
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
@@ -182,7 +183,8 @@ namespace CoreSync.Tests
             }
         }
 
-        private async Task Test2(
+
+        private static async Task Test2(
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
@@ -234,7 +236,7 @@ namespace CoreSync.Tests
             Assert.IsNotNull(commentAdded);
         }
 
-        private async Task TestSyncAgent(
+        private static async Task TestSyncAgent(
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
@@ -268,12 +270,12 @@ namespace CoreSync.Tests
             remoteDb = remoteDb.Refresh(); //discard any cache data in ef
 
             //verify that user on server and locally have the same post    
-            remoteUser = await remoteDb.Users.Include(_ => _.Posts).FirstOrDefaultAsync(_ => _.Email == "user@email.com");
+            remoteUser = await remoteDb.Users.Include(_ => _.Posts).FirstAsync(_ => _.Email == "user@email.com");
             Assert.AreEqual("user", remoteUser.Name);
             Assert.AreEqual(new DateTime(2018, 1, 1), remoteUser.Created);
             Assert.AreEqual(1, remoteUser.Posts.Count);
             var remotePost = remoteUser.Posts[0];
-            Assert.AreEqual(localPost.Author.Name, remotePost.Author.Name);
+            Assert.AreEqual(localPost.Author.Name, remotePost.Author.ShouldNotBeNull().Name);
             Assert.AreEqual(localPost.Content, remotePost.Content);
             Assert.AreEqual(localPost.Title, remotePost.Title);
 
@@ -293,14 +295,14 @@ namespace CoreSync.Tests
             //so server skipped our try to update content while local store forcely write data coming from server
             remoteUser = await remoteDb.Users.Include(_ => _.Posts).FirstAsync(_ => _.Email == "user@email.com");
             remotePost = remoteUser.Posts[0];
-            Assert.AreEqual("user", remotePost.Author.Name);
+            Assert.AreEqual("user", remotePost.Author.ShouldNotBeNull().Name);
             Assert.AreEqual("this is my first post", remotePost.Content);
             Assert.AreEqual(1, remotePost.Claps);
 
             localDb = localDb.Refresh();
             localUser = await localDb.Users.Include(_ => _.Posts).FirstAsync(_ => _.Email == "user@email.com");
             localPost = localUser.Posts[0];
-            Assert.AreEqual("user", localPost.Author.Name);
+            Assert.AreEqual("user", localPost.Author.ShouldNotBeNull().Name);
             Assert.AreEqual("this is my first post", localPost.Content);
             Assert.AreEqual(1, localPost.Claps);
 
@@ -311,7 +313,7 @@ namespace CoreSync.Tests
 
         }
 
-        private async Task TestSyncAgentMultipleRecordsOnSameTable(
+        private static async Task TestSyncAgentMultipleRecordsOnSameTable(
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
@@ -470,7 +472,7 @@ namespace CoreSync.Tests
             remoteUser2.Posts[0].Content.ShouldBe("Post add to remote user while user is delete on local db");
         }
 
-        private async Task TestSyncAgentWithInitialData(
+        private static async Task TestSyncAgentWithInitialData(
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
@@ -501,7 +503,7 @@ namespace CoreSync.Tests
             localUser.Name.ShouldBe("User created before sync");
 
             var localUserPosts = localUser.Posts.OrderBy(_ => _.Claps).ToList();
-            localUserPosts.Count().ShouldBe(3);
+            localUserPosts.Count.ShouldBe(3);
             localUserPosts[0].Content.ShouldBe("This is a post created before sync of the client");
             localUserPosts[0].Title.ShouldBe("Initial post of user 1");
             localUserPosts[0].Claps.ShouldBe(1);
@@ -529,7 +531,7 @@ namespace CoreSync.Tests
             remoteDb = remoteDb.Refresh();
 
             var remoteUserPosts = remoteDb.Posts.OrderBy(_ => _.Claps).ToList();
-            remoteUserPosts.Count().ShouldBe(4);
+            remoteUserPosts.Count.ShouldBe(4);
             remoteUserPosts[0].Content.ShouldBe("This is a post created before sync of the client");
             //even if edited on localdb post that was synched as initial snapshot can't be modified on server
             remoteUserPosts[0].Title.ShouldBe("Initial post of user 1");
@@ -553,7 +555,7 @@ namespace CoreSync.Tests
         }
 
 
-        private async Task TestSyncAgentWithUpdatedRemoteDeletedLocal(
+        private static async Task TestSyncAgentWithUpdatedRemoteDeletedLocal(
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
@@ -602,7 +604,7 @@ namespace CoreSync.Tests
             localUser.Name.ShouldBe("User created before sync");
 
             var localUserPosts = localUser.Posts.OrderBy(_ => _.Claps).ToList();
-            localUserPosts.Count().ShouldBe(3);
+            localUserPosts.Count.ShouldBe(3);
             localUserPosts[0].Content.ShouldBe("This is a post created before sync of the client");
             localUserPosts[0].Title.ShouldBe("Initial post of user 1");
             localUserPosts[0].Claps.ShouldBe(1);
@@ -623,7 +625,7 @@ namespace CoreSync.Tests
             remoteDb = remoteDb.Refresh();
 
             var remoteUserPosts = remoteDb.Posts.OrderBy(_ => _.Claps).ToList();
-            remoteUserPosts.Count().ShouldBe(3);
+            remoteUserPosts.Count.ShouldBe(3);
             remoteUserPosts[0].Content.ShouldBe("This is a post created before sync of the client");
             //even if edited on localdb post that was synched as initial snapshot can't be modified on server
             remoteUserPosts[0].Title.ShouldBe("Initial post of user 1");
@@ -649,7 +651,7 @@ namespace CoreSync.Tests
             localDb.Posts.Remove(localUser.Posts[2]);
             await localDb.SaveChangesAsync();
 
-            localUser = await localDb.Users.Include(_ => _.Posts).FirstOrDefaultAsync(_ => _.Email == "user@test.com");
+            localUser = await localDb.Users.Include(_ => _.Posts).FirstAsync(_ => _.Email == "user@test.com");
             Assert.AreEqual(2, localUser.Posts.Count);
 
             #endregion
@@ -664,7 +666,7 @@ namespace CoreSync.Tests
 
             await remoteDb.SaveChangesAsync();
 
-            remoteUser = await remoteDb.Users.Include(_ => _.Posts).FirstOrDefaultAsync(_ => _.Email == "user@test.com");
+            remoteUser = await remoteDb.Users.Include(_ => _.Posts).FirstAsync(_ => _.Email == "user@test.com");
             Assert.AreEqual("Updated remote for test.", remoteUser.Posts.First(p => p.Id == postToRemove.Id).Content);
 
             #endregion
@@ -702,7 +704,7 @@ namespace CoreSync.Tests
 
             localDb = localDb.Refresh();
 
-            localUser = await localDb.Users.Include(_ => _.Posts).FirstOrDefaultAsync(_ => _.Email == "user@test.com");
+            localUser = await localDb.Users.Include(_ => _.Posts).FirstAsync(_ => _.Email == "user@test.com");
             Assert.AreEqual(3, localUser.Posts.Count);
             Assert.AreEqual("Updated remote for test.", localUser.Posts.First(p => p.Id == postToRemove.Id).Content);
 
@@ -710,7 +712,7 @@ namespace CoreSync.Tests
         }
 
 
-        private async Task TestSyncAgentWithDataRetention(
+        private static async Task TestSyncAgentWithDataRetention(
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
@@ -815,7 +817,7 @@ namespace CoreSync.Tests
             localSyncVersion.Current.ShouldBe(2); // +2 posts
         }
 
-        private async Task TestSyncAgentDeleteWithForeignKeys(
+        private static async Task TestSyncAgentDeleteWithForeignKeys(
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
@@ -860,7 +862,7 @@ namespace CoreSync.Tests
         }
 
 
-        private async Task TestSyncAgentDeleteParentRecordInRelatedTables(
+        private static async Task TestSyncAgentDeleteParentRecordInRelatedTables(
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
@@ -924,7 +926,7 @@ namespace CoreSync.Tests
         }
 
         
-        private async Task TestDeleteLocalParentRecordInRelatedTablesUpdatedOnServer(
+        private static async Task TestDeleteLocalParentRecordInRelatedTablesUpdatedOnServer(
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
@@ -973,7 +975,7 @@ namespace CoreSync.Tests
         }
 
 
-        private async Task TestDeleteLocalParentRecordInRelatedTablesUpdatedOnServerSkipApplyChanges(
+        private static async Task TestDeleteLocalParentRecordInRelatedTablesUpdatedOnServerSkipApplyChanges(
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
@@ -1022,7 +1024,7 @@ namespace CoreSync.Tests
         }
 
 
-        private async Task TestSynchronizationWithFilter(
+        private static async Task TestSynchronizationWithFilter(
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
@@ -1071,7 +1073,7 @@ namespace CoreSync.Tests
             await remoteDb.SaveChangesAsync();
 
             var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
-            await syncAgent.SynchronizeAsync(remoteSyncFilterParameters: new[] { new SyncFilterParameter("@userId", "user1@test.com") });
+            await syncAgent.SynchronizeAsync(remoteSyncFilterParameters: [new SyncFilterParameter("@userId", "user1@test.com")]);
 
             //create a user on remote store
             remoteDb = remoteDb.Refresh();
@@ -1087,7 +1089,7 @@ namespace CoreSync.Tests
 
             await remoteDb.SaveChangesAsync();
 
-            await syncAgent.SynchronizeAsync(remoteSyncFilterParameters: new[] { new SyncFilterParameter("@userId", "user1@test.com") });
+            await syncAgent.SynchronizeAsync(remoteSyncFilterParameters: [new SyncFilterParameter("@userId", "user1@test.com")]);
 
             (await localDb.Users.CountAsync()).ShouldBe(1);
 
@@ -1111,7 +1113,7 @@ namespace CoreSync.Tests
             await syncAgent.SynchronizeAsync(
                 conflictResolutionOnRemoteStore: ConflictResolution.Skip, 
                 conflictResolutionOnLocalStore: ConflictResolution.ForceWrite,
-                remoteSyncFilterParameters: new[] { new SyncFilterParameter("@userId", "user1@test.com") });
+                remoteSyncFilterParameters: [new SyncFilterParameter("@userId", "user1@test.com")]);
 
             remoteDb = remoteDb.Refresh();
             (await remoteDb.Users.CountAsync()).ShouldBe(3);
@@ -1122,11 +1124,11 @@ namespace CoreSync.Tests
             (await localDb.Comments.CountAsync()).ShouldBe(1);
 
             //delete remote comment that should not be pulled down to localdb (so nothing should change locally)
-            var commentToRemove = remoteDb.Comments.Single(_ => _.Author.Email == "user3@test.com");
+            var commentToRemove = remoteDb.Comments.Single(_ => _.Author!.Email == "user3@test.com");
             remoteDb.Comments.Remove(commentToRemove);
             await remoteDb.SaveChangesAsync();
 
-            await syncAgent.SynchronizeAsync(remoteSyncFilterParameters: new[] { new SyncFilterParameter("@userId", "user1@test.com") });
+            await syncAgent.SynchronizeAsync(remoteSyncFilterParameters: [new SyncFilterParameter("@userId", "user1@test.com")]);
 
             remoteDb = remoteDb.Refresh();
             (await remoteDb.Users.CountAsync()).ShouldBe(3);
@@ -1137,11 +1139,11 @@ namespace CoreSync.Tests
             (await localDb.Comments.CountAsync()).ShouldBe(1);
 
             //now remove the comment remotely and verify that is now correctly removed locally too
-            var commentOfUser1ToRemove = remoteDb.Comments.Single(_ => _.Author.Email == "user1@test.com");
+            var commentOfUser1ToRemove = remoteDb.Comments.Single(_ => _.Author!.Email == "user1@test.com");
             remoteDb.Comments.Remove(commentOfUser1ToRemove);
             await remoteDb.SaveChangesAsync();
 
-            await syncAgent.SynchronizeAsync(remoteSyncFilterParameters: new[] { new SyncFilterParameter("@userId", "user1@test.com") });
+            await syncAgent.SynchronizeAsync(remoteSyncFilterParameters: [new SyncFilterParameter("@userId", "user1@test.com")]);
 
             remoteDb = remoteDb.Refresh();
             (await remoteDb.Users.CountAsync()).ShouldBe(3);
@@ -1153,7 +1155,7 @@ namespace CoreSync.Tests
 
         }
 
-        private async Task TestSynchronizationAfterDisabledChangeTrackingForTable(
+        private static async Task TestSynchronizationAfterDisabledChangeTrackingForTable(
     BlogDbContext localDb,
     ISyncProvider localSyncProvider,
     BlogDbContext remoteDb,

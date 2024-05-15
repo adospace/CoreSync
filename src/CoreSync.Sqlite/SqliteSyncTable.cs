@@ -27,24 +27,19 @@ namespace CoreSync.Sqlite
 
         private SqlitePrimaryColumnType GetPrimaryColumnType(string type)
         {
-            switch (type)
+            return type switch
             {
-                case "INTEGER":
-                    return SqlitePrimaryColumnType.Int;
-                case "TEXT":
-                    return SqlitePrimaryColumnType.Text;
-                case "BLOB":
-                    return SqlitePrimaryColumnType.Blob;
-
-            }
-
-            throw new NotSupportedException($"Table {Name} primary key type '{type}'");
+                "INTEGER" => SqlitePrimaryColumnType.Int,
+                "TEXT" or "varchar(36)" => SqlitePrimaryColumnType.Text,
+                "BLOB" => SqlitePrimaryColumnType.Blob,
+                _ => throw new NotSupportedException($"Table {Name} primary key type '{type}'"),
+            };
         }
 
         /// <summary>
         /// Table columns (discovered)
         /// </summary>
-        internal Dictionary<string, SqliteColumn> Columns { get; set; } = new Dictionary<string, SqliteColumn>();
+        internal Dictionary<string, SqliteColumn> Columns { get; set; } = [];
 
         internal string InitialSnapshotQuery => (CustomSnapshotQuery ?? SelectIncrementalQuery) ?? $@"SELECT * FROM [{Name}]";
 

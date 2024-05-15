@@ -51,7 +51,7 @@ namespace CoreSync.SqlServer
         /// <summary>
         /// Table columns (discovered)
         /// </summary>
-        internal Dictionary<string, SqlColumn> Columns { get; set; } = new Dictionary<string, SqlColumn>();
+        internal Dictionary<string, SqlColumn> Columns { get; set; } = [];
 
         internal string InitialSnapshotQuery => (CustomSnapshotQuery ?? SelectIncrementalQuery) ?? $@"SELECT * FROM {NameWithSchema}";
        

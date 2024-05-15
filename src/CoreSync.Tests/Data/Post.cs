@@ -10,11 +10,11 @@ namespace CoreSync.Tests.Data
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
-        public string Title { get; set; }
+        public string? Title { get; set; }
 
-        public string Content { get; set; }
+        public string? Content { get; set; }
 
-        public User Author { get; set; }
+        public User? Author { get; set; }
 
         public DateTime Updated { get; set; }
 
@@ -22,7 +22,7 @@ namespace CoreSync.Tests.Data
 
         public float Stars { get; set; }
 
-        public List<Comment> Comments { get; set; } = new List<Comment>();
+        public List<Comment> Comments { get; set; } = [];
 
     }
 }

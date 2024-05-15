@@ -226,7 +226,8 @@ namespace CoreSync.SqlServer
             foreach (SqlSyncTable table in changeSet.Items
                 .Select(_ => _.TableName)
                 .Distinct()
-                .Select(tableName => Configuration.Tables.First(_ => _.Name == tableName)))
+                .Select(tableName => Configuration.Tables.First(_ => _.Name == tableName))
+                .Cast<SqlSyncTable>())
             {
                 cmd.CommandText = $"ALTER TABLE {table.NameWithSchema} NOCHECK CONSTRAINT ALL";
                 await cmd.ExecuteNonQueryAsync(cancellationToken);
@@ -235,57 +236,50 @@ namespace CoreSync.SqlServer
 
         private async Task RestoreConstraintsForChangeSetTables(SqlConnection connection, SyncChangeSet changeSet, CancellationToken cancellationToken = default)
         {
-            using (var cmd = new SqlCommand())
-            {
-                cmd.Connection = connection;
+            using var cmd = new SqlCommand();
+            cmd.Connection = connection;
 
-                foreach (SqlSyncTable table in changeSet.Items
-                    .Select(_ => _.TableName)
-                    .Distinct()
-                    .Select(tableName => Configuration.Tables.First(_ => _.Name == tableName)))
-                {
-                    cmd.CommandText = $"ALTER TABLE {table.NameWithSchema} WITH CHECK CHECK CONSTRAINT ALL";
-                    await cmd.ExecuteNonQueryAsync(cancellationToken);
-                }
+            foreach (SqlSyncTable table in changeSet.Items
+                .Select(_ => _.TableName)
+                .Distinct()
+                .Select(tableName => Configuration.Tables.First(_ => _.Name == tableName))
+                .Cast<SqlSyncTable>())
+            {
+                cmd.CommandText = $"ALTER TABLE {table.NameWithSchema} WITH CHECK CHECK CONSTRAINT ALL";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
             }
         }
 
         public async Task SaveVersionForStoreAsync(Guid otherStoreId, long version, CancellationToken cancellationToken = default)
         {
-            using (var c = new SqlConnection(Configuration.ConnectionString))
+            using var c = new SqlConnection(Configuration.ConnectionString);
+            await c.OpenAsync();
+
+            using var cmd = new SqlCommand();
+            using var tr = c.BeginTransaction();
+            cmd.Connection = c;
+            cmd.Transaction = tr;
+            try
             {
-                await c.OpenAsync();
+                cmd.CommandText = $"UPDATE [__CORE_SYNC_REMOTE_ANCHOR] SET [LOCAL_VERSION] = @version WHERE [ID] = @id";
+                cmd.Parameters.AddWithValue("@id", otherStoreId.ToString());
+                cmd.Parameters.AddWithValue("@version", version);
 
-                using (var cmd = new SqlCommand())
+                if (0 == await cmd.ExecuteNonQueryAsync(cancellationToken))
                 {
-                    using (var tr = c.BeginTransaction())
-                    {
-                        cmd.Connection = c;
-                        cmd.Transaction = tr;
-                        try
-                        {
-                            cmd.CommandText = $"UPDATE [__CORE_SYNC_REMOTE_ANCHOR] SET [LOCAL_VERSION] = @version WHERE [ID] = @id";
-                            cmd.Parameters.AddWithValue("@id", otherStoreId.ToString());
-                            cmd.Parameters.AddWithValue("@version", version);
+                    cmd.CommandText = "INSERT INTO [__CORE_SYNC_REMOTE_ANCHOR] ([ID], [LOCAL_VERSION]) VALUES (@id, @version)";
 
-                            if (0 == await cmd.ExecuteNonQueryAsync(cancellationToken))
-                            {
-                                cmd.CommandText = "INSERT INTO [__CORE_SYNC_REMOTE_ANCHOR] ([ID], [LOCAL_VERSION]) VALUES (@id, @version)";
-
-                                await cmd.ExecuteNonQueryAsync(cancellationToken);
-                            }
-
-                            tr.Commit();
-
-                            _logger?.Trace($"[{_storeId}] Save version {version} for store {otherStoreId}");
-                        }
-                        catch (Exception)
-                        {
-                            tr.Rollback();
-                            throw;
-                        }
-                    }
+                    await cmd.ExecuteNonQueryAsync(cancellationToken);
                 }
+
+                tr.Commit();
+
+                _logger?.Trace($"[{_storeId}] Save version {version} for store {otherStoreId}");
+            }
+            catch (Exception)
+            {
+                tr.Rollback();
+                throw;
             }
         }
 
@@ -293,44 +287,36 @@ namespace CoreSync.SqlServer
         {
             await InitializeStoreAsync(cancellationToken);
 
-            using (var c = new SqlConnection(Configuration.ConnectionString))
-            {
-                await c.OpenAsync(cancellationToken);
+            using var c = new SqlConnection(Configuration.ConnectionString);
+            await c.OpenAsync(cancellationToken);
 
-                using (var cmd = c.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT [LOCAL_VERSION] FROM [dbo].[__CORE_SYNC_REMOTE_ANCHOR] WHERE [ID] = @storeId";
-                    cmd.Parameters.AddWithValue("@storeId", otherStoreId);
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "SELECT [LOCAL_VERSION] FROM [dbo].[__CORE_SYNC_REMOTE_ANCHOR] WHERE [ID] = @storeId";
+            cmd.Parameters.AddWithValue("@storeId", otherStoreId);
 
-                    var version = await cmd.ExecuteScalarAsync(cancellationToken);
+            var version = await cmd.ExecuteScalarAsync(cancellationToken);
 
-                    if (version == null || version == DBNull.Value)
-                        return SyncAnchor.Null;
+            if (version == null || version == DBNull.Value)
+                return SyncAnchor.Null;
 
-                    return new SyncAnchor(_storeId, (long)version);
-                }
-            }
+            return new SyncAnchor(_storeId, (long)version);
         }
 
         private async Task<SyncAnchor> GetLastRemoteAnchorForStoreAsync(Guid otherStoreId, CancellationToken cancellationToken = default)
         {
-            using (var c = new SqlConnection(Configuration.ConnectionString))
-            {
-                await c.OpenAsync(cancellationToken);
+            using var c = new SqlConnection(Configuration.ConnectionString);
+            await c.OpenAsync(cancellationToken);
 
-                using (var cmd = c.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT [REMOTE_VERSION] FROM [__CORE_SYNC_REMOTE_ANCHOR] WHERE [ID] = @storeId";
-                    cmd.Parameters.AddWithValue("@storeId", otherStoreId.ToString());
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "SELECT [REMOTE_VERSION] FROM [__CORE_SYNC_REMOTE_ANCHOR] WHERE [ID] = @storeId";
+            cmd.Parameters.AddWithValue("@storeId", otherStoreId.ToString());
 
-                    var version = await cmd.ExecuteScalarAsync(cancellationToken);
+            var version = await cmd.ExecuteScalarAsync(cancellationToken);
 
-                    if (version == null || version == DBNull.Value)
-                        return new SyncAnchor(otherStoreId, 0);
+            if (version == null || version == DBNull.Value)
+                return new SyncAnchor(otherStoreId, 0);
 
-                    return new SyncAnchor(otherStoreId, (long)version);
-                }
-            }
+            return new SyncAnchor(otherStoreId, (long)version);
         }
 
         public async Task<Guid> GetStoreIdAsync(CancellationToken cancellationToken = default)
@@ -344,20 +330,13 @@ namespace CoreSync.SqlServer
         {
             if (values.TryGetValue("__OP", out var syncChangeOperation))
             {
-                switch (syncChangeOperation?.ToString())
+                return (syncChangeOperation?.ToString()) switch
                 {
-                    case "I":
-                        return ChangeType.Insert;
-
-                    case "U":
-                        return ChangeType.Update;
-
-                    case "D":
-                        return ChangeType.Delete;
-
-                    default:
-                        throw new NotSupportedException();
-                }
+                    "I" => ChangeType.Insert,
+                    "U" => ChangeType.Update,
+                    "D" => ChangeType.Delete,
+                    _ => throw new NotSupportedException(),
+                };
             }
 
             return ChangeType.Insert;
@@ -379,9 +358,8 @@ namespace CoreSync.SqlServer
                 var tableNames = await connection.GetTableNamesAsync(cancellationToken);
                 if (!tableNames.Contains("__CORE_SYNC_CT"))
                 {
-                    using (var cmd = connection.CreateCommand())
-                    {
-                        cmd.CommandText = $@"CREATE TABLE [dbo].[__CORE_SYNC_CT](
+                    using var cmd = connection.CreateCommand();
+                    cmd.CommandText = $@"CREATE TABLE [dbo].[__CORE_SYNC_CT](
 	[ID] [bigint] IDENTITY(1,1) NOT NULL,
 	[TBL] [nvarchar](1024) NOT NULL,
 	[OP] [char](1) NOT NULL,
@@ -394,36 +372,34 @@ namespace CoreSync.SqlServer
 	[ID] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
 ) ON [PRIMARY]";
-                        await cmd.ExecuteNonQueryAsync(cancellationToken);
+                    await cmd.ExecuteNonQueryAsync(cancellationToken);
 
-                        cmd.CommandText = $@"CREATE NONCLUSTERED INDEX [PK_Int-Index] ON [dbo].[__CORE_SYNC_CT]
+                    cmd.CommandText = $@"CREATE NONCLUSTERED INDEX [PK_Int-Index] ON [dbo].[__CORE_SYNC_CT]
 (
 	[PK_Int] ASC
 )
 INCLUDE([TBL]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMPDB = OFF, DROP_EXISTING = OFF, ONLINE = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]";
-                        await cmd.ExecuteNonQueryAsync(cancellationToken);
+                    await cmd.ExecuteNonQueryAsync(cancellationToken);
 
-                        cmd.CommandText = $@"CREATE NONCLUSTERED INDEX [PK_String-Index] ON [dbo].[__CORE_SYNC_CT]
+                    cmd.CommandText = $@"CREATE NONCLUSTERED INDEX [PK_String-Index] ON [dbo].[__CORE_SYNC_CT]
 (
 	[PK_String] ASC
 )
 INCLUDE([TBL]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMPDB = OFF, DROP_EXISTING = OFF, ONLINE = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]";
-                        await cmd.ExecuteNonQueryAsync(cancellationToken);
+                    await cmd.ExecuteNonQueryAsync(cancellationToken);
 
-                        cmd.CommandText = $@"CREATE NONCLUSTERED INDEX [PK_Guid-Index] ON [dbo].[__CORE_SYNC_CT]
+                    cmd.CommandText = $@"CREATE NONCLUSTERED INDEX [PK_Guid-Index] ON [dbo].[__CORE_SYNC_CT]
 (
 	[PK_Guid] ASC
 )
 INCLUDE([TBL]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMPDB = OFF, DROP_EXISTING = OFF, ONLINE = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]";
-                        await cmd.ExecuteNonQueryAsync(cancellationToken);
-                    }
+                    await cmd.ExecuteNonQueryAsync(cancellationToken);
                 }
 
                 if (!tableNames.Contains("__CORE_SYNC_REMOTE_ANCHOR"))
                 {
-                    using (var cmd = connection.CreateCommand())
-                    {
-                        cmd.CommandText = $@"CREATE TABLE [dbo].[__CORE_SYNC_REMOTE_ANCHOR](
+                    using var cmd = connection.CreateCommand();
+                    cmd.CommandText = $@"CREATE TABLE [dbo].[__CORE_SYNC_REMOTE_ANCHOR](
 	[ID] [uniqueidentifier] NOT NULL,
 	[LOCAL_VERSION] [BIGINT] NULL,
     [REMOTE_VERSION] [BIGINT] NULL
@@ -432,23 +408,20 @@ INCLUDE([TBL]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMP
 	[ID] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
 ) ON [PRIMARY]";
-                        await cmd.ExecuteNonQueryAsync(cancellationToken);
-                    }
+                    await cmd.ExecuteNonQueryAsync(cancellationToken);
                 }
 
                 if (!tableNames.Contains("__CORE_SYNC_LOCAL_ID"))
                 {
-                    using (var cmd = connection.CreateCommand())
-                    {
-                        cmd.CommandText = $@"CREATE TABLE [dbo].[__CORE_SYNC_LOCAL_ID](
+                    using var cmd = connection.CreateCommand();
+                    cmd.CommandText = $@"CREATE TABLE [dbo].[__CORE_SYNC_LOCAL_ID](
 	[ID] [uniqueidentifier] NOT NULL
  CONSTRAINT [PK___CORE_SYNC_LOCAL_ID] PRIMARY KEY CLUSTERED
 (
 	[ID] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
 ) ON [PRIMARY]";
-                        await cmd.ExecuteNonQueryAsync(cancellationToken);
-                    }
+                    await cmd.ExecuteNonQueryAsync(cancellationToken);
                 }
 
                 using (var cmd = connection.CreateCommand())
@@ -472,7 +445,7 @@ INCLUDE([TBL]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMP
 
                 using (var cmd = connection.CreateCommand())
                 {
-                    foreach (SqlSyncTable table in Configuration.Tables)
+                    foreach (SqlSyncTable table in Configuration.Tables.Cast<SqlSyncTable>())
                     {
                         var primaryKeyIndexName = (await connection.GetPrimaryKeyIndexesAsync(table, cancellationToken)).FirstOrDefault();
                         if (primaryKeyIndexName == null)
@@ -526,46 +499,42 @@ INCLUDE([TBL]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMP
             if (string.IsNullOrWhiteSpace(connStringBuilder.InitialCatalog))
                 throw new InvalidOperationException("Invalid connection string: InitialCatalog property is missing");
 
-            using (var connection = new SqlConnection(Configuration.ConnectionString))
+            using var connection = new SqlConnection(Configuration.ConnectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            var tableNames = await connection.GetTableNamesAsync(cancellationToken);
+            using var cmd = connection.CreateCommand();
+            foreach (SqlSyncTable table in Configuration.Tables.Cast<SqlSyncTable>())
             {
-                await connection.OpenAsync(cancellationToken);
-
-                var tableNames = await connection.GetTableNamesAsync(cancellationToken);
-                using (var cmd = connection.CreateCommand())
+                var primaryKeyIndexName = (await connection.GetPrimaryKeyIndexesAsync(table, cancellationToken)).FirstOrDefault(); //dbTable.Indexes.Cast<Index>().FirstOrDefault(_ => _.IsClustered && _.IndexKeyType == IndexKeyType.DriPrimaryKey);
+                if (primaryKeyIndexName == null)
                 {
-                    foreach (SqlSyncTable table in Configuration.Tables)
-                    {
-                        var primaryKeyIndexName = (await connection.GetPrimaryKeyIndexesAsync(table, cancellationToken)).FirstOrDefault(); //dbTable.Indexes.Cast<Index>().FirstOrDefault(_ => _.IsClustered && _.IndexKeyType == IndexKeyType.DriPrimaryKey);
-                        if (primaryKeyIndexName == null)
-                        {
-                            throw new InvalidOperationException($"Table '{table.NameWithSchema}' doesn't have a primary key");
-                        }
+                    throw new InvalidOperationException($"Table '{table.NameWithSchema}' doesn't have a primary key");
+                }
 
-                        var primaryKeyColumns = await connection.GetIndexColumnNamesAsync(table, primaryKeyIndexName, cancellationToken); //primaryKeyIndexName.IndexedColumns.Cast<IndexedColumn>().ToList();
-                        var allColumns = (await connection.GetTableColumnsAsync(table, cancellationToken)).Select(_=>_.Item1).ToArray();
-                        //var tableColumns = allColumns.Where(_ => !primaryKeyColumns.Any(kc => kc == _)).ToArray();
+                var primaryKeyColumns = await connection.GetIndexColumnNamesAsync(table, primaryKeyIndexName, cancellationToken); //primaryKeyIndexName.IndexedColumns.Cast<IndexedColumn>().ToList();
+                var allColumns = (await connection.GetTableColumnsAsync(table, cancellationToken)).Select(_ => _.Item1).ToArray();
+                //var tableColumns = allColumns.Where(_ => !primaryKeyColumns.Any(kc => kc == _)).ToArray();
 
-                        //if (primaryKeyColumns.Length != 1)
-                        //{
-                        //    throw new NotSupportedException($"Table '{table.Name}' has more than one column as primary key");
-                        //}
+                //if (primaryKeyColumns.Length != 1)
+                //{
+                //    throw new NotSupportedException($"Table '{table.Name}' has more than one column as primary key");
+                //}
 
-                        if (allColumns.Any(_ => string.CompareOrdinal(_, "__OP") == 0))
-                        {
-                            throw new NotSupportedException($"Table '{table.NameWithSchema}' has one column with reserved name '__OP'");
-                        }
+                if (allColumns.Any(_ => string.CompareOrdinal(_, "__OP") == 0))
+                {
+                    throw new NotSupportedException($"Table '{table.NameWithSchema}' has one column with reserved name '__OP'");
+                }
 
-                        if (table.SyncDirection == SyncDirection.UploadAndDownload ||
-                            (table.SyncDirection == SyncDirection.UploadOnly && ProviderMode == ProviderMode.Local) ||
-                            (table.SyncDirection == SyncDirection.DownloadOnly && ProviderMode == ProviderMode.Remote))
-                        {
-                            await SetupTableForFullChangeDetection(table, cmd, cancellationToken);
-                        }
-                        else
-                        {
-                            await SetupTableForUpdatesOrDeletesOnly(table, cmd, cancellationToken);
-                        }
-                    }
+                if (table.SyncDirection == SyncDirection.UploadAndDownload ||
+                    (table.SyncDirection == SyncDirection.UploadOnly && ProviderMode == ProviderMode.Local) ||
+                    (table.SyncDirection == SyncDirection.DownloadOnly && ProviderMode == ProviderMode.Remote))
+                {
+                    await SetupTableForFullChangeDetection(table, cmd, cancellationToken);
+                }
+                else
+                {
+                    await SetupTableForUpdatesOrDeletesOnly(table, cmd, cancellationToken);
                 }
             }
         }
@@ -647,44 +616,36 @@ END");
             if (string.IsNullOrWhiteSpace(connStringBuilder.InitialCatalog))
                 throw new InvalidOperationException("Invalid connection string: InitialCatalog property is missing");
 
-            using (var connection = new SqlConnection(Configuration.ConnectionString))
+            using var connection = new SqlConnection(Configuration.ConnectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            var tableNames = await connection.GetTableNamesAsync(cancellationToken);
+            if (tableNames.Contains("__CORE_SYNC_CT"))
             {
-                await connection.OpenAsync(cancellationToken);
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = $@"DROP TABLE [dbo].[__CORE_SYNC_CT]";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
 
-                var tableNames = await connection.GetTableNamesAsync(cancellationToken);
-                if (tableNames.Contains("__CORE_SYNC_CT"))
-                {
-                    using (var cmd = connection.CreateCommand())
-                    {
-                        cmd.CommandText = $@"DROP TABLE [dbo].[__CORE_SYNC_CT]";
-                        await cmd.ExecuteNonQueryAsync(cancellationToken);
-                    }
-                }
+            if (tableNames.Contains("__CORE_SYNC_REMOTE_ANCHOR"))
+            {
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = $@"DROP TABLE [dbo].[__CORE_SYNC_REMOTE_ANCHOR]";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
 
-                if (tableNames.Contains("__CORE_SYNC_REMOTE_ANCHOR"))
-                {
-                    using (var cmd = connection.CreateCommand())
-                    {
-                        cmd.CommandText = $@"DROP TABLE [dbo].[__CORE_SYNC_REMOTE_ANCHOR]";
-                        await cmd.ExecuteNonQueryAsync(cancellationToken);
-                    }
-                }
+            if (tableNames.Contains("__CORE_SYNC_LOCAL_ID"))
+            {
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = $@"DROP TABLE [dbo].[__CORE_SYNC_LOCAL_ID]";
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
 
-                if (tableNames.Contains("__CORE_SYNC_LOCAL_ID"))
+            using (var cmd = connection.CreateCommand())
+            {
+                foreach (SqlSyncTable table in Configuration.Tables.Cast<SqlSyncTable>())
                 {
-                    using (var cmd = connection.CreateCommand())
-                    {
-                        cmd.CommandText = $@"DROP TABLE [dbo].[__CORE_SYNC_LOCAL_ID]";
-                        await cmd.ExecuteNonQueryAsync(cancellationToken);
-                    }
-                }
-
-                using (var cmd = connection.CreateCommand())
-                {
-                    foreach (SqlSyncTable table in Configuration.Tables)
-                    {
-                        await DisableChangeTrackingForTable(cmd, table, cancellationToken);
-                    }
+                    await DisableChangeTrackingForTable(cmd, table, cancellationToken);
                 }
             }
         }
@@ -700,190 +661,184 @@ END");
             _logger?.Info($"[{_storeId}] Begin GetChanges(from={otherStoreId}, syncDirection={syncDirection}, fromVersion={fromAnchor})");
 
 
-            using (var c = new SqlConnection(Configuration.ConnectionString))
+            using var c = new SqlConnection(Configuration.ConnectionString);
+            await c.OpenAsync(cancellationToken);
+
+            using var cmd = new SqlCommand();
+            var items = new List<SqlSyncItem>();
+
+            using var tr = c.BeginTransaction();// IsolationLevel.Snapshot))
+            cmd.Connection = c;
+            cmd.Transaction = tr;
+
+            try
             {
-                await c.OpenAsync(cancellationToken);
+                cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
+                cmd.Parameters.Clear();
+                var version = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
-                using (var cmd = new SqlCommand())
+                cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
+                cmd.Parameters.Clear();
+                var minVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
+
+                if (!fromAnchor.IsNull() && fromAnchor.Version < minVersion - 1)
+                    throw new InvalidOperationException($"Unable to get changes, version of data requested ({fromAnchor}) is too old (min valid version {minVersion})");
+
+                foreach (SqlSyncTable table in Configuration.Tables.Cast<SqlSyncTable>())
                 {
-                    var items = new List<SqlSyncItem>();
+                    if (table.SyncDirection != SyncDirection.UploadAndDownload &&
+                        table.SyncDirection != syncDirection)
+                        continue;
 
-                    using (var tr = c.BeginTransaction())// IsolationLevel.Snapshot))
+                    _logger?.Info($"Getting changes for table {table.NameWithSchema}");
+                    //var snapshotItems = new HashSet<object>();
+
+                    if (fromAnchor.IsNull() && !table.SkipInitialSnapshot)
                     {
-                        cmd.Connection = c;
-                        cmd.Transaction = tr;
+                        if (string.IsNullOrWhiteSpace(table.InitialSnapshotQuery))
+                        {
+                            throw new InvalidOperationException($"InitialSnapshotQuery not specified for table");
+                        }
+
+                        cmd.CommandText = table.InitialSnapshotQuery;
+                        cmd.Parameters.Clear();
+                        foreach (var syncFilterParameter in syncFilterParameters)
+                        {
+                            cmd.Parameters.AddWithValue(syncFilterParameter.Name, syncFilterParameter.Value);
+                        }
 
                         try
                         {
-                            cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
-                            cmd.Parameters.Clear(); 
-                            var version = await cmd.ExecuteLongScalarAsync(cancellationToken);
-
-                            cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
-                            cmd.Parameters.Clear(); 
-                            var minVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
-
-                            if (!fromAnchor.IsNull() && fromAnchor.Version < minVersion - 1)
-                                throw new InvalidOperationException($"Unable to get changes, version of data requested ({fromAnchor}) is too old (min valid version {minVersion})");
-
-                            foreach (SqlSyncTable table in Configuration.Tables.Cast<SqlSyncTable>())
+                            using var r = await cmd.ExecuteReaderAsync(cancellationToken);
+                            while (await r.ReadAsync(cancellationToken))
                             {
-                                if (table.SyncDirection != SyncDirection.UploadAndDownload &&
-                                    table.SyncDirection != syncDirection)
-                                    continue;
-
-                                _logger?.Info($"Getting changes for table {table.NameWithSchema}");
-                                //var snapshotItems = new HashSet<object>();
-
-                                if (fromAnchor.IsNull() && !table.SkipInitialSnapshot)
+                                try
                                 {
-                                    if (string.IsNullOrWhiteSpace(table.InitialSnapshotQuery))
-                                    {
-                                        throw new InvalidOperationException($"InitialSnapshotQuery not specified for table");
-                                    }
-
-                                    cmd.CommandText = table.InitialSnapshotQuery;
-                                    cmd.Parameters.Clear(); 
-                                    foreach (var syncFilterParameter in syncFilterParameters)
-                                    {
-                                        cmd.Parameters.AddWithValue(syncFilterParameter.Name, syncFilterParameter.Value);
-                                    }
-
-                                    try
-                                    {
-                                        using var r = await cmd.ExecuteReaderAsync(cancellationToken);
-                                        while (await r.ReadAsync(cancellationToken))
+                                    var values = Enumerable.Range(0, r.FieldCount)
+                                        .ToDictionary(index => r.GetName(index), index =>
                                         {
-                                            try
+                                            var dbValue = r.GetValue(index);
+                                            if (dbValue == DBNull.Value)
                                             {
-                                                var values = Enumerable.Range(0, r.FieldCount)
-                                                    .ToDictionary(index => r.GetName(index), index => 
-                                                    { 
-                                                        var dbValue = r.GetValue(index);
-                                                        if (dbValue == DBNull.Value)
-                                                        { 
-                                                            return null;
-                                                        } 
-                                                        return dbValue;
-                                                    }, StringComparer.OrdinalIgnoreCase);
-
-                                                foreach (var skipColumn in table.SkipColumns)
-                                                {
-                                                    if (string.CompareOrdinal(skipColumn, table.PrimaryColumnName) == 0)
-                                                        throw new InvalidOperationException($"Column to skip in synchronization ('{skipColumn}') can't be the primary column");
-                                                }
-
-                                                items.Add(new SqlSyncItem(table, ChangeType.Insert, values));
-                                                //snapshotItems.Add(values[table.PrimaryColumnName]);
-                                                _logger?.Trace($"[{_storeId}] Initial snapshot {items.Last()}");
+                                                return null;
                                             }
-                                            catch (ArgumentException)
-                                            {
-                                                var duplicateColumns = Enumerable.Range(0, r.FieldCount).Select(index => r.GetName(index)).GroupBy(_ => _).Where(_ => _.Count() > 1).Select(_ => _.Key).ToArray();
-                                                _logger?.Error($"Duplicate columns found in table {table.NameWithSchema}: {string.Join(",", duplicateColumns)}");
-                                                throw;
-                                            }
-                                        }
-                                    }
-                                    catch (Exception)
+                                            return dbValue;
+                                        }, StringComparer.OrdinalIgnoreCase);
+
+                                    foreach (var skipColumn in table.SkipColumns)
                                     {
-                                        _logger?.Error($"InitialSnapshotQuery: {cmd.CommandText}");
-                                        throw;
+                                        if (string.CompareOrdinal(skipColumn, table.PrimaryColumnName) == 0)
+                                            throw new InvalidOperationException($"Column to skip in synchronization ('{skipColumn}') can't be the primary column");
                                     }
+
+                                    items.Add(new SqlSyncItem(table, ChangeType.Insert, values));
+                                    //snapshotItems.Add(values[table.PrimaryColumnName]);
+                                    _logger?.Trace($"[{_storeId}] Initial snapshot {items.Last()}");
                                 }
-
-                                if (!fromAnchor.IsNull())
+                                catch (ArgumentException)
                                 {
-                                    cmd.CommandText = table.IncrementalAddOrUpdatesQuery;
-                                    cmd.Parameters.Clear();
-                                    cmd.Parameters.AddWithValue("@version", fromAnchor.Version);
-                                    cmd.Parameters.AddWithValue("@sourceId", otherStoreId);
-                                    foreach (var syncFilterParameter in syncFilterParameters)
-                                    {
-                                        cmd.Parameters.AddWithValue(syncFilterParameter.Name, syncFilterParameter.Value);
-                                    }
-
-                                    try
-                                    {
-                                        using var r = await cmd.ExecuteReaderAsync(cancellationToken);
-                                        while (await r.ReadAsync(cancellationToken))
-                                        {
-                                            var values = Enumerable.Range(0, r.FieldCount)
-                                                .ToDictionary(index => r.GetName(index), index =>
-                                                {
-                                                    var dbValue = r.GetValue(index);
-                                                    if (dbValue == DBNull.Value)
-                                                    {
-                                                        return null;
-                                                    }
-                                                    return dbValue;
-                                                }, StringComparer.OrdinalIgnoreCase);
-
-                                            foreach (var skipColumn in table.SkipColumns)
-                                            {
-                                                if (string.CompareOrdinal(skipColumn, table.PrimaryColumnName) == 0)
-                                                    throw new InvalidOperationException($"Column to skip in synchronization ('{skipColumn}') can't be the primary column");
-                                            }
-
-                                            items.Add(new SqlSyncItem(table, DetectChangeType(values),
-                                                values.Where(_ => _.Key != "__OP").ToDictionary(_ => _.Key, _ => _.Value == DBNull.Value ? null : _.Value)));
-
-                                            _logger?.Trace($"[{_storeId}] Incremental add or update {items.Last()}");
-                                        }
-                                    }
-                                    catch (Exception)
-                                    {
-                                        _logger?.Error($"IncrementalAddOrUpdatesQuery: {cmd.CommandText}");
-                                        throw;
-                                    }
-
-                                    cmd.CommandText = table.IncrementalDeletesQuery;
-                                    cmd.Parameters.Clear();
-                                    cmd.Parameters.AddWithValue("@version", fromAnchor.Version);
-                                    cmd.Parameters.AddWithValue("@sourceId", otherStoreId);
-
-                                    try
-                                    {
-                                        using var r = await cmd.ExecuteReaderAsync(cancellationToken);
-                                        while (await r.ReadAsync(cancellationToken))
-                                        {
-                                            var values = Enumerable.Range(0, r.FieldCount)
-                                                .ToDictionary(_ => r.GetName(_), _ =>
-                                                {
-                                                    var dbValue = r.GetValue(_);
-                                                    if (dbValue == DBNull.Value)
-                                                    {
-                                                        return null;
-                                                    }
-                                                    return dbValue;
-                                                });
-                                            items.Add(new SqlSyncItem(table, ChangeType.Delete, values));
-                                            _logger?.Trace($"[{_storeId}] Incremental delete {items.Last()}");
-                                        }
-                                    }
-                                    catch (Exception)
-                                    {
-                                        _logger?.Error($"IncrementalDeletesQuery: {cmd.CommandText}");
-                                        throw;
-                                    }
+                                    var duplicateColumns = Enumerable.Range(0, r.FieldCount).Select(index => r.GetName(index)).GroupBy(_ => _).Where(_ => _.Count() > 1).Select(_ => _.Key).ToArray();
+                                    _logger?.Error($"Duplicate columns found in table {table.NameWithSchema}: {string.Join(",", duplicateColumns)}");
+                                    throw;
                                 }
                             }
-
-                            tr.Commit();
-
-                            var resChangeSet = new SyncChangeSet(new SyncAnchor(_storeId, version), await GetLastRemoteAnchorForStoreAsync(otherStoreId, cancellationToken), items);
-
-                            _logger?.Info($"[{_storeId}] Completed GetChanges(to={version}, {items.Count} items) in {(DateTime.Now - now).TotalMilliseconds}ms");
-
-                            return resChangeSet;
                         }
                         catch (Exception)
                         {
-                            tr.Rollback();
+                            _logger?.Error($"InitialSnapshotQuery: {cmd.CommandText}");
+                            throw;
+                        }
+                    }
+
+                    if (!fromAnchor.IsNull())
+                    {
+                        cmd.CommandText = table.IncrementalAddOrUpdatesQuery;
+                        cmd.Parameters.Clear();
+                        cmd.Parameters.AddWithValue("@version", fromAnchor.Version);
+                        cmd.Parameters.AddWithValue("@sourceId", otherStoreId);
+                        foreach (var syncFilterParameter in syncFilterParameters)
+                        {
+                            cmd.Parameters.AddWithValue(syncFilterParameter.Name, syncFilterParameter.Value);
+                        }
+
+                        try
+                        {
+                            using var r = await cmd.ExecuteReaderAsync(cancellationToken);
+                            while (await r.ReadAsync(cancellationToken))
+                            {
+                                var values = Enumerable.Range(0, r.FieldCount)
+                                    .ToDictionary(index => r.GetName(index), index =>
+                                    {
+                                        var dbValue = r.GetValue(index);
+                                        if (dbValue == DBNull.Value)
+                                        {
+                                            return null;
+                                        }
+                                        return dbValue;
+                                    }, StringComparer.OrdinalIgnoreCase);
+
+                                foreach (var skipColumn in table.SkipColumns)
+                                {
+                                    if (string.CompareOrdinal(skipColumn, table.PrimaryColumnName) == 0)
+                                        throw new InvalidOperationException($"Column to skip in synchronization ('{skipColumn}') can't be the primary column");
+                                }
+
+                                items.Add(new SqlSyncItem(table, DetectChangeType(values),
+                                    values.Where(_ => _.Key != "__OP").ToDictionary(_ => _.Key, _ => _.Value == DBNull.Value ? null : _.Value)));
+
+                                _logger?.Trace($"[{_storeId}] Incremental add or update {items.Last()}");
+                            }
+                        }
+                        catch (Exception)
+                        {
+                            _logger?.Error($"IncrementalAddOrUpdatesQuery: {cmd.CommandText}");
+                            throw;
+                        }
+
+                        cmd.CommandText = table.IncrementalDeletesQuery;
+                        cmd.Parameters.Clear();
+                        cmd.Parameters.AddWithValue("@version", fromAnchor.Version);
+                        cmd.Parameters.AddWithValue("@sourceId", otherStoreId);
+
+                        try
+                        {
+                            using var r = await cmd.ExecuteReaderAsync(cancellationToken);
+                            while (await r.ReadAsync(cancellationToken))
+                            {
+                                var values = Enumerable.Range(0, r.FieldCount)
+                                    .ToDictionary(_ => r.GetName(_), _ =>
+                                    {
+                                        var dbValue = r.GetValue(_);
+                                        if (dbValue == DBNull.Value)
+                                        {
+                                            return null;
+                                        }
+                                        return dbValue;
+                                    });
+                                items.Add(new SqlSyncItem(table, ChangeType.Delete, values));
+                                _logger?.Trace($"[{_storeId}] Incremental delete {items.Last()}");
+                            }
+                        }
+                        catch (Exception)
+                        {
+                            _logger?.Error($"IncrementalDeletesQuery: {cmd.CommandText}");
                             throw;
                         }
                     }
                 }
+
+                tr.Commit();
+
+                var resChangeSet = new SyncChangeSet(new SyncAnchor(_storeId, version), await GetLastRemoteAnchorForStoreAsync(otherStoreId, cancellationToken), items);
+
+                _logger?.Info($"[{_storeId}] Completed GetChanges(to={version}, {items.Count} items) in {(DateTime.Now - now).TotalMilliseconds}ms");
+
+                return resChangeSet;
+            }
+            catch (Exception)
+            {
+                tr.Rollback();
+                throw;
             }
         }
 
@@ -891,33 +846,27 @@ END");
         {
             await InitializeStoreAsync(cancellationToken);
 
-            using (var c = new SqlConnection(Configuration.ConnectionString))
+            using var c = new SqlConnection(Configuration.ConnectionString);
+            try
             {
-                try
-                {
-                    await c.OpenAsync();
+                await c.OpenAsync();
 
-                    using (var cmd = new SqlCommand())
-                    {
-                        using (var tr = c.BeginTransaction())
-                        {
-                            cmd.Connection = c;
-                            cmd.Transaction = tr;
+                using var cmd = new SqlCommand();
+                using var tr = c.BeginTransaction();
+                cmd.Connection = c;
+                cmd.Transaction = tr;
 
-                            cmd.CommandText = "SELECT MAX(ID) FROM __CORE_SYNC_CT";
-                            var version = await cmd.ExecuteLongScalarAsync(cancellationToken);
+                cmd.CommandText = "SELECT MAX(ID) FROM __CORE_SYNC_CT";
+                var version = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
-                            cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
-                            var minVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
+                cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
+                var minVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
-                            return new SyncVersion(version, minVersion);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    throw new InvalidOperationException($"Unable to get current/minimum version from store", ex);
-                }
+                return new SyncVersion(version, minVersion);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Unable to get current/minimum version from store", ex);
             }
         }
 
@@ -925,46 +874,40 @@ END");
         {
             await InitializeStoreAsync(cancellationToken);
 
-            using (var c = new SqlConnection(Configuration.ConnectionString))
+            using var c = new SqlConnection(Configuration.ConnectionString);
+            try
             {
+                await c.OpenAsync(cancellationToken);
+
+                using var cmd = new SqlCommand();
+                using var tr = c.BeginTransaction();
+                cmd.Connection = c;
+                cmd.Transaction = tr;
+
                 try
                 {
-                    await c.OpenAsync(cancellationToken);
+                    cmd.CommandText = $"DELETE FROM __CORE_SYNC_CT WHERE ID < {minVersion}";
+                    await cmd.ExecuteNonQueryAsync(cancellationToken);
 
-                    using (var cmd = new SqlCommand())
-                    {
-                        using (var tr = c.BeginTransaction())
-                        {
-                            cmd.Connection = c;
-                            cmd.Transaction = tr;
+                    cmd.CommandText = "SELECT MAX(ID) FROM __CORE_SYNC_CT";
+                    var version = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
-                            try
-                            {
-                                cmd.CommandText = $"DELETE FROM __CORE_SYNC_CT WHERE ID < {minVersion}";
-                                await cmd.ExecuteNonQueryAsync(cancellationToken);
+                    cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
+                    var newMinVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
-                                cmd.CommandText = "SELECT MAX(ID) FROM __CORE_SYNC_CT";
-                                var version = await cmd.ExecuteLongScalarAsync(cancellationToken);
+                    tr.Commit();
 
-                                cmd.CommandText = "SELECT MIN(ID) FROM  __CORE_SYNC_CT";
-                                var newMinVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
-
-                                tr.Commit();
-
-                                return new SyncVersion(version, newMinVersion);
-                            }
-                            catch (Exception)
-                            {
-                                tr.Rollback();
-                                throw;
-                            }
-                        }
-                    }
+                    return new SyncVersion(version, newMinVersion);
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    throw new InvalidOperationException($"Unable to apply version {minVersion} to tracking table of the store", ex);
+                    tr.Rollback();
+                    throw;
                 }
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Unable to apply version {minVersion} to tracking table of the store", ex);
             }
         }
 
@@ -979,33 +922,26 @@ END");
 
             var table = Configuration.Tables.Cast<SqlSyncTable>().FirstOrDefault(_ => _.NameWithSchema == name);
 
-            if (table == null)
-            {
-                table = Configuration.Tables.Cast<SqlSyncTable>().FirstOrDefault(_ => _.Name == name);
-            }
+            table ??= Configuration.Tables.Cast<SqlSyncTable>().FirstOrDefault(_ => _.Name == name);
 
             if (table == null)
             {
                 throw new InvalidOperationException($"Unable to find table '{name}'");
             }
 
-            using (var connection = new SqlConnection(Configuration.ConnectionString))
-            {
-                await connection.OpenAsync(cancellationToken);
+            using var connection = new SqlConnection(Configuration.ConnectionString);
+            await connection.OpenAsync(cancellationToken);
 
-                using (var cmd = connection.CreateCommand())
-                {
-                    if (table.SyncDirection == SyncDirection.UploadAndDownload ||
-                        (table.SyncDirection == SyncDirection.UploadOnly && ProviderMode == ProviderMode.Local) ||
-                        (table.SyncDirection == SyncDirection.DownloadOnly && ProviderMode == ProviderMode.Remote))
-                    {
-                        await SetupTableForFullChangeDetection(table, cmd, cancellationToken);
-                    }
-                    else
-                    {
-                        await SetupTableForUpdatesOrDeletesOnly(table, cmd, cancellationToken);
-                    }
-                }
+            using var cmd = connection.CreateCommand();
+            if (table.SyncDirection == SyncDirection.UploadAndDownload ||
+                (table.SyncDirection == SyncDirection.UploadOnly && ProviderMode == ProviderMode.Local) ||
+                (table.SyncDirection == SyncDirection.DownloadOnly && ProviderMode == ProviderMode.Remote))
+            {
+                await SetupTableForFullChangeDetection(table, cmd, cancellationToken);
+            }
+            else
+            {
+                await SetupTableForUpdatesOrDeletesOnly(table, cmd, cancellationToken);
             }
         }
 
@@ -1018,25 +954,18 @@ END");
 
             var table = Configuration.Tables.Cast<SqlSyncTable>().FirstOrDefault(_ => _.NameWithSchema == name);
 
-            if (table == null)
-            {
-                table = Configuration.Tables.Cast<SqlSyncTable>().FirstOrDefault(_ => _.Name == name);
-            }
+            table ??= Configuration.Tables.Cast<SqlSyncTable>().FirstOrDefault(_ => _.Name == name);
 
             if (table == null)
             {
                 throw new InvalidOperationException($"Unable to find table '{name}'");
             }
 
-            using (var connection = new SqlConnection(Configuration.ConnectionString))
-            {
-                await connection.OpenAsync(cancellationToken);
+            using var connection = new SqlConnection(Configuration.ConnectionString);
+            await connection.OpenAsync(cancellationToken);
 
-                using (var cmd = connection.CreateCommand())
-                {
-                    await DisableChangeTrackingForTable(cmd, table, cancellationToken);
-                }
-            }
+            using var cmd = connection.CreateCommand();
+            await DisableChangeTrackingForTable(cmd, table, cancellationToken);
         }
 
         private async Task DisableChangeTrackingForTable(SqlCommand cmd, SqlSyncTable table, CancellationToken cancellationToken)

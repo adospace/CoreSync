@@ -10,14 +10,14 @@ namespace CoreSync.Tests.Data
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
-        public Post Post { get; set; }
+        public Post? Post { get; set; }
 
-        public User Author { get; set; }
+        public User? Author { get; set; }
 
-        public string Content { get; set; }
+        public string? Content { get; set; }
 
         public DateTime Created { get; set; }
 
-        public Comment ReplyTo { get; set; }
+        public Comment? ReplyTo { get; set; }
     }
 }
