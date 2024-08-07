@@ -3,34 +3,27 @@
   <PropertyGroup>
     <Version Condition=" '$(APPVEYOR_BUILD_VERSION)' == '' ">0.0.1-local</Version>
     <Version Condition=" '$(APPVEYOR_BUILD_VERSION)' != '' ">$(APPVEYOR_BUILD_VERSION)</Version>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <Authors>adospace</Authors>
-    <Description>CoreSync is a .NET standard library that provides data synchronization functions between databases. This is the Sql Server provider assembly.</Description>
+    <Description>CoreSync is a .NET standard library that provides data synchronization functions between databases. Currently Sql Server and SQLite are supported. This is the Http Server package.</Description>
     <Copyright>Adolfo Marinucci</Copyright>
     <PackageProjectUrl>https://github.com/adospace/CoreSync</PackageProjectUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/adospace/CoreSync</RepositoryUrl>
-    <PackageTags>sql server data database sync synchronization .net</PackageTags>
+    <PackageTags>data database sql server sqlite sync synchronization .net</PackageTags>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
-
-  <ItemGroup>
-    <Compile Include="..\CoreSync\Validate.cs" Link="Validate.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="JetBrains.Annotations" Version="2024.2.0" />
-    <PackageReference Include="System.Data.SqlClient" Version="4.8.6" />
-    <PackageReference Include="System.Text.Json" Version="8.0.4" />
-    <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\CoreSync\CoreSync.csproj" />
-  </ItemGroup>
   
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CoreSync.Http\CoreSync.Http.csproj" />
+  </ItemGroup>
+
 </Project>
