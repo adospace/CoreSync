@@ -4,6 +4,15 @@
     <Version Condition=" '$(APPVEYOR_BUILD_VERSION)' == '' ">0.0.1-local</Version>
     <Version Condition=" '$(APPVEYOR_BUILD_VERSION)' != '' ">$(APPVEYOR_BUILD_VERSION)</Version>
     <TargetFramework>netstandard2.0</TargetFramework>
+    <Authors>adospace</Authors>
+    <Description>CoreSync is a .NET standard library that provides data synchronization functions between databases. Currently Sql Server and SQLite are supported. This is the Http common package.</Description>
+    <Copyright>Adolfo Marinucci</Copyright>
+    <PackageProjectUrl>https://github.com/adospace/CoreSync</PackageProjectUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/adospace/CoreSync</RepositoryUrl>
+    <PackageTags>data database sql server sqlite sync synchronization .net</PackageTags>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
