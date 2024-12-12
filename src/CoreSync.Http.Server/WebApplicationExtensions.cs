@@ -22,31 +22,50 @@ public static class WebApplicationExtensions
             specificAction?.Invoke(endpoint);
         }
 
-        var getStoreEndPoint = webApplication.MapGet($"/{route}/store-id", async (SyncAgentController controller) => await controller.GetStoreIdAsync());
+        var getStoreEndPoint = webApplication.MapGet($"/{route}/store-id", 
+            ([FromServices] SyncAgentController controller) 
+            => controller.GetStoreIdAsync());
         ConfigureEndpoint(getStoreEndPoint, options.GetStoreIdEndpoint);
 
-        var getBulkChangeSetAsyncEndPoint = webApplication.MapGet($"/{route}/changes-bulk/{{storeId}}", async (string storeId, SyncAgentController controller) => await controller.GetBulkChangeSetAsync(Guid.Parse(storeId)));
+        var getBulkChangeSetAsyncEndPoint = webApplication.MapGet($"/{route}/changes-bulk/{{storeId}}", 
+            (string storeId, [FromServices] SyncAgentController controller)
+            => controller.GetBulkChangeSetAsync(Guid.Parse(storeId)));
         ConfigureEndpoint(getBulkChangeSetAsyncEndPoint, options.GetBulkChangeSetAsyncEndPoint);
 
-        var getBulkChangeSetItemEndPoint = webApplication.MapGet($"/{route}/changes-bulk-item/{{sessionId}}/{{skip}}/{{take}}", (string sessionId, int skip, int take, SyncAgentController controller) 
+        var getBulkChangeSetItemEndPoint = webApplication.MapGet(
+            $"/{route}/changes-bulk-item/{{sessionId}}/{{skip}}/{{take}}", 
+            (string sessionId, int skip, int take, [FromServices] SyncAgentController controller)
                 => controller.GetBulkChangeSetItem(new BulkChangeSetDownloadItem
-                { 
+                {
                     SessionId = Guid.Parse(sessionId),
                     Skip = skip,
                     Take = take
                 }));
         ConfigureEndpoint(getBulkChangeSetItemEndPoint, options.GetBulkChangeSetItemEndPoint);
 
-        var postBeginApplyBulkChangesEndPoint = webApplication.MapPost($"/{route}/changes-bulk-begin", (BulkSyncChangeSet bulkChangeSet, SyncAgentController controller) => controller.BeginApplyBulkChanges(bulkChangeSet));
+        var postBeginApplyBulkChangesEndPoint = webApplication.MapPost(
+            $"/{route}/changes-bulk-begin", 
+            ([FromBody] BulkSyncChangeSet bulkChangeSet, [FromServices] SyncAgentController controller) 
+            => controller.BeginApplyBulkChanges(bulkChangeSet));
+
         ConfigureEndpoint(postBeginApplyBulkChangesEndPoint, options.PostBeginApplyBulkChangesEndPoint);
 
-        var postApplyBulkChangesItemEndPoint = webApplication.MapPost($"/{route}/changes-bulk-item", (BulkChangeSetUploadItem bulkUploadItem, SyncAgentController controller) => controller.ApplyBulkChangesItem(bulkUploadItem));
+        var postApplyBulkChangesItemEndPoint = webApplication.MapPost(
+            $"/{route}/changes-bulk-item", 
+            ([FromBody] BulkChangeSetUploadItem bulkUploadItem, [FromServices] SyncAgentController controller)
+            => controller.ApplyBulkChangesItem(bulkUploadItem));
         ConfigureEndpoint(postApplyBulkChangesItemEndPoint, options.PostApplyBulkChangesItemEndPoint);
 
-        var postCompleteApplyBulkChangesAsyncEndPoint = webApplication.MapPost($"/{route}/changes-bulk-complete/{{sessionId}}", async (string sessionId, SyncAgentController controller) => await controller.CompleteApplyBulkChangesAsync(Guid.Parse(sessionId)));
+        var postCompleteApplyBulkChangesAsyncEndPoint = webApplication.MapPost(
+            $"/{route}/changes-bulk-complete/{{sessionId}}", 
+            (string sessionId, [FromServices] SyncAgentController controller) 
+            => controller.CompleteApplyBulkChangesAsync(Guid.Parse(sessionId)));
         ConfigureEndpoint(postCompleteApplyBulkChangesAsyncEndPoint, options.PostCompleteApplyBulkChangesAsyncEndPoint);
 
-        var postSaveVersionForStoreAsyncEndPoint = webApplication.MapPost($"/{route}/save-version/{{storeId}}/{{version}}", async (string storeId, long version, SyncAgentController controller) => await controller.SaveVersionForStoreAsync(Guid.Parse(storeId), version));
+        var postSaveVersionForStoreAsyncEndPoint = webApplication.MapPost(
+            $"/{route}/save-version/{{storeId}}/{{version}}", 
+            (string storeId, long version, [FromServices] SyncAgentController controller) 
+            => controller.SaveVersionForStoreAsync(Guid.Parse(storeId), version));
         ConfigureEndpoint(postSaveVersionForStoreAsyncEndPoint, options.PostSaveVersionForStoreAsyncEndPoint);
     }
 }
