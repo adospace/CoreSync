@@ -6,11 +6,19 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using System;
 using System.Linq;
+using MessagePack;
+using Microsoft.AspNetCore.Http;
 
 namespace CoreSync.Http.Server;
 
 class SyncAgentController
 {
+    public class CachedSyncChangeSet
+    {
+        public required SyncChangeSet ChangeSet { get; set; }
+        public List<SyncItem> BufferList { get; set; } = [];
+    }
+
     private readonly ILogger<SyncAgentController> _logger;
     private readonly ISyncProvider _syncProvider;
     private readonly IMemoryCache _memoryCache;
@@ -40,7 +48,7 @@ class SyncAgentController
 
         var sessionId = Guid.NewGuid();
 
-        _memoryCache.Set(sessionId, changeSet);
+        _memoryCache.Set(sessionId, new CachedSyncChangeSet { ChangeSet = changeSet });
 
         return new BulkSyncChangeSet()
         {
@@ -68,6 +76,30 @@ class SyncAgentController
         throw new InvalidOperationException();
     }
 
+    public byte[] GetBulkChangeSetItemBinary([FromBody] BulkChangeSetDownloadItem item)
+    {
+        if (_memoryCache.TryGetValue(item.SessionId, out var bulkChangeSetObject) &&
+            bulkChangeSetObject is CachedSyncChangeSet cachedSyncChangeSet)
+        {
+            // Directly access items by index
+            var bufferList = cachedSyncChangeSet.BufferList;
+            bufferList.Clear();
+
+            // Add the items directly by index
+            for (int i = item.Skip; i < item.Skip + item.Take && i < cachedSyncChangeSet.ChangeSet.Items.Count; i++)
+            {
+                bufferList.Add(cachedSyncChangeSet.ChangeSet.Items[i]);
+            }
+
+            if (item.Skip + item.Take >= cachedSyncChangeSet.ChangeSet.Items.Count)
+                _memoryCache.Remove(item.SessionId);
+
+            return MessagePackSerializer.Typeless.Serialize(bufferList);
+        }
+
+        throw new InvalidOperationException();
+    }
+
     public void BeginApplyBulkChanges(BulkSyncChangeSet bulkChangeSet)
     {
         var changeSet = new SyncChangeSet(bulkChangeSet.SourceAnchor, bulkChangeSet.TargetAnchor, new List<SyncItem>() /* do not change to []*/);
@@ -77,6 +109,21 @@ class SyncAgentController
 
     public void ApplyBulkChangesItem(BulkChangeSetUploadItem bulkUploadItem)
     {
+        if (_memoryCache.TryGetValue(bulkUploadItem.SessionId, out var changeSetObject) &&
+            changeSetObject is SyncChangeSet changeSet)
+        {
+            ((List<SyncItem>)changeSet.Items).AddRange(bulkUploadItem.Items);
+            return;
+        }
+
+        throw new InvalidOperationException();
+    }
+
+    public async Task ApplyBulkChangesItemBinary(HttpRequest httpRequest)
+    {
+        var bulkUploadItem = ((BulkChangeSetUploadItem?)
+            await MessagePackSerializer.Typeless.DeserializeAsync(httpRequest.Body)) ?? throw new InvalidProgramException();
+
         if (_memoryCache.TryGetValue(bulkUploadItem.SessionId, out var changeSetObject) &&
             changeSetObject is SyncChangeSet changeSet)
         {
@@ -113,6 +160,24 @@ class SyncAgentController
         throw new InvalidOperationException();
     }
 
+    public async Task<SyncAnchor> CompleteApplyBulkChangesBinaryAsync(Guid sessionId)
+    {
+        if (_memoryCache.TryGetValue(sessionId, out var changeSetObject) &&
+           changeSetObject is SyncChangeSet changeSet)
+        {
+            var resAnchor = await _syncProvider.ApplyChangesAsync(changeSet, updateResultion: ConflictResolution.ForceWrite, deleteResolution: ConflictResolution.Skip);
+
+            _memoryCache.Remove(sessionId);
+
+            //_logger.LogInformation("CompleteApplyBulkChangesAsync() => {resAnchor}", resAnchor);
+
+            return resAnchor;
+        }
+
+        throw new InvalidOperationException();
+    }
+
+
     private static object? ConvertJsonElementToObject(JsonElement value, SyncItemValueType targetType)
     {
         return targetType switch
@@ -134,7 +199,7 @@ class SyncAgentController
 
     public async Task SaveVersionForStoreAsync(Guid storeId, long version)
     {
-        _logger.LogInformation($"SaveVersionForStoreAsync(storeId={storeId}, version={version})");
+        _logger.LogInformation("SaveVersionForStoreAsync(storeId={storeId}, version={version})", storeId, version);
 
         await _syncProvider.SaveVersionForStoreAsync(storeId, version);
     }

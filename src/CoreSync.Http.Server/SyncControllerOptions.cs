@@ -13,11 +13,17 @@ public class SyncControllerOptions
 
     public Action<IEndpointConventionBuilder>? GetBulkChangeSetItemEndPoint { get; set; }
 
+    public Action<IEndpointConventionBuilder>? GetBulkChangeSetItemBinaryEndPoint { get; set; }
+
     public Action<IEndpointConventionBuilder>? PostBeginApplyBulkChangesEndPoint { get; set; }
 
     public Action<IEndpointConventionBuilder>? PostApplyBulkChangesItemEndPoint { get; set; }
 
+    public Action<IEndpointConventionBuilder>? PostApplyBulkChangesItemBinaryEndPoint { get; set; }    
+
     public Action<IEndpointConventionBuilder>? PostCompleteApplyBulkChangesAsyncEndPoint { get; set; }
+
+    public Action<IEndpointConventionBuilder>? PostCompleteApplyBulkChangesBinaryAsyncEndPoint { get; set; }
 
     public Action<IEndpointConventionBuilder>? PostSaveVersionForStoreAsyncEndPoint { get; set; }
 

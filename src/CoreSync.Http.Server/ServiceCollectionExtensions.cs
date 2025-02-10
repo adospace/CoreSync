@@ -8,5 +8,6 @@ public static class ServiceCollectionExtensions
     {
         services.AddMemoryCache();
         services.AddScoped<SyncAgentController>();
+        services.AddMemoryCache();
     }
 }

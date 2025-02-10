@@ -13,4 +13,6 @@ public class SyncProviderHttpClientOptions
     public int BulkItemSize { get; set; } = 50;
 
     public int MaxRetryAttempts { get; set; } = 3;
+
+    public bool UseBinaryFormat { get; set; }
 }
