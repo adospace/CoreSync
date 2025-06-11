@@ -44,7 +44,11 @@ class SyncAgentController
     {
         var changeSet = await _syncProvider.GetChangesAsync(storeId, SyncDirection.DownloadOnly);
 
-        _logger.LogInformation($"GetBulkChangeSetAsync({storeId})->(Source={changeSet.SourceAnchor} Target={changeSet.TargetAnchor} Items={changeSet.Items.Count})");
+        _logger.LogInformation("GetBulkChangeSetAsync({StoreId})->(Source={SourceAnchor} Target={TargetAnchor} Items={ItemsCount})",
+            storeId,
+            changeSet.SourceAnchor,
+            changeSet.TargetAnchor,
+            changeSet.Items.Count);
 
         var sessionId = Guid.NewGuid();
 
@@ -56,7 +60,9 @@ class SyncAgentController
             TotalChanges = changeSet.Items.Count,
             SourceAnchor = changeSet.SourceAnchor,
             TargetAnchor = changeSet.TargetAnchor,
-            ChangesByTable = changeSet.Items.GroupBy(_ => _.TableName).ToDictionary(_ => _.Key, _ => _.Count())
+            ChangesByTable = changeSet.Items
+                .GroupBy(_ => _.TableName)
+                .ToDictionary(_ => _.Key, _ => _.Count())
         };
     }
 
@@ -152,7 +158,7 @@ class SyncAgentController
 
             _memoryCache.Remove(sessionId);
 
-            _logger.LogInformation($"CompleteApplyBulkChangesAsync() => {resAnchor}");
+            _logger.LogInformation("CompleteApplyBulkChangesAsync() => {resAnchor}", resAnchor);
 
             return resAnchor;
         }
@@ -169,7 +175,7 @@ class SyncAgentController
 
             _memoryCache.Remove(sessionId);
 
-            //_logger.LogInformation("CompleteApplyBulkChangesAsync() => {resAnchor}", resAnchor);
+            _logger.LogInformation("CompleteApplyBulkChangesBinaryAsync() => {resAnchor}", resAnchor);
 
             return resAnchor;
         }

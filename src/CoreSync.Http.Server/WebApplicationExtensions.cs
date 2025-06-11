@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.Formatters;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Primitives;
 using System;
 using System.IO;
@@ -15,6 +16,11 @@ namespace CoreSync.Http.Server;
 public static class WebApplicationExtensions
 {
     public static void UseCoreSyncHttpServer(this WebApplication webApplication, string route = "api/sync-agent", Action<SyncControllerOptions>? optionsConfigure = null)
+    {
+        webApplication.MapCoreSyncHttpServerEndpoints(route, optionsConfigure);
+    }
+
+    public static void MapCoreSyncHttpServerEndpoints(this IEndpointRouteBuilder webApplication, string route = "api/sync-agent", Action<SyncControllerOptions>? optionsConfigure = null)
     {
         if (string.IsNullOrWhiteSpace(route))
         {
