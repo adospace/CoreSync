@@ -5,3 +5,7 @@ CoreSync is a .NET library that provides data synchronization between databases
 
 [![Build status](https://ci.appveyor.com/api/projects/status/8cloij4060cbnvfp?svg=true)](https://ci.appveyor.com/project/adospace/coresync)
 [![NuGet](https://img.shields.io/nuget/v/CoreSync.svg)](https://www.nuget.org/packages/CoreSync/)
+
+
+Sample app in .NET MAUI (MauiReactor)
+https://github.com/adospace/mauireactor-core-sync
