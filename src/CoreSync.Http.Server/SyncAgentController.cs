@@ -1,13 +1,13 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using MessagePack;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
-using System;
-using System.Linq;
-using MessagePack;
-using Microsoft.AspNetCore.Http;
 
 namespace CoreSync.Http.Server;
 
@@ -69,14 +69,21 @@ class SyncAgentController
     public IReadOnlyList<SyncItem> GetBulkChangeSetItem([FromQuery] BulkChangeSetDownloadItem item)
     {
         if (_memoryCache.TryGetValue(item.SessionId, out var bulkChangeSetObject) &&
-            bulkChangeSetObject is SyncChangeSet bulkSyncChangeSet)
+            bulkChangeSetObject is CachedSyncChangeSet cachedSyncChangeSet)
         {
-            var itemsToReturn = bulkSyncChangeSet.Items.Skip(item.Skip).Take(item.Take).ToList();
+            var bufferList = cachedSyncChangeSet.BufferList;
+            bufferList.Clear();
 
-            if (item.Skip + item.Take >= bulkSyncChangeSet.Items.Count)
+            // Add the items directly by index
+            for (int i = item.Skip; i < item.Skip + item.Take && i < cachedSyncChangeSet.ChangeSet.Items.Count; i++)
+            {
+                bufferList.Add(cachedSyncChangeSet.ChangeSet.Items[i]);
+            }
+
+            if (item.Skip + item.Take >= cachedSyncChangeSet.ChangeSet.Items.Count)
                 _memoryCache.Remove(item.SessionId);
 
-            return itemsToReturn;
+            return bufferList;
         }
 
         throw new InvalidOperationException();
