@@ -1,5 +1,6 @@
 using CoreSync.Sqlite;
 using CoreSync.SqlServer;
+using CoreSync.PostgreSQL;
 using CoreSync.Tests.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -1198,6 +1199,183 @@ namespace CoreSync.Tests
 
 
             await TestSynchronizationAfterDisabledChangeTrackingForTable(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test1_PostgreSQL_PostgreSQL()
+        {
+            using var localDb = new PostgreSQLBlogDbContext(PostgreSQLConnectionString + ";Database=coresync_test1_local");
+            using var remoteDb = new PostgreSQLBlogDbContext(PostgreSQLConnectionString + ";Database=coresync_test1_remote");
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new PostgreSQLSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new PostgreSQLSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new PostgreSQLSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider localSyncProvider = new PostgreSQLSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await Test1(localDb,
+                localSyncProvider,
+                remoteDb,
+                remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test2_PostgreSQL_PostgreSQL()
+        {
+            using var localDb = new PostgreSQLBlogDbContext(PostgreSQLConnectionString + ";Database=coresync_test2_local");
+            using var remoteDb = new PostgreSQLBlogDbContext(PostgreSQLConnectionString + ";Database=coresync_test2_remote");
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new PostgreSQLSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new PostgreSQLSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new PostgreSQLSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider localSyncProvider = new PostgreSQLSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await Test2(localDb,
+                localSyncProvider,
+                remoteDb,
+                remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test1_PostgreSQL_SqlServer()
+        {
+            using var localDb = new PostgreSQLBlogDbContext(PostgreSQLConnectionString + ";Database=coresync_test1_local_pg");
+            using var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test1_Remote_PG");
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new PostgreSQLSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider localSyncProvider = new PostgreSQLSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await Test1(localDb,
+                localSyncProvider,
+                remoteDb,
+                remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test1_Sqlite_PostgreSQL()
+        {
+            var localDbFile = $"{Path.GetTempPath()}Test1_Sqlite_PostgreSQL_local.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new PostgreSQLBlogDbContext(PostgreSQLConnectionString + ";Database=coresync_test1_sqlite_pg_remote");
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new PostgreSQLSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new PostgreSQLSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table<User>("Users")
+                    .Table<Post>("Posts")
+                    .Table<Comment>("Comments");
+
+            ISyncProvider localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await Test1(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test2_Sqlite_PostgreSQL()
+        {
+            var localDbFile = $"{Path.GetTempPath()}Test2_Sqlite_PostgreSQL_local.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new PostgreSQLBlogDbContext(PostgreSQLConnectionString + ";Database=coresync_test2_sqlite_pg_remote");
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new PostgreSQLSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new PostgreSQLSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table<User>("Users")
+                    .Table<Post>("Posts")
+                    .Table<Comment>("Comments");
+
+            ISyncProvider localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await Test2(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
         }
 
     }

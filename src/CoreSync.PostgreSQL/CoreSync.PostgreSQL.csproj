@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Version Condition=" '$(APPVEYOR_BUILD_VERSION)' == '' ">0.0.1-local</Version>
+    <Version Condition=" '$(APPVEYOR_BUILD_VERSION)' != '' ">$(APPVEYOR_BUILD_VERSION)</Version>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <Authors>adospace</Authors>
+    <Description>CoreSync is a .NET standard library that provides data synchronization functions between databases. This is the PostgreSQL provider assembly.</Description>
+    <Copyright>Adolfo Marinucci</Copyright>
+    <PackageProjectUrl>https://github.com/adospace/CoreSync</PackageProjectUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/adospace/CoreSync</RepositoryUrl>
+    <PackageTags>postgresql postgres data database sync synchronization .net</PackageTags>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NoWarn>RS1036,NU1903,NU1902,NU1901,NU1904</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\CoreSync\Validate.cs" Link="Validate.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="8.0.5" />
+    <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CoreSync\CoreSync.csproj" />
+  </ItemGroup>
+
+</Project> 
