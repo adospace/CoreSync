@@ -8,6 +8,8 @@ namespace CoreSync.Tests.Data
     {
         SqlServer,
 
-        Sqlite
+        Sqlite,
+
+        PostgreSQL
     }
 }

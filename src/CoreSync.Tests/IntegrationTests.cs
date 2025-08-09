@@ -1,5 +1,6 @@
 using CoreSync.Sqlite;
 using CoreSync.SqlServer;
+using CoreSync.PostgreSQL;
 using CoreSync.Tests.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -17,6 +18,9 @@ namespace CoreSync.Tests
         public static string ConnectionString => Environment.GetEnvironmentVariable("CORE-SYNC_CONNECTION_STRING") ??
                                                  throw new ArgumentException(
                                                      "Set CORE-SYNC_CONNECTION_STRING environmental variable containing connection string to Sql Server");
+
+        public static string PostgreSQLConnectionString => Environment.GetEnvironmentVariable("CORE-SYNC_POSTGRESQL_CONNECTION_STRING") ??
+                                                           "Host=localhost;Port=5432;Database=coresync_test;Username=coresync;Password=test123";
 
         private static async Task Test1(
             BlogDbContext localDb,
