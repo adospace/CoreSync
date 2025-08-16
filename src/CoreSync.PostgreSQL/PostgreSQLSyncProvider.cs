@@ -302,13 +302,17 @@ namespace CoreSync.PostgreSQL
                     {
                         cmd.CommandText = table.IncrementalAddOrUpdatesQuery;
                         cmd.Parameters.Clear();
-                        cmd.Parameters.Add(new NpgsqlParameter { Value = fromAnchor.Version });
-                        cmd.Parameters.Add(new NpgsqlParameter { Value = table.Name });
-                        cmd.Parameters.Add(new NpgsqlParameter { Value = otherStoreId.ToString() });
+                        
+                        // Add filter parameters first (for custom selectIncrementalQuery)
                         foreach (var syncFilterParameter in syncFilterParameters)
                         {
                             cmd.Parameters.Add(new NpgsqlParameter { Value = syncFilterParameter.Value });
                         }
+                        
+                        // Then add incremental query parameters
+                        cmd.Parameters.Add(new NpgsqlParameter { Value = fromAnchor.Version });
+                        cmd.Parameters.Add(new NpgsqlParameter { Value = table.Name });
+                        cmd.Parameters.Add(new NpgsqlParameter { Value = otherStoreId.ToString() });
 
                         using (var r = await cmd.ExecuteReaderAsync(cancellationToken))
                         {
@@ -608,7 +612,7 @@ CREATE OR REPLACE FUNCTION __{table.Name}_ct_{op.ToLower()}__()
 RETURNS TRIGGER AS $$
 BEGIN
     INSERT INTO __core_sync_ct (tbl, op, pk_{table.PrimaryColumnType.ToString().ToLower()}) 
-    VALUES ('{table.Name}', '{op[0]}', {(op == "DELETE" ? "OLD" : "NEW")}.""{table.PrimaryColumnName}"");
+    VALUES ('{table.Name}', '{op[0]}', {(op == "DELETE" ? "OLD" : "NEW")}.""{table.PrimaryColumnName}""{(table.Columns[table.PrimaryColumnName].Type.Equals("uuid", StringComparison.OrdinalIgnoreCase) ? "::text" : "")});
     RETURN {(op == "DELETE" ? "OLD" : "NEW")};
 END;
 $$ LANGUAGE plpgsql;
@@ -636,7 +640,7 @@ CREATE OR REPLACE FUNCTION __{table.Name}_ct_{op.ToLower()}__()
 RETURNS TRIGGER AS $$
 BEGIN
     INSERT INTO __core_sync_ct (tbl, op, pk_{table.PrimaryColumnType.ToString().ToLower()}) 
-    VALUES ('{table.Name}', '{op[0]}', {(op == "DELETE" ? "OLD" : "NEW")}.""{table.PrimaryColumnName}"");
+    VALUES ('{table.Name}', '{op[0]}', {(op == "DELETE" ? "OLD" : "NEW")}.""{table.PrimaryColumnName}""{(table.Columns[table.PrimaryColumnName].Type.Equals("uuid", StringComparison.OrdinalIgnoreCase) ? "::text" : "")});
     RETURN {(op == "DELETE" ? "OLD" : "NEW")};
 END;
 $$ LANGUAGE plpgsql;
