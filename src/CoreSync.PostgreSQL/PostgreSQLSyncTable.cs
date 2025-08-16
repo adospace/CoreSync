@@ -47,7 +47,7 @@ namespace CoreSync.PostgreSQL
             => SelectIncrementalQuery != null ? $"({SelectIncrementalQuery})" : $"\"{Name}\"";
 
         internal string IncrementalAddOrUpdatesQuery => $@"SELECT DISTINCT {string.Join(",", Columns.Select(_ => "T.\"" + _.Key + "\""))}, CT.op AS __OP 
-                                FROM {SelectQueryWithFilter} AS T INNER JOIN __core_sync_ct AS CT ON T.""{PrimaryColumnName}""::text = CT.pk_{PrimaryColumnType.ToString().ToLowerInvariant()} WHERE CT.id > $1 AND CT.tbl = $2 AND (CT.src IS NULL OR CT.src != $3)";
+                                FROM {SelectQueryWithFilter} AS T INNER JOIN __core_sync_ct AS CT ON T.""{PrimaryColumnName}""{(Columns[PrimaryColumnName].Type.Equals("uuid", StringComparison.OrdinalIgnoreCase) ? "::text" : "")} = CT.pk_{PrimaryColumnType.ToString().ToLowerInvariant()} WHERE CT.id > ${(SelectIncrementalQuery != null ? 2 : 1)} AND CT.tbl = ${(SelectIncrementalQuery != null ? 3 : 2)} AND (CT.src IS NULL OR CT.src != ${(SelectIncrementalQuery != null ? 4 : 3)})";
 
         internal string IncrementalDeletesQuery => 
             $@"SELECT pk_{PrimaryColumnType.ToString().ToLowerInvariant()} AS ""{PrimaryColumnName}"" FROM __core_sync_ct WHERE tbl = $1 AND id > $2 AND op = 'D' AND (src IS NULL OR src != $3)";
@@ -68,6 +68,19 @@ namespace CoreSync.PostgreSQL
                 if (value is string stringValue && Guid.TryParse(stringValue, out var guidValue))
                 {
                     return guidValue;
+                }
+            }
+
+            // Check if this column is a timestamp type in PostgreSQL
+            if (Columns.TryGetValue(columnName, out var timestampColumn) && 
+                (timestampColumn.Type.Equals("timestamp", StringComparison.OrdinalIgnoreCase) ||
+                 timestampColumn.Type.Equals("timestamp without time zone", StringComparison.OrdinalIgnoreCase) ||
+                 timestampColumn.Type.Equals("timestamp with time zone", StringComparison.OrdinalIgnoreCase)))
+            {
+                // Convert string to DateTime if needed
+                if (value is string timestampString && DateTime.TryParse(timestampString, out var dateTimeValue))
+                {
+                    return dateTimeValue;
                 }
             }
 
@@ -102,7 +115,7 @@ VALUES ({string.Join(", ", valuesForValidColumns.Select((_, index) => $"${index 
                         cmd.CommandText = $@"UPDATE ""{Name}""
 SET {string.Join(", ", valuesForValidColumns.Select((_, index) => $"\"{_.Key}\" = ${index + 1}"))}
 WHERE ""{Name}"".""{PrimaryColumnName}"" = ${valuesForValidColumns.Count + 1}
-AND (${valuesForValidColumns.Count + 2} = true OR (SELECT MAX(id) FROM __core_sync_ct WHERE pk_{PrimaryColumnType.ToString().ToLowerInvariant()} = ${valuesForValidColumns.Count + 1}::text AND tbl = '{Name}') <= ${valuesForValidColumns.Count + 3})";
+AND (${valuesForValidColumns.Count + 2} = true OR (SELECT MAX(id) FROM __core_sync_ct WHERE pk_{PrimaryColumnType.ToString().ToLowerInvariant()} = ${valuesForValidColumns.Count + 1}{(Columns[PrimaryColumnName].Type.Equals("uuid", StringComparison.OrdinalIgnoreCase) ? "::text" : "")} AND tbl = '{Name}') <= ${valuesForValidColumns.Count + 3})";
 
                         int pIndex = 1;
                         foreach (var valueItem in valuesForValidColumns)
@@ -119,7 +132,7 @@ AND (${valuesForValidColumns.Count + 2} = true OR (SELECT MAX(id) FROM __core_sy
                     {
                         cmd.CommandText = $@"DELETE FROM ""{Name}""
 WHERE ""{Name}"".""{PrimaryColumnName}"" = $1
-AND ($2 = true OR (SELECT MAX(id) FROM __core_sync_ct WHERE pk_{PrimaryColumnType.ToString().ToLowerInvariant()} = $1::text AND tbl = '{Name}') <= $3)";
+AND ($2 = true OR (SELECT MAX(id) FROM __core_sync_ct WHERE pk_{PrimaryColumnType.ToString().ToLowerInvariant()} = $1{(Columns[PrimaryColumnName].Type.Equals("uuid", StringComparison.OrdinalIgnoreCase) ? "::text" : "")} AND tbl = '{Name}') <= $3)";
 
                         cmd.Parameters.Add(new NpgsqlParameter { Value = ConvertValueForColumn(PrimaryColumnName, syncItemValues[PrimaryColumnName].Value) });
                     }
