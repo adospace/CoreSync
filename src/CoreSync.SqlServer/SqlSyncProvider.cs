@@ -971,7 +971,7 @@ END");
         private async Task DisableChangeTrackingForTable(SqlCommand cmd, SqlSyncTable table, CancellationToken cancellationToken)
         {
             var existsTriggerCommand = new Func<string, string>((op) => $@"select COUNT(*) from sys.objects where schema_id=SCHEMA_ID('{table.Schema}') AND type='TR' and name='__{table.NameWithSchemaRaw}_ct-{op}__'");
-            var dropTriggerCommand = new Func<string, string>((op) => $@"DROP TRIGGER [__{table.NameWithSchemaRaw}_ct-{op}__]");
+            var dropTriggerCommand = new Func<string, string>((op) => $@"DROP TRIGGER [{table.Schema}].[__{table.NameWithSchemaRaw}_ct-{op}__]");
 
             cmd.CommandText = existsTriggerCommand("INSERT");
             if (((int)await cmd.ExecuteScalarAsync(cancellationToken)) == 1)
