@@ -89,6 +89,10 @@ namespace CoreSync.Sqlite
                         {
                             _logger?.Trace($"[{_storeId}] Successfully applied {item}");
                         }
+                        else
+                        {
+                            _logger?.Trace($"[{_storeId}] No row affected on insert for {item} (maybe it's a conflict? or a different table schema between client and server):{Environment.NewLine}Generated SQL:{Environment.NewLine}{cmd.CommandText}");
+                        }
                     }
                     catch (OperationCanceledException)
                     {
