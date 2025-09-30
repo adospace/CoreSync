@@ -125,10 +125,13 @@ namespace CoreSync.SqlServer
                                 cmd.CommandText = table.SelectExistingQuery;
                                 cmd.Parameters.Clear();
                                 var valueItem = item.Values[table.PrimaryColumnName];
-                                cmd.Parameters.Add(new SqlParameter("@PrimaryColumnParameter", table.Columns[table.PrimaryColumnName].DbType)
-                                {
-                                    Value = Utils.ConvertToSqlType(valueItem, table.Columns[table.PrimaryColumnName].DbType)
-                                });
+
+                                cmd.Parameters.Add(table.Columns[table.PrimaryColumnName].CreateParameter("@PrimaryColumnParameter", valueItem));
+
+                                //cmd.Parameters.Add(new SqlParameter("@PrimaryColumnParameter", table.Columns[table.PrimaryColumnName].DbType)
+                                //{
+                                //    Value = Utils.ConvertToSqlType(valueItem, table.Columns[table.PrimaryColumnName].DbType)
+                                //});
                                 if (1 == (int)await cmd.ExecuteScalarAsync(cancellationToken) && !syncForceWrite)
                                 {
                                     itemChangeType = ChangeType.Update;
@@ -460,7 +463,8 @@ INCLUDE([TBL]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMP
                             throw new NotSupportedException($"Table '{table.Name}' has more than one column as primary key");
                         }
 
-                        table.Columns = (await connection.GetTableColumnsAsync(table, cancellationToken)).ToDictionary(_ => _.Item1, _ => new SqlColumn(_.Item1, _.Item2), StringComparer.OrdinalIgnoreCase);
+                        table.Columns = (await connection.GetTableColumnsAsync(table, cancellationToken))
+                            .ToDictionary(_ => _.Name, _ => _, StringComparer.OrdinalIgnoreCase);
                         table.PrimaryColumnName = primaryKeyColumns[0];
                         table.PrimaryKeyColumns = primaryKeyColumns;
 
@@ -513,7 +517,7 @@ INCLUDE([TBL]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMP
                 }
 
                 var primaryKeyColumns = await connection.GetIndexColumnNamesAsync(table, primaryKeyIndexName, cancellationToken); //primaryKeyIndexName.IndexedColumns.Cast<IndexedColumn>().ToList();
-                var allColumns = (await connection.GetTableColumnsAsync(table, cancellationToken)).Select(_ => _.Item1).ToArray();
+                var allColumns = (await connection.GetTableColumnsAsync(table, cancellationToken)).Select(_ => _.Name).ToArray();
                 //var tableColumns = allColumns.Where(_ => !primaryKeyColumns.Any(kc => kc == _)).ToArray();
 
                 //if (primaryKeyColumns.Length != 1)

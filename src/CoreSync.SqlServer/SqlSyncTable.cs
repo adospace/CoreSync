@@ -127,11 +127,14 @@ END CATCH
                         int pIndex = 0;
                         foreach (var valueItem in allSyncItems)
                         {
-                            cmd.Parameters.Add(new SqlParameter($"@p{pIndex}", Columns[valueItem.Key].DbType)
-                            {
-                                Value = Utils.ConvertToSqlType(valueItem.Value, Columns[valueItem.Key].DbType)
-                            });
-                            //cmd.Parameters.AddWithValue("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value.Value ?? DBNull.Value);
+                            cmd.Parameters.Add(
+                                Columns[valueItem.Key].CreateParameter($"@p{pIndex}", valueItem.Value));
+
+                            //cmd.Parameters.Add(new SqlParameter($"@p{pIndex}", Columns[valueItem.Key].DbType)
+                            //{
+                            //    Value = Utils.ConvertToSqlType(valueItem.Value, Columns[valueItem.Key].DbType)
+                            //});
+
                             pIndex++;
                         }
                     }
@@ -148,19 +151,24 @@ END TRY
 BEGIN CATCH  
 PRINT ERROR_MESSAGE()
 END CATCH";
-                        cmd.Parameters.Add(new SqlParameter("@PrimaryColumnParameter", Columns[PrimaryColumnName].DbType)
-                        {
-                            Value = Utils.ConvertToSqlType(syncItemValues[PrimaryColumnName], Columns[PrimaryColumnName].DbType)
-                        });
+                        //cmd.Parameters.Add(new SqlParameter("@PrimaryColumnParameter", Columns[PrimaryColumnName].DbType)
+                        //{
+                        //    Value = Utils.ConvertToSqlType(syncItemValues[PrimaryColumnName], Columns[PrimaryColumnName].DbType)
+                        //});
+                        cmd.Parameters.Add(Columns[PrimaryColumnName].CreateParameter("@PrimaryColumnParameter", syncItemValues[PrimaryColumnName]));
 
                         int pIndex = 0;
                         foreach (var valueItem in allSyncItemsExceptPrimaryKey)
                         {
-                            cmd.Parameters.Add(new SqlParameter($"@p{pIndex}", Columns[valueItem.Key].DbType)
-                            {
-                                Value = Utils.ConvertToSqlType(valueItem.Value, Columns[valueItem.Key].DbType)
-                            });
-                            //cmd.Parameters.AddWithValue("@" + valueItem.Key.Replace(" ", "_"), valueItem.Value.Value ?? DBNull.Value);
+                            cmd.Parameters.Add(
+                                Columns[valueItem.Key].CreateParameter($"@p{pIndex}", valueItem.Value));
+
+                            //cmd.Parameters.Add(new SqlParameter($"@p{pIndex}", Columns[valueItem.Key].DbType)
+                            //{
+                            //    Value = Utils.ConvertToSqlType(valueItem.Value, Columns[valueItem.Key].DbType)
+                            //});
+
+
                             pIndex++;
                         }
 
@@ -178,10 +186,12 @@ BEGIN CATCH
 PRINT ERROR_MESSAGE()
 END CATCH";
 
-                        cmd.Parameters.Add(new SqlParameter("@PrimaryColumnParameter", Columns[PrimaryColumnName].DbType)
-                        {
-                            Value = Utils.ConvertToSqlType(syncItemValues[PrimaryColumnName], Columns[PrimaryColumnName].DbType)
-                        });
+                        //cmd.Parameters.Add(new SqlParameter("@PrimaryColumnParameter", Columns[PrimaryColumnName].DbType)
+                        //{
+                        //    Value = Utils.ConvertToSqlType(syncItemValues[PrimaryColumnName], Columns[PrimaryColumnName].DbType)
+                        //});
+                        cmd.Parameters.Add(Columns[PrimaryColumnName]
+                            .CreateParameter("@PrimaryColumnParameter", syncItemValues[PrimaryColumnName]));
 
                     }
                     break;

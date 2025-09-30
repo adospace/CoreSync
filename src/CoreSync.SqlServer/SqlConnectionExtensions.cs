@@ -128,18 +128,25 @@ WHERE
             return listOfColumnNames.ToArray();
         }
 
-        public static async Task<(string, SqlDbType)[]> GetTableColumnsAsync(this SqlConnection connection, SqlSyncTable syncTable, CancellationToken cancellationToken)
+        public static async Task<SqlColumn[]> GetTableColumnsAsync(this SqlConnection connection, SqlSyncTable syncTable, CancellationToken cancellationToken)
         {
-            var cmdText = $@"SELECT COLUMN_NAME, DATA_TYPE 
+            var cmdText = $@"SELECT COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_SCALE 
 FROM INFORMATION_SCHEMA.COLUMNS
 WHERE 
      TABLE_NAME = '{syncTable.Name}' AND TABLE_SCHEMA = '{syncTable.Schema}'";
             using var cmd = new SqlCommand(cmdText, connection);
             using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-            var listOfColumnNames = new List<(string, SqlDbType)>();
+            var listOfColumnNames = new List<SqlColumn>();
             while (await reader.ReadAsync(cancellationToken))
             {
-                listOfColumnNames.Add((reader.GetString(0), TryGetSqlDbTypeFromString(reader.GetString(1))));
+                var column = new SqlColumn(
+                    reader.GetString(0), 
+                    TryGetSqlDbTypeFromString(reader.GetString(1)),
+                    reader.IsDBNull(2) ? null : reader.GetByte(2),
+                    reader.IsDBNull(3) ? null : (byte)reader.GetInt32(3)
+                    );
+
+                listOfColumnNames.Add(column);
             }
 
             return listOfColumnNames.ToArray();
