@@ -69,6 +69,10 @@ WHERE [{PrimaryColumnName}] = @PrimaryColumnParameter";
 
         internal string[] SkipColumns { get; set; } = [];
 
+        internal string[] SkipColumnsOnInsertOrUpdate { get; set; } = [];
+
+        internal bool ForceReloadInsertedRecords { get; set; } = false;
+
         internal bool HasTableIdentityColumn { get; set; }
 
         internal string[] PrimaryKeyColumns
@@ -79,7 +83,7 @@ WHERE [{PrimaryColumnName}] = @PrimaryColumnParameter";
 
         internal void SetupCommand(SqlCommand cmd, ChangeType itemChangeType, Dictionary<string, SyncItemValue> syncItemValues)
         {
-            var allColumnsExceptSkipColumns = Columns.Keys.Except(SkipColumns).ToArray();
+            var allColumnsExceptSkipColumns = Columns.Keys.Except(SkipColumns.Concat(SkipColumnsOnInsertOrUpdate)).ToArray();
 
             //take values only for existing columns (server table schema could be not in sync with local table schema)
             var allSyncItems = syncItemValues
@@ -182,8 +186,6 @@ END CATCH";
                     }
                     break;
             }
-
-
         }
 
         internal IdentityInsertMode IdentityInsert { get; set; }
@@ -204,6 +206,12 @@ END CATCH";
         /// <summary>
         /// Set IDENTITY_INSERT to OFF
         /// </summary>
-        Off
+        Off,
+
+
+        /// <summary>
+        /// Do not set IDENTITY_INSERT
+        /// </summary>
+        Disabled
     }
 }

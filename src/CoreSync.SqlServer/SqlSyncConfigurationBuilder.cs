@@ -89,6 +89,33 @@ namespace CoreSync.SqlServer
         }
 
         /// <summary>
+        /// Specify which column should be skipped when inserting or updating
+        /// </summary>
+        /// <param name="columnNames">Array of columns to skip when inserting or updating records</param>
+        /// <returns>The current Sql configuration builder</returns>
+        public SqlSyncConfigurationBuilder SkipColumnsOnInsertOrUpdate(params string[] columnNames)
+        {
+            var lastTable = _tables.LastOrDefault()
+                ?? throw new InvalidOperationException("SkipColumnsOnInsertOrUpdate requires a table");
+
+            //remove duplicates
+
+            lastTable.SkipColumnsOnInsertOrUpdate = columnNames ?? throw new ArgumentNullException();
+            return this;
+        }
+
+        /// <summary>
+        /// Force reloading of inserted records (useful when there are triggers that modify data on insert or indenty auto-increment columns other than primary key)
+        /// </summary>
+        public SqlSyncConfigurationBuilder ForceReloadInsertedRecords(bool forceReloadInsertedRecords = true)
+        {
+            var lastTable = _tables.LastOrDefault()
+                ?? throw new InvalidOperationException("ForceReloadInsertedRecords requires a table");
+            lastTable.ForceReloadInsertedRecords = forceReloadInsertedRecords;
+            return this;
+        }
+
+        /// <summary>
         /// Specify a custom query to select incremental updates for the table
         /// </summary>
         /// <param name="selectIncrementalQuery">Query to select incremental updates</param>

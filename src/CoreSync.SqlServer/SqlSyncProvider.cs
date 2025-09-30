@@ -541,6 +541,16 @@ INCLUDE([TBL]) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMP
 
         private async Task SetupTableForFullChangeDetection(SqlSyncTable table, SqlCommand cmd, CancellationToken cancellationToken = default)
         {
+            var forceReloadOnInsert = table.ForceReloadInsertedRecords || table.HasTableIdentityColumn;
+            var forceReloadCode = "-- Table is set to NOT force reload the record after inserting";
+            if (forceReloadOnInsert)
+            {
+                forceReloadCode = $@"
+	INSERT INTO [__CORE_SYNC_CT](TBL, OP, PK_{table.PrimaryColumnType}) 
+	SELECT '{table.NameWithSchema}', 'U' , INSERTED{$".[{table.PrimaryColumnName}]"}
+	FROM INSERTED";
+            }
+
             var existsTriggerCommand = new Func<string, string>((op) => $@"select COUNT(*) from sys.objects where schema_id=SCHEMA_ID('{table.Schema}') AND type='TR' and name='__{table.NameWithSchemaRaw}_ct-{op}__'");
             var createTriggerCommand = new Func<string, string>((op) => $@"CREATE TRIGGER [__{table.NameWithSchemaRaw}_ct-{op}__]
 ON {table.NameWithSchema}
@@ -554,6 +564,9 @@ BEGIN
 	INSERT INTO [__CORE_SYNC_CT](TBL, OP, PK_{table.PrimaryColumnType}, SRC) 
 	SELECT '{table.NameWithSchema}', '{op[0]}' , {(op == "DELETE" ? "DELETED" : "INSERTED")}{$".[{table.PrimaryColumnName}]"}, CONTEXT_INFO()  
 	FROM {(op == "DELETE" ? "DELETED" : "INSERTED")}
+
+    {forceReloadCode}
+
 END");
 
             cmd.CommandText = existsTriggerCommand("INSERT");
