@@ -1,5 +1,6 @@
 using CoreSync.Sqlite;
 using CoreSync.SqlServer;
+using CoreSync.SqlServerCT;
 using CoreSync.PostgreSQL;
 using CoreSync.Tests.Data;
 using Microsoft.EntityFrameworkCore;
@@ -1593,6 +1594,187 @@ namespace CoreSync.Tests
 
             await TestSynchronizationAfterDisabledChangeTrackingForTable(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
         }
+
+        #region SqlServerCT Tests
+
+        [TestMethod]
+        public async Task Test1_SqlServerCT_SqlServerCT()
+        {
+            using var localDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test1CT_Local");
+            using var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test1CT_Remote");
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new SqlServerCTSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new SqlServerCTProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqlServerCTSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider localSyncProvider = new SqlServerCTProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await Test1(localDb,
+                localSyncProvider,
+                remoteDb,
+                remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test2_SqlServerCT_SqlServerCT()
+        {
+            using var localDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test2CT_Local");
+            using var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test2CT_Remote");
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new SqlServerCTSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new SqlServerCTProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqlServerCTSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider localSyncProvider = new SqlServerCTProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await Test2(localDb,
+                localSyncProvider,
+                remoteDb,
+                remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test1_SqlServerCT_SqlServer()
+        {
+            using var localDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test1CTxSS_Local");
+            using var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test1CTxSS_Remote");
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            // Remote uses trigger-based provider
+            var remoteConfigurationBuilder =
+                new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            // Local uses CT provider
+            var localConfigurationBuilder =
+                new SqlServerCTSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider localSyncProvider = new SqlServerCTProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await Test1(localDb,
+                localSyncProvider,
+                remoteDb,
+                remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test1_SqlServerCT_Sqlite()
+        {
+            var remoteDbFile = $"{Path.GetTempPath()}Test1_SqlServerCT_Sqlite_remote.sqlite";
+            if (File.Exists(remoteDbFile)) File.Delete(remoteDbFile);
+
+            using var localDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test1CTxSqlite_Local");
+            using var remoteDb = new SqliteBlogDbContext($"Data Source={remoteDbFile}");
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table<User>("Users")
+                    .Table<Post>("Posts")
+                    .Table<Comment>("Comments");
+
+            ISyncProvider remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqlServerCTSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider localSyncProvider = new SqlServerCTProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await Test1(localDb,
+                localSyncProvider,
+                remoteDb,
+                remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task TestSyncAgent_SqlServerCT()
+        {
+            using var localDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=TestAgentCT_Local");
+            using var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=TestAgentCT_Remote");
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new SqlServerCTSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new SqlServerCTProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqlServerCTSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider localSyncProvider = new SqlServerCTProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await TestSyncAgent(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        #endregion
 
     }
 

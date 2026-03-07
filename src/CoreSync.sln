@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CoreSync.Http.Client", "Cor
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CoreSync.PostgreSQL", "CoreSync.PostgreSQL\CoreSync.PostgreSQL.csproj", "{263ABA9F-7FE6-4874-A90A-8C67A0AD68BE}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CoreSync.SqlServerCT", "CoreSync.SqlServerCT\CoreSync.SqlServerCT.csproj", "{C28B11F9-8B81-48ED-9626-8131BA922AFA}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -125,6 +127,18 @@ Global
 		{263ABA9F-7FE6-4874-A90A-8C67A0AD68BE}.Release|x64.Build.0 = Release|Any CPU
 		{263ABA9F-7FE6-4874-A90A-8C67A0AD68BE}.Release|x86.ActiveCfg = Release|Any CPU
 		{263ABA9F-7FE6-4874-A90A-8C67A0AD68BE}.Release|x86.Build.0 = Release|Any CPU
+		{C28B11F9-8B81-48ED-9626-8131BA922AFA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C28B11F9-8B81-48ED-9626-8131BA922AFA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C28B11F9-8B81-48ED-9626-8131BA922AFA}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{C28B11F9-8B81-48ED-9626-8131BA922AFA}.Debug|x64.Build.0 = Debug|Any CPU
+		{C28B11F9-8B81-48ED-9626-8131BA922AFA}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{C28B11F9-8B81-48ED-9626-8131BA922AFA}.Debug|x86.Build.0 = Debug|Any CPU
+		{C28B11F9-8B81-48ED-9626-8131BA922AFA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C28B11F9-8B81-48ED-9626-8131BA922AFA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C28B11F9-8B81-48ED-9626-8131BA922AFA}.Release|x64.ActiveCfg = Release|Any CPU
+		{C28B11F9-8B81-48ED-9626-8131BA922AFA}.Release|x64.Build.0 = Release|Any CPU
+		{C28B11F9-8B81-48ED-9626-8131BA922AFA}.Release|x86.ActiveCfg = Release|Any CPU
+		{C28B11F9-8B81-48ED-9626-8131BA922AFA}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

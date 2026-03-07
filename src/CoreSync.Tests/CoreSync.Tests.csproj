@@ -32,6 +32,7 @@
   <ItemGroup>
     <ProjectReference Include="..\CoreSync.Sqlite\CoreSync.Sqlite.csproj" />
     <ProjectReference Include="..\CoreSync.SqlServer\CoreSync.SqlServer.csproj" />
+    <ProjectReference Include="..\CoreSync.SqlServerCT\CoreSync.SqlServerCT.csproj" />
     <ProjectReference Include="..\CoreSync.PostgreSQL\CoreSync.PostgreSQL.csproj" />
     <ProjectReference Include="..\CoreSync\CoreSync.csproj" />
   </ItemGroup>

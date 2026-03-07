@@ -1,0 +1,144 @@
+using Microsoft.Data.SqlClient;
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace CoreSync.SqlServerCT
+{
+    internal static class SqlConnectionExtensions
+    {
+        public static async Task<bool> GetIsChangeTrackingEnabledAsync(this SqlConnection connection, CancellationToken cancellationToken)
+        {
+            var cmdText = @"SELECT COUNT(*) FROM sys.change_tracking_databases WHERE database_id = DB_ID()";
+            using var cmd = new SqlCommand(cmdText, connection);
+            return ((int)await cmd.ExecuteScalarAsync(cancellationToken)) == 1;
+        }
+
+        public static async Task EnableChangeTrackingAsync(this SqlConnection connection, int days = 7, bool autoCleanup = true, CancellationToken cancellationToken = default)
+        {
+            var cmdText = $@"ALTER DATABASE CURRENT SET CHANGE_TRACKING = ON (CHANGE_RETENTION = {days} DAYS, AUTO_CLEANUP = {(autoCleanup ? "ON" : "OFF")})";
+            using var cmd = new SqlCommand(cmdText, connection);
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        public static async Task DisableChangeTrackingAsync(this SqlConnection connection, CancellationToken cancellationToken)
+        {
+            var cmdText = @"ALTER DATABASE CURRENT SET CHANGE_TRACKING = OFF";
+            using var cmd = new SqlCommand(cmdText, connection);
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        public static async Task<bool> GetIsChangeTrackingEnabledForTableAsync(this SqlConnection connection, SqlServerCTSyncTable table, CancellationToken cancellationToken)
+        {
+            var cmdText = $@"SELECT COUNT(*) FROM sys.change_tracking_tables WHERE object_id = OBJECT_ID('{table.NameWithSchema}')";
+            using var cmd = new SqlCommand(cmdText, connection);
+            return (int)await cmd.ExecuteScalarAsync(cancellationToken) == 1;
+        }
+
+        public static async Task EnableChangeTrackingForTableAsync(this SqlConnection connection, SqlServerCTSyncTable table, CancellationToken cancellationToken)
+        {
+            var cmdText = $@"ALTER TABLE {table.NameWithSchema} ENABLE CHANGE_TRACKING WITH (TRACK_COLUMNS_UPDATED = ON)";
+            using var cmd = new SqlCommand(cmdText, connection);
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        public static async Task DisableChangeTrackingForTableAsync(this SqlConnection connection, SqlServerCTSyncTable table, CancellationToken cancellationToken)
+        {
+            var cmdText = $@"ALTER TABLE {table.NameWithSchema} DISABLE CHANGE_TRACKING";
+            using var cmd = new SqlCommand(cmdText, connection);
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        public static async Task<string[]> GetTableNamesAsync(this SqlConnection connection, CancellationToken cancellationToken)
+        {
+            var cmdText = @"SELECT name FROM sys.Tables";
+            using var cmd = new SqlCommand(cmdText, connection);
+            using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            var listOfTableNames = new List<string>();
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                listOfTableNames.Add(reader.GetString(0));
+            }
+            return listOfTableNames.ToArray();
+        }
+
+        public static async Task<string[]> GetPrimaryKeyIndexesAsync(this SqlConnection connection, SqlServerCTSyncTable syncTable, CancellationToken cancellationToken)
+        {
+            var cmdText = $@"SELECT name AS Index_Name
+FROM sys.indexes
+WHERE is_hypothetical = 0 AND index_id != 0
+AND object_id = OBJECT_ID('{syncTable.NameWithSchema}')
+AND is_primary_key = 1";
+
+            using var cmd = new SqlCommand(cmdText, connection);
+            using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            var listOfIndexNames = new List<string>();
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                listOfIndexNames.Add(reader.GetString(0));
+            }
+            return listOfIndexNames.ToArray();
+        }
+
+        public static async Task<string[]> GetIndexColumnNamesAsync(this SqlConnection connection, SqlServerCTSyncTable syncTable, string indexName, CancellationToken cancellationToken)
+        {
+            var cmdText = $@"SELECT COL_NAME(b.object_id, b.column_id) AS Column_Name
+FROM sys.indexes AS a
+INNER JOIN sys.index_columns AS b ON a.object_id = b.object_id AND a.index_id = b.index_id
+WHERE a.is_hypothetical = 0
+AND a.object_id = OBJECT_ID('{syncTable.NameWithSchema}')
+AND a.name = '{indexName}'";
+
+            using var cmd = new SqlCommand(cmdText, connection);
+            using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            var listOfColumnNames = new List<string>();
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                listOfColumnNames.Add(reader.GetString(0));
+            }
+            return listOfColumnNames.ToArray();
+        }
+
+        public static async Task<SqlColumn[]> GetTableColumnsAsync(this SqlConnection connection, SqlServerCTSyncTable syncTable, CancellationToken cancellationToken)
+        {
+            var cmdText = $@"SELECT COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_SCALE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = '{syncTable.Name}' AND TABLE_SCHEMA = '{syncTable.Schema}'";
+
+            using var cmd = new SqlCommand(cmdText, connection);
+            using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            var listOfColumns = new List<SqlColumn>();
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var column = new SqlColumn(
+                    reader.GetString(0),
+                    TryGetSqlDbTypeFromString(reader.GetString(1)),
+                    reader.IsDBNull(2) ? null : reader.GetByte(2),
+                    reader.IsDBNull(3) ? null : (byte)reader.GetInt32(3)
+                );
+                listOfColumns.Add(column);
+            }
+            return listOfColumns.ToArray();
+        }
+
+        private static SqlDbType TryGetSqlDbTypeFromString(string typeName)
+        {
+            if (typeName == "sql_variant")
+                return SqlDbType.Variant;
+            if (typeName == "smalldatetime")
+                return SqlDbType.DateTime;
+            if (typeName == "rowversion")
+                return SqlDbType.Timestamp;
+            if (typeName == "numeric")
+                return SqlDbType.Decimal;
+            if (typeName == "image")
+                return SqlDbType.Binary;
+            if (typeName == "binary")
+                return SqlDbType.VarBinary;
+
+            return (SqlDbType)Enum.Parse(typeof(SqlDbType), typeName, true);
+        }
+    }
+}
