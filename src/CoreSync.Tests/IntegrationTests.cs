@@ -16,8 +16,7 @@ namespace CoreSync.Tests
     public partial class IntegrationTests
     {
         public static string ConnectionString => Environment.GetEnvironmentVariable("CORE-SYNC_CONNECTION_STRING") ??
-                                                 throw new ArgumentException(
-                                                     "Set CORE-SYNC_CONNECTION_STRING environmental variable containing connection string to Sql Server");
+                                                 "Server=localhost;User Id=sa;Password=CoreSync_Test123!;TrustServerCertificate=True";
 
         public static string PostgreSQLConnectionString => Environment.GetEnvironmentVariable("CORE-SYNC_POSTGRESQL_CONNECTION_STRING") ??
                                                            "Host=localhost;Port=5432;Database=coresync_test;Username=coresync;Password=test123";

@@ -11,6 +11,38 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: CoreSync_Test123!
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P CoreSync_Test123! -C -Q 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: coresync
+          POSTGRES_PASSWORD: test123
+          POSTGRES_DB: coresync_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U coresync"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      CORE-SYNC_CONNECTION_STRING: "Server=localhost;User Id=sa;Password=CoreSync_Test123!;TrustServerCertificate=True"
+      CORE-SYNC_POSTGRESQL_CONNECTION_STRING: "Host=localhost;Port=5432;Database=coresync_test;Username=coresync;Password=test123"
+
     steps:
       - uses: actions/checkout@v4
 
