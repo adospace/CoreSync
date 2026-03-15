@@ -18,7 +18,12 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <NoWarn>RS1036,NU1903,NU1902,NU1901,NU1904</NoWarn>
   </PropertyGroup>
-  
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="MessagePack.AspNetCoreMvcFormatter" Version="2.5.187" />

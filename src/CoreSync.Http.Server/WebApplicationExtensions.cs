@@ -1,4 +1,4 @@
-﻿using MessagePack.AspNetCoreMvcFormatter;
+using MessagePack.AspNetCoreMvcFormatter;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -13,13 +13,31 @@ using System.Threading.Tasks;
 
 namespace CoreSync.Http.Server;
 
+/// <summary>
+/// Extension methods for mapping CoreSync HTTP server endpoints in an ASP.NET Core application.
+/// </summary>
 public static class WebApplicationExtensions
 {
+    /// <summary>
+    /// Maps all CoreSync synchronization endpoints on the specified <see cref="WebApplication"/>.
+    /// </summary>
+    /// <param name="webApplication">The web application to add endpoints to.</param>
+    /// <param name="route">The route prefix for all sync endpoints. Defaults to <c>"api/sync-agent"</c>.</param>
+    /// <param name="optionsConfigure">An optional action to configure per-endpoint options via <see cref="SyncControllerOptions"/>.</param>
+    /// <exception cref="ArgumentException"><paramref name="route"/> is <c>null</c>, empty, or whitespace.</exception>
     public static void UseCoreSyncHttpServer(this WebApplication webApplication, string route = "api/sync-agent", Action<SyncControllerOptions>? optionsConfigure = null)
     {
         webApplication.MapCoreSyncHttpServerEndpoints(route, optionsConfigure);
     }
 
+    /// <summary>
+    /// Maps all CoreSync synchronization endpoints on the specified <see cref="IEndpointRouteBuilder"/>.
+    /// Use this overload when configuring endpoints outside of <see cref="WebApplication"/> (e.g., inside route groups).
+    /// </summary>
+    /// <param name="webApplication">The endpoint route builder to add endpoints to.</param>
+    /// <param name="route">The route prefix for all sync endpoints. Defaults to <c>"api/sync-agent"</c>.</param>
+    /// <param name="optionsConfigure">An optional action to configure per-endpoint options via <see cref="SyncControllerOptions"/>.</param>
+    /// <exception cref="ArgumentException"><paramref name="route"/> is <c>null</c>, empty, or whitespace.</exception>
     public static void MapCoreSyncHttpServerEndpoints(this IEndpointRouteBuilder webApplication, string route = "api/sync-agent", Action<SyncControllerOptions>? optionsConfigure = null)
     {
         if (string.IsNullOrWhiteSpace(route))
@@ -36,18 +54,18 @@ public static class WebApplicationExtensions
             specificAction?.Invoke(endpoint);
         }
 
-        var getStoreEndPoint = webApplication.MapGet($"/{route}/store-id", 
-            ([FromServices] SyncAgentController controller) 
+        var getStoreEndPoint = webApplication.MapGet($"/{route}/store-id",
+            ([FromServices] SyncAgentController controller)
             => controller.GetStoreIdAsync());
         ConfigureEndpoint(getStoreEndPoint, options.GetStoreIdEndpoint);
 
-        var getBulkChangeSetAsyncEndPoint = webApplication.MapGet($"/{route}/changes-bulk/{{storeId}}", 
+        var getBulkChangeSetAsyncEndPoint = webApplication.MapGet($"/{route}/changes-bulk/{{storeId}}",
             (string storeId, [FromServices] SyncAgentController controller)
             => controller.GetBulkChangeSetAsync(Guid.Parse(storeId)));
         ConfigureEndpoint(getBulkChangeSetAsyncEndPoint, options.GetBulkChangeSetAsyncEndPoint);
 
         var getBulkChangeSetItemEndPoint = webApplication.MapGet(
-            $"/{route}/changes-bulk-item/{{sessionId}}/{{skip}}/{{take}}", 
+            $"/{route}/changes-bulk-item/{{sessionId}}/{{skip}}/{{take}}",
             (string sessionId, int skip, int take, [FromServices] SyncAgentController controller)
                 => controller.GetBulkChangeSetItem(new BulkChangeSetDownloadItem
                 {
@@ -72,14 +90,14 @@ public static class WebApplicationExtensions
         ConfigureEndpoint(getBulkChangeSetItemBinaryEndPoint, options.GetBulkChangeSetItemBinaryEndPoint);
 
         var postBeginApplyBulkChangesEndPoint = webApplication.MapPost(
-            $"/{route}/changes-bulk-begin", 
-            ([FromBody] BulkSyncChangeSet bulkChangeSet, [FromServices] SyncAgentController controller) 
+            $"/{route}/changes-bulk-begin",
+            ([FromBody] BulkSyncChangeSet bulkChangeSet, [FromServices] SyncAgentController controller)
             => controller.BeginApplyBulkChanges(bulkChangeSet));
 
         ConfigureEndpoint(postBeginApplyBulkChangesEndPoint, options.PostBeginApplyBulkChangesEndPoint);
 
         var postApplyBulkChangesItemEndPoint = webApplication.MapPost(
-            $"/{route}/changes-bulk-item", 
+            $"/{route}/changes-bulk-item",
             ([FromBody] BulkChangeSetUploadItem bulkUploadItem, [FromServices] SyncAgentController controller)
             => controller.ApplyBulkChangesItem(bulkUploadItem));
         ConfigureEndpoint(postApplyBulkChangesItemEndPoint, options.PostApplyBulkChangesItemEndPoint);
@@ -92,8 +110,8 @@ public static class WebApplicationExtensions
         ConfigureEndpoint(postApplyBulkChangesItemBinaryEndPoint, options.PostApplyBulkChangesItemBinaryEndPoint);
 
         var postCompleteApplyBulkChangesAsyncEndPoint = webApplication.MapPost(
-            $"/{route}/changes-bulk-complete/{{sessionId}}", 
-            (string sessionId, [FromServices] SyncAgentController controller) 
+            $"/{route}/changes-bulk-complete/{{sessionId}}",
+            (string sessionId, [FromServices] SyncAgentController controller)
             => controller.CompleteApplyBulkChangesAsync(Guid.Parse(sessionId)));
         ConfigureEndpoint(postCompleteApplyBulkChangesAsyncEndPoint, options.PostCompleteApplyBulkChangesAsyncEndPoint);
 
@@ -104,8 +122,8 @@ public static class WebApplicationExtensions
         ConfigureEndpoint(postCompleteApplyBulkChangesBinaryAsyncEndPoint, options.PostCompleteApplyBulkChangesBinaryAsyncEndPoint);
 
         var postSaveVersionForStoreAsyncEndPoint = webApplication.MapPost(
-            $"/{route}/save-version/{{storeId}}/{{version}}", 
-            (string storeId, long version, [FromServices] SyncAgentController controller) 
+            $"/{route}/save-version/{{storeId}}/{{version}}",
+            (string storeId, long version, [FromServices] SyncAgentController controller)
             => controller.SaveVersionForStoreAsync(Guid.Parse(storeId), version));
         ConfigureEndpoint(postSaveVersionForStoreAsyncEndPoint, options.PostSaveVersionForStoreAsyncEndPoint);
     }
