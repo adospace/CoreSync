@@ -45,6 +45,7 @@ namespace CoreSync
         /// <param name="provider">The sync provider to get changes from.</param>
         /// <param name="otherStoreId">The unique identifier of the remote store to get changes for.</param>
         /// <param name="syncDirection">The direction of synchronization to filter applicable tables.</param>
+        /// <param name="tables">An optional list of table names to restrict the sync to. When <c>null</c>, all configured tables are included.</param>
         /// <param name="cancellationToken">A token to cancel the operation.</param>
         /// <returns>A <see cref="SyncChangeSet"/> containing the pending changes.</returns>
         public static Task<SyncChangeSet> GetChangesAsync(this ISyncProviderBase provider,
