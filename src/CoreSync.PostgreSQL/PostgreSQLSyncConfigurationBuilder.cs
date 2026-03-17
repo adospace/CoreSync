@@ -18,7 +18,9 @@ namespace CoreSync.PostgreSQL
     /// <code>
     /// var config = new PostgreSQLSyncConfigurationBuilder(connectionString)
     ///     .Table("items")
+    ///         .SkipColumns("internal_note")
     ///     .Table&lt;Order&gt;(syncDirection: SyncDirection.DownloadOnly)
+    ///         .SkipColumnsOnInsertOrUpdate("computed_total")
     ///     .Build();
     /// </code>
     /// </para>
@@ -130,6 +132,41 @@ namespace CoreSync.PostgreSQL
                 throw new InvalidOperationException($"Table with name '{name}' already added");
 
             return Table(name, typeof(T), syncDirection, skipInitialSnapshot, selectIncrementalQuery, customSnapshotQuery);
+        }
+
+        /// <summary>
+        /// Specifies columns to exclude entirely from synchronization for the most recently added table.
+        /// These columns will not be read or written during sync operations.
+        /// </summary>
+        /// <param name="columnNames">The column names to skip during synchronization.</param>
+        /// <returns>This builder instance for method chaining.</returns>
+        /// <exception cref="InvalidOperationException">No table has been added yet.</exception>
+        /// <exception cref="ArgumentNullException"><paramref name="columnNames"/> is <c>null</c>.</exception>
+        public PostgreSQLSyncConfigurationBuilder SkipColumns(params string[] columnNames)
+        {
+            var lastTable = _tables.LastOrDefault()
+                ?? throw new InvalidOperationException("SkipColumns requires a table");
+
+            lastTable.SkipColumns = columnNames ?? throw new ArgumentNullException();
+            return this;
+        }
+
+        /// <summary>
+        /// Specifies columns to exclude from insert and update operations for the most recently added table.
+        /// Unlike <see cref="SkipColumns"/>, these columns are still read during change detection but are
+        /// not written when applying changes.
+        /// </summary>
+        /// <param name="columnNames">The column names to skip during insert and update operations.</param>
+        /// <returns>This builder instance for method chaining.</returns>
+        /// <exception cref="InvalidOperationException">No table has been added yet.</exception>
+        /// <exception cref="ArgumentNullException"><paramref name="columnNames"/> is <c>null</c>.</exception>
+        public PostgreSQLSyncConfigurationBuilder SkipColumnsOnInsertOrUpdate(params string[] columnNames)
+        {
+            var lastTable = _tables.LastOrDefault()
+                ?? throw new InvalidOperationException("SkipColumnsOnInsertOrUpdate requires a table");
+
+            lastTable.SkipColumnsOnInsertOrUpdate = columnNames ?? throw new ArgumentNullException();
+            return this;
         }
 
         /// <summary>

@@ -15,6 +15,10 @@ namespace CoreSync.PostgreSQL
             RecordType = recordType;
         }
 
+        internal string[] SkipColumns { get; set; } = Array.Empty<string>();
+
+        internal string[] SkipColumnsOnInsertOrUpdate { get; set; } = Array.Empty<string>();
+
         /// <summary>
         /// Record type can be useful to cast back to correct types record values 
         /// when are read from PostgreSQL database
@@ -46,7 +50,7 @@ namespace CoreSync.PostgreSQL
         private string SelectQueryWithFilter
             => SelectIncrementalQuery != null ? $"({SelectIncrementalQuery})" : $"\"{Name}\"";
 
-        internal string IncrementalAddOrUpdatesQuery => $@"SELECT DISTINCT {string.Join(",", Columns.Select(_ => "T.\"" + _.Key + "\""))}, CT.op AS __OP 
+        internal string IncrementalAddOrUpdatesQuery => $@"SELECT DISTINCT {string.Join(",", Columns.Keys.Except(SkipColumns).Select(_ => "T.\"" + _ + "\""))}, CT.op AS __OP
                                 FROM {SelectQueryWithFilter} AS T INNER JOIN __core_sync_ct AS CT ON T.""{PrimaryColumnName}""{(Columns[PrimaryColumnName].Type.Equals("uuid", StringComparison.OrdinalIgnoreCase) ? "::text" : "")} = CT.pk_{PrimaryColumnType.ToString().ToLowerInvariant()} WHERE CT.id > ${(SelectIncrementalQuery != null ? 2 : 1)} AND CT.tbl = ${(SelectIncrementalQuery != null ? 3 : 2)} AND (CT.src IS NULL OR CT.src != ${(SelectIncrementalQuery != null ? 4 : 3)})";
 
         internal string IncrementalDeletesQuery => 
@@ -90,8 +94,11 @@ namespace CoreSync.PostgreSQL
         internal void SetupCommand(NpgsqlCommand cmd, ChangeType itemChangeType, Dictionary<string, SyncItemValue> syncItemValues)
         {
             //take values only for existing columns (server table schema could be not in sync with local table schema)
+            //also exclude columns that are configured to be skipped
+            var allColumnsExceptSkipColumns = Columns.Keys.Except(SkipColumns.Concat(SkipColumnsOnInsertOrUpdate)).ToArray();
+
             var valuesForValidColumns = syncItemValues
-                .Where(value => Columns.Any(_ => StringComparer.OrdinalIgnoreCase.Compare(_.Key, value.Key) == 0))
+                .Where(value => allColumnsExceptSkipColumns.Any(_ => StringComparer.OrdinalIgnoreCase.Compare(_, value.Key) == 0))
                 .ToList();
 
             switch (itemChangeType)
