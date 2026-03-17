@@ -77,11 +77,11 @@ namespace CoreSync
                 var localStoreId = await LocalSyncProvider.GetStoreIdAsync(cancellationToken);
                 var remoteStoreId = await RemoteSyncProvider.GetStoreIdAsync(cancellationToken);
 
-                var localChangeSet = await LocalSyncProvider.GetChangesAsync(remoteStoreId, localSyncFilterParameters, SyncDirection.UploadOnly, cancellationToken: cancellationToken);
+                var localChangeSet = await LocalSyncProvider.GetChangesAsync(remoteStoreId, localSyncFilterParameters, SyncDirection.UploadOnly, RemoteSyncProvider.SyncTableNames, cancellationToken: cancellationToken);
                 await RemoteSyncProvider.ApplyChangesAsync(localChangeSet, remoteConflictResolutionFunc, cancellationToken: cancellationToken);
                 await LocalSyncProvider.SaveVersionForStoreAsync(remoteStoreId, localChangeSet.SourceAnchor.Version, cancellationToken: cancellationToken);
 
-                var remoteChangeSet = await RemoteSyncProvider.GetChangesAsync(localStoreId, remoteSyncFilterParameters, SyncDirection.DownloadOnly, cancellationToken: cancellationToken);
+                var remoteChangeSet = await RemoteSyncProvider.GetChangesAsync(localStoreId, remoteSyncFilterParameters, SyncDirection.DownloadOnly, LocalSyncProvider.SyncTableNames, cancellationToken: cancellationToken);
                 await LocalSyncProvider.ApplyChangesAsync(remoteChangeSet, localConflictResolutionFunc, cancellationToken: cancellationToken);
                 await RemoteSyncProvider.SaveVersionForStoreAsync(localStoreId, remoteChangeSet.SourceAnchor.Version, cancellationToken: cancellationToken);
 

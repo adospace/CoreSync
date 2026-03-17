@@ -1225,5 +1225,100 @@ namespace CoreSync.Tests
             localUsers[0].Name.ShouldBe("User 1 edited after CT re-enabled");
         }
 
+        private static async Task TestGetChangesWithTableFilter(
+            BlogDbContext localDb,
+            ISyncProvider localSyncProvider,
+            BlogDbContext remoteDb,
+            ISyncProvider remoteSyncProvider)
+        {
+            await localSyncProvider.ApplyProvisionAsync();
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localStoreId = await localSyncProvider.GetStoreIdAsync();
+            var remoteStoreId = await remoteSyncProvider.GetStoreIdAsync();
+
+            // Insert data into all 3 tables on the remote (server) side
+            var user = new User { Email = "filter@test.com", Name = "FilterUser", Created = new DateTime(2024, 1, 1) };
+            remoteDb.Users.Add(user);
+            await remoteDb.SaveChangesAsync();
+
+            var post = new Post { Author = user, Title = "Post1", Content = "Content1", Updated = new DateTime(2024, 1, 2) };
+            remoteDb.Posts.Add(post);
+            await remoteDb.SaveChangesAsync();
+
+            var comment = new Comment { Post = post, Author = user, Content = "Comment1", Created = new DateTime(2024, 1, 3) };
+            remoteDb.Comments.Add(comment);
+            await remoteDb.SaveChangesAsync();
+
+            // 1) Get changes for ALL tables (no filter) — should have items from all 3 tables
+            var allChanges = await remoteSyncProvider.GetChangesAsync(localStoreId);
+            allChanges.Items.Count.ShouldBeGreaterThanOrEqualTo(3);
+            allChanges.Items.Select(i => i.TableName).Distinct().Count().ShouldBe(3);
+
+            // 2) Get changes requesting only Users and Posts — Comments should be excluded
+            var filteredChanges = await remoteSyncProvider.GetChangesAsync(
+                localStoreId, syncFilterParameters: null, syncDirection: SyncDirection.UploadAndDownload,
+                tables: new[] { "Users", "Posts" });
+
+            filteredChanges.ShouldNotBeNull();
+            filteredChanges.Items.ShouldNotBeNull();
+
+            var filteredTableNames = filteredChanges.Items.Select(i => i.TableName).Distinct().ToArray();
+            filteredTableNames.ShouldContain("Users");
+            filteredTableNames.ShouldContain("Posts");
+            filteredTableNames.ShouldNotContain("Comments");
+
+            // 3) Verify server-side table order is preserved: Users comes before Posts
+            var firstUserIndex = filteredChanges.Items.ToList().FindIndex(i => i.TableName == "Users");
+            var firstPostIndex = filteredChanges.Items.ToList().FindIndex(i => i.TableName == "Posts");
+            firstUserIndex.ShouldBeLessThan(firstPostIndex);
+
+            // 4) Get changes requesting only a single table
+            var singleTableChanges = await remoteSyncProvider.GetChangesAsync(
+                localStoreId, syncFilterParameters: null, syncDirection: SyncDirection.UploadAndDownload,
+                tables: new[] { "Comments" });
+
+            singleTableChanges.Items.ShouldNotBeNull();
+            singleTableChanges.Items.Count.ShouldBe(1);
+            singleTableChanges.Items[0].TableName.ShouldBe("Comments");
+
+            // 5) Requesting a table NOT in the server configuration should throw ArgumentException
+            await Should.ThrowAsync<ArgumentException>(async () =>
+            {
+                await remoteSyncProvider.GetChangesAsync(
+                    localStoreId, syncFilterParameters: null, syncDirection: SyncDirection.UploadAndDownload,
+                    tables: new[] { "Users", "NonExistentTable" });
+            });
+
+            // 6) Passing null tables should behave the same as no filter (all tables)
+            var nullFilterChanges = await remoteSyncProvider.GetChangesAsync(
+                localStoreId, syncFilterParameters: null, syncDirection: SyncDirection.UploadAndDownload,
+                tables: null);
+            nullFilterChanges.Items.Select(i => i.TableName).Distinct().Count().ShouldBe(3);
+
+            // 7) Apply the filtered changes (Users + Posts only) to local and verify
+            var filteredChangesForApply = await remoteSyncProvider.GetChangesAsync(
+                localStoreId, syncFilterParameters: null, syncDirection: SyncDirection.DownloadOnly,
+                tables: new[] { "Users", "Posts" });
+
+            await localSyncProvider.ApplyChangesAsync(filteredChangesForApply);
+            await remoteSyncProvider.SaveVersionForStoreAsync(localStoreId, filteredChangesForApply.SourceAnchor.Version);
+
+            localDb = localDb.Refresh();
+
+            // Users and Posts should be synced
+            var localUsers = await localDb.Users.ToListAsync();
+            localUsers.Count.ShouldBe(1);
+            localUsers[0].Email.ShouldBe("filter@test.com");
+
+            var localPosts = await localDb.Posts.ToListAsync();
+            localPosts.Count.ShouldBe(1);
+            localPosts[0].Title.ShouldBe("Post1");
+
+            // Comments should NOT be synced since we filtered them out
+            var localComments = await localDb.Comments.ToListAsync();
+            localComments.Count.ShouldBe(0);
+        }
+
     }
 }

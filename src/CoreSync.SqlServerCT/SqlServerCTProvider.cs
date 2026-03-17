@@ -30,6 +30,7 @@ namespace CoreSync.SqlServerCT
 
         public SqlServerCTSyncConfiguration Configuration { get; }
         public ProviderMode ProviderMode { get; }
+        public string[]? SyncTableNames => Configuration.Tables.Select(_ => _.Name).ToArray();
 
         public async Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, Func<SyncItem, ConflictResolution>? onConflictFunc = null, CancellationToken cancellationToken = default)
         {
@@ -480,9 +481,11 @@ namespace CoreSync.SqlServerCT
             }
         }
 
-        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncFilterParameter[]? syncFilterParameters, SyncDirection syncDirection, CancellationToken cancellationToken = default)
+        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncFilterParameter[]? syncFilterParameters, SyncDirection syncDirection, string[]? tables = null, CancellationToken cancellationToken = default)
         {
             syncFilterParameters ??= Array.Empty<SyncFilterParameter>();
+
+            var tablesToSync = Configuration.ResolveTableFilter(tables);
 
             var fromAnchor = await GetLastLocalAnchorForStoreAsync(otherStoreId, cancellationToken);
 
@@ -510,7 +513,7 @@ namespace CoreSync.SqlServerCT
                 // Validate that the requested version is still valid
                 if (!fromAnchor.IsNull())
                 {
-                    foreach (SqlServerCTSyncTable table in Configuration.Tables.Cast<SqlServerCTSyncTable>())
+                    foreach (SqlServerCTSyncTable table in tablesToSync.Cast<SqlServerCTSyncTable>())
                     {
                         cmd.CommandText = $"SELECT CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID('{table.NameWithSchema}'))";
                         cmd.Parameters.Clear();
@@ -521,7 +524,7 @@ namespace CoreSync.SqlServerCT
                     }
                 }
 
-                foreach (SqlServerCTSyncTable table in Configuration.Tables.Cast<SqlServerCTSyncTable>())
+                foreach (SqlServerCTSyncTable table in tablesToSync.Cast<SqlServerCTSyncTable>())
                 {
                     if (table.SyncDirection != SyncDirection.UploadAndDownload &&
                         table.SyncDirection != syncDirection)

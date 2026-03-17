@@ -60,8 +60,8 @@ public static class WebApplicationExtensions
         ConfigureEndpoint(getStoreEndPoint, options.GetStoreIdEndpoint);
 
         var getBulkChangeSetAsyncEndPoint = webApplication.MapGet($"/{route}/changes-bulk/{{storeId}}",
-            (string storeId, [FromServices] SyncAgentController controller)
-            => controller.GetBulkChangeSetAsync(Guid.Parse(storeId)));
+            (string storeId, HttpRequest request, [FromServices] SyncAgentController controller)
+            => controller.GetBulkChangeSetAsync(Guid.Parse(storeId), request));
         ConfigureEndpoint(getBulkChangeSetAsyncEndPoint, options.GetBulkChangeSetAsyncEndPoint);
 
         var getBulkChangeSetItemEndPoint = webApplication.MapGet(

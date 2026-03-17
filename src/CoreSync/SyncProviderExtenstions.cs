@@ -50,8 +50,9 @@ namespace CoreSync
         public static Task<SyncChangeSet> GetChangesAsync(this ISyncProviderBase provider,
             Guid otherStoreId,
             SyncDirection syncDirection = SyncDirection.UploadAndDownload,
+            string[]? tables = null,
             CancellationToken cancellationToken = default)
-            => provider.GetChangesAsync(otherStoreId, null, syncDirection, cancellationToken);
+            => provider.GetChangesAsync(otherStoreId, null, syncDirection, tables, cancellationToken);
 
     }
 }

@@ -1595,6 +1595,204 @@ namespace CoreSync.Tests
             await TestSynchronizationAfterDisabledChangeTrackingForTable(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
         }
 
+        #region GetChangesWithTableFilter Tests
+
+        [TestMethod]
+        public async Task TestGetChangesWithTableFilter_Sqlite_Sqlite()
+        {
+            var localDbFile = $"{Path.GetTempPath()}TestGetChangesWithTableFilter_Sqlite_Sqlite_local.sqlite";
+            var remoteDbFile = $"{Path.GetTempPath()}TestGetChangesWithTableFilter_Sqlite_Sqlite_remote.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+            if (File.Exists(remoteDbFile)) File.Delete(remoteDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new SqliteBlogDbContext($"Data Source={remoteDbFile}");
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table<User>("Users")
+                    .Table<Post>("Posts")
+                    .Table<Comment>("Comments");
+
+            ISyncProvider remoteSyncProvider = new SqliteSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table<User>("Users")
+                    .Table<Post>("Posts")
+                    .Table<Comment>("Comments");
+
+            ISyncProvider localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+
+            await TestGetChangesWithTableFilter(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task TestGetChangesWithTableFilter_SqlServer_SqlServer()
+        {
+            using var localDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=TestTableFilter_Local");
+            using var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=TestTableFilter_Remote");
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+
+            var localConfigurationBuilder =
+                new SqlSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider localSyncProvider = new SqlSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+
+            await TestGetChangesWithTableFilter(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task TestGetChangesWithTableFilter_SqlServer_Sqlite()
+        {
+            var localDbFile = $"{Path.GetTempPath()}TestGetChangesWithTableFilter_SqlServer_Sqlite_local.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=TestTableFilter_SqlServer_Sqlite_Remote");
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table<User>("Users")
+                    .Table<Post>("Posts")
+                    .Table<Comment>("Comments");
+
+            ISyncProvider localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+
+            await TestGetChangesWithTableFilter(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task TestGetChangesWithTableFilter_PostgreSQL_PostgreSQL()
+        {
+            using var localDb = new PostgreSQLBlogDbContext(PostgreSQLConnectionString + ";Database=coresync_test_tablefilter_local");
+            using var remoteDb = new PostgreSQLBlogDbContext(PostgreSQLConnectionString + ";Database=coresync_test_tablefilter_remote");
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new PostgreSQLSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new PostgreSQLSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+
+            var localConfigurationBuilder =
+                new PostgreSQLSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider localSyncProvider = new PostgreSQLSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+
+            await TestGetChangesWithTableFilter(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task TestGetChangesWithTableFilter_Sqlite_PostgreSQL()
+        {
+            var localDbFile = $"{Path.GetTempPath()}TestGetChangesWithTableFilter_Sqlite_PostgreSQL_local.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new PostgreSQLBlogDbContext(PostgreSQLConnectionString + ";Database=coresync_test_tablefilter_sqlite_pg_remote");
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new PostgreSQLSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new PostgreSQLSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table<User>("Users")
+                    .Table<Post>("Posts")
+                    .Table<Comment>("Comments");
+
+            ISyncProvider localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+
+            await TestGetChangesWithTableFilter(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task TestGetChangesWithTableFilter_SqlServerCT_SqlServerCT()
+        {
+            using var localDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=TestTableFilterCT_Local");
+            using var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=TestTableFilterCT_Remote");
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new SqlServerCTSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new SqlServerCTProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+
+            var localConfigurationBuilder =
+                new SqlServerCTSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider localSyncProvider = new SqlServerCTProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+
+            await TestGetChangesWithTableFilter(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        #endregion
+
         #region SqlServerCT Tests
 
         [TestMethod]

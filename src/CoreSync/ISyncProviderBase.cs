@@ -14,6 +14,12 @@ namespace CoreSync
     public interface ISyncProviderBase
     {
         /// <summary>
+        /// Gets the names of the tables configured for synchronization on this provider,
+        /// or <c>null</c> when the provider does not know its table list (e.g., an HTTP client proxy).
+        /// </summary>
+        string[]? SyncTableNames { get; }
+
+        /// <summary>
         /// Gets the unique identifier for this sync store.
         /// </summary>
         /// <param name="cancellationToken">A token to cancel the operation.</param>
@@ -50,9 +56,15 @@ namespace CoreSync
         /// <param name="otherStoreId">The unique identifier of the remote store to get changes for.</param>
         /// <param name="syncFilterParameters">Optional filter parameters to narrow the set of returned changes.</param>
         /// <param name="syncDirection">The direction of synchronization to filter applicable tables.</param>
+        /// <param name="tables">
+        /// An optional list of table names to restrict the sync to. When specified, only tables present in both
+        /// this list and the provider's configuration will be included, preserving the configuration-defined order.
+        /// All specified table names must exist in the provider's configuration; otherwise an <see cref="ArgumentException"/> is thrown.
+        /// When <c>null</c>, all configured tables are included.
+        /// </param>
         /// <param name="cancellationToken">A token to cancel the operation.</param>
         /// <returns>A <see cref="SyncChangeSet"/> containing the pending changes.</returns>
         [NotNull, ItemNotNull]
-        Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncFilterParameter[]? syncFilterParameters = null, SyncDirection syncDirection = SyncDirection.UploadAndDownload, CancellationToken cancellationToken = default);
+        Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncFilterParameter[]? syncFilterParameters = null, SyncDirection syncDirection = SyncDirection.UploadAndDownload, string[]? tables = null, CancellationToken cancellationToken = default);
     }
 }

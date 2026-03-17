@@ -1,4 +1,5 @@
-﻿using JetBrains.Annotations;
+﻿using CoreSync.Http;
+using JetBrains.Annotations;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -23,6 +24,8 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
     private readonly SyncProviderHttpClientOptions _options;
 
     public event EventHandler<SyncProgressEventArgs>? SyncProgress;
+
+    public string[]? SyncTableNames => null;
 
     public SyncProviderHttpClient(IHttpClientFactory httpClientProvider, SyncProviderHttpClientOptions options)
     {
@@ -99,13 +102,23 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
         return await remoteChangeSetResponse.Content.ReadFromJsonAsync<SyncAnchor>(cancellationToken: cancellationToken) ?? throw new InvalidOperationException();
     }
 
-    public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncFilterParameter[]? syncFilterParameters, SyncDirection syncDirection, CancellationToken cancellationToken = default)
+    public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncFilterParameter[]? syncFilterParameters, SyncDirection syncDirection, string[]? tables = null, CancellationToken cancellationToken = default)
     {
         var httpClient = _httpClientFactory.CreateClient(_options.HttpClientName ?? Options.DefaultName);
 
         SyncProgress?.Invoke(this, new SyncProgressEventArgs(SyncStage.ComputingRemotingChanges));
 
-        var bulkSyncChangeSet = await httpClient.GetFromJsonAsync<BulkSyncChangeSet>($"/{_options.SyncControllerRoute}/changes-bulk/{otherStoreId}", cancellationToken)
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/{_options.SyncControllerRoute}/changes-bulk/{otherStoreId}");
+        if (tables is { Length: > 0 })
+        {
+            request.Headers.Add(SyncHttpHeaders.Tables, string.Join(",", tables));
+            request.Headers.Add(SyncHttpHeaders.TablesCount, tables.Length.ToString());
+        }
+
+        var response = await httpClient.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        var bulkSyncChangeSet = await response.Content.ReadFromJsonAsync<BulkSyncChangeSet>(cancellationToken)
             ?? throw new InvalidOperationException();
 
         if (_options.UseBinaryFormat)

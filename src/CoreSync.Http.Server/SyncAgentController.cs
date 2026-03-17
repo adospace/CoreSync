@@ -1,4 +1,5 @@
-﻿using MessagePack;
+﻿using CoreSync.Http;
+using MessagePack;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
@@ -40,9 +41,22 @@ class SyncAgentController
         return result.ToString();
     }
 
-    public async Task<BulkSyncChangeSet> GetBulkChangeSetAsync(Guid storeId)
+    public async Task<BulkSyncChangeSet> GetBulkChangeSetAsync(Guid storeId, HttpRequest request)
     {
-        var changeSet = await _syncProvider.GetChangesAsync(storeId, SyncDirection.DownloadOnly);
+        string[]? tables = null;
+        if (request.Headers.TryGetValue(SyncHttpHeaders.Tables, out var tablesHeader))
+        {
+            tables = tablesHeader.ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            if (request.Headers.TryGetValue(SyncHttpHeaders.TablesCount, out var countHeader)
+                && int.TryParse(countHeader, out var expectedCount)
+                && tables.Length != expectedCount)
+            {
+                throw new ArgumentException($"Expected {expectedCount} table names in {SyncHttpHeaders.Tables} header but received {tables.Length}. The header may have been truncated.");
+            }
+        }
+
+        var changeSet = await _syncProvider.GetChangesAsync(storeId, SyncDirection.DownloadOnly, tables: tables);
 
         _logger.LogInformation("GetBulkChangeSetAsync({StoreId})->(Source={SourceAnchor} Target={TargetAnchor} Items={ItemsCount})",
             storeId,

@@ -31,6 +31,7 @@ namespace CoreSync.Sqlite
 
         public SqliteSyncConfiguration Configuration { get; }
         public ProviderMode ProviderMode { get; }
+        public string[]? SyncTableNames => Configuration.Tables.Select(_ => _.Name).ToArray();
 
         public async Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, [CanBeNull] Func<SyncItem, ConflictResolution>? onConflictFunc = null, CancellationToken cancellationToken = default)
         {
@@ -243,9 +244,11 @@ namespace CoreSync.Sqlite
             }
         }
 
-        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncFilterParameter[]? syncFilterParameters = null, SyncDirection syncDirection = SyncDirection.UploadAndDownload, CancellationToken cancellationToken = default)
+        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncFilterParameter[]? syncFilterParameters = null, SyncDirection syncDirection = SyncDirection.UploadAndDownload, string[]? tables = null, CancellationToken cancellationToken = default)
         {
             syncFilterParameters ??= [];
+
+            var tablesToSync = Configuration.ResolveTableFilter(tables);
 
             var fromAnchor = (await GetLastLocalAnchorForStoreAsync(otherStoreId, cancellationToken));
 
@@ -280,7 +283,7 @@ namespace CoreSync.Sqlite
                 if (!fromAnchor.IsNull() && fromAnchor.Version < minVersion - 1)
                     throw new InvalidOperationException($"Unable to get changes, version of data requested ({fromAnchor}) is too old (min valid version {minVersion})");
 
-                foreach (var table in Configuration.Tables.Cast<SqliteSyncTable>().Where(_ => _.Columns.Any()))
+                foreach (var table in tablesToSync.Cast<SqliteSyncTable>().Where(_ => _.Columns.Any()))
                 {
                     if (table.SyncDirection != SyncDirection.UploadAndDownload &&
                         table.SyncDirection != syncDirection)

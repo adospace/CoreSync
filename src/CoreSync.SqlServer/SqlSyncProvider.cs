@@ -32,6 +32,7 @@ namespace CoreSync.SqlServer
 
         public SqlSyncConfiguration Configuration { get; }
         public ProviderMode ProviderMode { get; }
+        public string[]? SyncTableNames => Configuration.Tables.Select(_ => _.Name).ToArray();
 
         public async Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, Func<SyncItem, ConflictResolution>? onConflictFunc = null, CancellationToken cancellationToken = default)
         {
@@ -667,9 +668,11 @@ END");
             }
         }
 
-        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncFilterParameter[]? syncFilterParameters, SyncDirection syncDirection, CancellationToken cancellationToken = default)
+        public async Task<SyncChangeSet> GetChangesAsync(Guid otherStoreId, SyncFilterParameter[]? syncFilterParameters, SyncDirection syncDirection, string[]? tables = null, CancellationToken cancellationToken = default)
         {
             syncFilterParameters ??= [];
+
+            var tablesToSync = Configuration.ResolveTableFilter(tables);
 
             var fromAnchor = (await GetLastLocalAnchorForStoreAsync(otherStoreId, cancellationToken));
 
@@ -701,7 +704,7 @@ END");
                 if (!fromAnchor.IsNull() && fromAnchor.Version < minVersion - 1)
                     throw new InvalidOperationException($"Unable to get changes, version of data requested ({fromAnchor}) is too old (min valid version {minVersion})");
 
-                foreach (SqlSyncTable table in Configuration.Tables.Cast<SqlSyncTable>())
+                foreach (SqlSyncTable table in tablesToSync.Cast<SqlSyncTable>())
                 {
                     if (table.SyncDirection != SyncDirection.UploadAndDownload &&
                         table.SyncDirection != syncDirection)
