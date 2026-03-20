@@ -170,8 +170,18 @@ class SyncAgentController
             {
                 foreach (var itemValueEntry in item.Values.Where(_ => _.Key != "__OP").ToList())
                 {
-                    item.Values[itemValueEntry.Key].Value = itemValueEntry.Value.Value == null ? null :
-                        ConvertJsonElementToObject((JsonElement)itemValueEntry.Value.Value, itemValueEntry.Value.Type);
+                    var rawValue = itemValueEntry.Value.Value;
+                    if (rawValue == null)
+                    {
+                        item.Values[itemValueEntry.Key].Value = null;
+                    }
+                    else if (rawValue is JsonElement jsonElement)
+                    {
+                        item.Values[itemValueEntry.Key].Value =
+                            ConvertJsonElementToObject(jsonElement, itemValueEntry.Value.Type);
+                    }
+                    // else: value is already a native .NET type (e.g. from MessagePack deserialization
+                    // or newer System.Text.Json versions) — no conversion needed.
                 }
             }
 

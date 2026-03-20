@@ -84,12 +84,18 @@ namespace CoreSync.PostgreSQL
 
                     try
                     {
+                        // Use a savepoint so that a failed statement does not abort
+                        // the entire PostgreSQL transaction (error state 25P02).
+                        await tr.SaveAsync("sync_item", cancellationToken);
+
                         affectedRows = await cmd.ExecuteNonQueryAsync(cancellationToken);
 
                         if (affectedRows > 0)
                         {
                             _logger?.Trace($"[{_storeId}] Successfully applied {item}");
                         }
+
+                        await tr.ReleaseAsync("sync_item", cancellationToken);
                     }
                     catch (OperationCanceledException)
                     {
@@ -98,6 +104,9 @@ namespace CoreSync.PostgreSQL
                     catch (Exception ex)
                     {
                         _logger?.Error($"Unable to {itemChangeType} item {item} to store for table {table}.{Environment.NewLine}{ex}{Environment.NewLine}Generated SQL:{Environment.NewLine}{cmd.CommandText}");
+                        // Rollback to the savepoint so the transaction can continue
+                        // processing remaining items.
+                        try { await tr.RollbackAsync("sync_item", cancellationToken); } catch { /* already rolled back */ }
                     }
 
                     if (affectedRows == 0)
