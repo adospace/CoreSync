@@ -84,4 +84,4 @@ jobs:
         run: dotnet build src/CoreSync.sln --configuration Release --no-restore -p:Version=${{ steps.version.outputs.VERSION }}
 
       - name: Push to NuGet
-        run: dotnet nuget push "src/**/bin/Release/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+        run: dotnet nuget push "src/**/bin/Release/*.nupkg" --api-key "${{ secrets.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
