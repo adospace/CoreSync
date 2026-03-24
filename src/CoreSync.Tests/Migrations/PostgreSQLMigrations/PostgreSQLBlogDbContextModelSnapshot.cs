@@ -127,7 +127,8 @@ namespace CoreSync.Tests.Migrations.PostgreSQLMigrations
                 {
                     b.HasOne("CoreSync.Tests.Data.User", "Author")
                         .WithMany("Posts")
-                        .HasForeignKey("AuthorEmail");
+                        .HasForeignKey("AuthorEmail")
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.Navigation("Author");
                 });

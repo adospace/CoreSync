@@ -216,8 +216,12 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
         {
             foreach (var itemValueEntry in item.Values.Where(_ => _.Key != "__OP").ToList())
             {
-                item.Values[itemValueEntry.Key].Value = itemValueEntry.Value.Value == null ? null :
-                    ConvertJsonValueToNetObject((JsonElement)itemValueEntry.Value.Value, itemValueEntry.Value.Type);
+                item.Values[itemValueEntry.Key].Value = itemValueEntry.Value.Value switch
+                {
+                    null => null,
+                    JsonElement jsonElement => ConvertJsonValueToNetObject(jsonElement, itemValueEntry.Value.Type),
+                    _ => itemValueEntry.Value.Value // already deserialized to the target type
+                };
 
                 //WARN: can't convert every Id to lowercase because sqlite is case sensitive!
                 //if (itemValueEntry.Value.Value != null &&

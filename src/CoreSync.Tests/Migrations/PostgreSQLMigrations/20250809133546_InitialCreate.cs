@@ -43,7 +43,8 @@ namespace CoreSync.Tests.Migrations.PostgreSQLMigrations
                         name: "FK_Posts_Users_AuthorEmail",
                         column: x => x.AuthorEmail,
                         principalTable: "Users",
-                        principalColumn: "Email");
+                        principalColumn: "Email",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(

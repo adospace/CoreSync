@@ -858,6 +858,240 @@ namespace CoreSync.Tests
         }
 
         [TestMethod]
+        public async Task Test_Sqlite_PostgreSQL_DeleteParentRecordInRelatedTables()
+        {
+            var localDbFile = $"{Path.GetTempPath()}Test_Sqlite_PostgreSQL_DeleteParentRecordInRelatedTables_local.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new PostgreSQLBlogDbContext(PostgreSQLConnectionString + ";Database=coresync_test_delparent_sqlite_pg");
+
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            localDb.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+
+            var remoteConfigurationBuilder =
+                new PostgreSQLSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var remoteSyncProvider = new PostgreSQLSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await TestSyncAgentDeleteParentRecordInRelatedTables(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test_Sqlite_SqlServer_DeleteParentRecordInRelatedTables()
+        {
+            var localDbFile = $"{Path.GetTempPath()}Test_Sqlite_SqlServer_DeleteParentRecordInRelatedTables_local.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test_Sqlite_SqlServer_DeleteParentRecordInRelatedTables");
+
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            localDb.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+
+            var remoteConfigurationBuilder =
+                new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await TestSyncAgentDeleteParentRecordInRelatedTables(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test_Sqlite_SqlServer_DeleteLocalParentRecordInRelatedTablesUpdatedOnServer()
+        {
+            var localDbFile = $"{Path.GetTempPath()}Test_Sqlite_SqlServer_DeleteLocalParentRecordInRelatedTablesUpdatedOnServer.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test_Sqlite_SqlServer_DelLocalParentUpdOnSrv");
+
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            localDb.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+
+            var remoteConfigurationBuilder =
+                new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await TestDeleteLocalParentRecordInRelatedTablesUpdatedOnServer(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test_Sqlite_SqlServer_TestDeleteLocalParentRecordInRelatedTablesUpdatedOnServerSkipApplyChanges()
+        {
+            var localDbFile = $"{Path.GetTempPath()}Test_Sqlite_SqlServer_DelLocalParentUpdOnSrvSkip.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test_Sqlite_SqlServer_DelLocalParentUpdOnSrvSkip");
+
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            localDb.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+
+            var remoteConfigurationBuilder =
+                new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await TestDeleteLocalParentRecordInRelatedTablesUpdatedOnServerSkipApplyChanges(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test_Sqlite_PostgreSQL_DeleteLocalParentRecordInRelatedTablesUpdatedOnServer()
+        {
+            var localDbFile = $"{Path.GetTempPath()}Test_Sqlite_PostgreSQL_DeleteLocalParentRecordInRelatedTablesUpdatedOnServer.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new PostgreSQLBlogDbContext(PostgreSQLConnectionString + ";Database=coresync_test_dellocalparentupdonsrv");
+
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            localDb.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+
+            var remoteConfigurationBuilder =
+                new PostgreSQLSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var remoteSyncProvider = new PostgreSQLSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await TestDeleteLocalParentRecordInRelatedTablesUpdatedOnServer(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test_Sqlite_PostgreSQL_TestDeleteLocalParentRecordInRelatedTablesUpdatedOnServerSkipApplyChanges()
+        {
+            var localDbFile = $"{Path.GetTempPath()}Test_Sqlite_PostgreSQL_DelLocalParentUpdOnSrvSkip.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new PostgreSQLBlogDbContext(PostgreSQLConnectionString + ";Database=coresync_test_dellocalparentupdonsrvskip");
+
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            localDb.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+
+            var remoteConfigurationBuilder =
+                new PostgreSQLSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var remoteSyncProvider = new PostgreSQLSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await TestDeleteLocalParentRecordInRelatedTablesUpdatedOnServerSkipApplyChanges(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
         public async Task Test_SqlServer_SqlServer_DeleteLocalParentRecordInRelatedTablesUpdatedOnServer()
         {
             using var localDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test_SqlServer_SqlServer_DeleteLocalParentRecordInRelatedTablesUpdatedOnServer_local");

@@ -25,10 +25,10 @@ namespace CoreSync.Tests
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
-            ISyncProvider remoteSyncProvider)
+            ISyncProviderBase remoteSyncProvider)
         {
             await localSyncProvider.ApplyProvisionAsync();
-            await remoteSyncProvider.ApplyProvisionAsync();
+            if (remoteSyncProvider is ISyncProvider remoteProvider) await remoteProvider.ApplyProvisionAsync();
 
             var localStoreId = await localSyncProvider.GetStoreIdAsync();
             var remoteStoreId = await remoteSyncProvider.GetStoreIdAsync();
@@ -191,7 +191,7 @@ namespace CoreSync.Tests
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
-            ISyncProvider remoteSyncProvider)
+            ISyncProviderBase remoteSyncProvider)
         {
             var localStoreId = await localSyncProvider.GetStoreIdAsync();
             var remoteStoreId = await remoteSyncProvider.GetStoreIdAsync();
@@ -243,7 +243,7 @@ namespace CoreSync.Tests
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
-            ISyncProvider remoteSyncProvider)
+            ISyncProviderBase remoteSyncProvider)
         {
             var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
             //await syncAgent.InitializeAsync();
@@ -320,7 +320,7 @@ namespace CoreSync.Tests
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
-            ISyncProvider remoteSyncProvider)
+            ISyncProviderBase remoteSyncProvider)
         {
             var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
             //await syncAgent.InitializeAsync();
@@ -479,7 +479,7 @@ namespace CoreSync.Tests
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
-            ISyncProvider remoteSyncProvider)
+            ISyncProviderBase remoteSyncProvider)
         {
             User remoteUser;
             remoteDb.Users.Add(remoteUser = new User() { Email = "user@test.com", Name = "User created before sync", Created = DateTime.Now });
@@ -489,7 +489,7 @@ namespace CoreSync.Tests
 
             await remoteDb.SaveChangesAsync();
 
-            await remoteSyncProvider.ApplyProvisionAsync();
+            if (remoteSyncProvider is ISyncProvider remoteProvider) await remoteProvider.ApplyProvisionAsync();
 
             remoteDb.Posts.Add(new Post() { Author = remoteUser, Content = "This is a third post created before sync of the client but after applying provision to remote db", Title = "Initial post 3 of user 1", Claps = 3, Stars = 1 });
 
@@ -562,7 +562,7 @@ namespace CoreSync.Tests
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
-            ISyncProvider remoteSyncProvider)
+            ISyncProviderBase remoteSyncProvider)
         {
             #region Initialize remote data, sync local and verify
 
@@ -719,10 +719,11 @@ namespace CoreSync.Tests
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
-            ISyncProvider remoteSyncProvider)
+            ISyncProviderBase remoteSyncProvider)
         {
+            var remoteSyncProviderFull = (ISyncProvider)remoteSyncProvider;
             //setup change tracking
-            await remoteSyncProvider.ApplyProvisionAsync();
+            await remoteSyncProviderFull.ApplyProvisionAsync();
 
             //create remote data
             User remoteUser;
@@ -744,11 +745,11 @@ namespace CoreSync.Tests
 
 
             //set data retention -> remove first records in the change tracking table
-            var remoteSyncVersion = await remoteSyncProvider.GetSyncVersionAsync();
+            var remoteSyncVersion = await remoteSyncProviderFull.GetSyncVersionAsync();
             remoteSyncVersion.Minimum.ShouldBe(1);
             remoteSyncVersion.Current.ShouldBe(11);//1 users + 10 posts
 
-            remoteSyncVersion = await remoteSyncProvider.ApplyRetentionPolicyAsync(4);
+            remoteSyncVersion = await remoteSyncProviderFull.ApplyRetentionPolicyAsync(4);
             remoteSyncVersion.Minimum.ShouldBe(4);
             remoteSyncVersion.Current.ShouldBe(11);// 11 - 4 = 7 posts
 
@@ -811,7 +812,7 @@ namespace CoreSync.Tests
             (await localDb.Posts.ToListAsync()).Count.ShouldBe(12);
            
 
-            remoteSyncVersion = await remoteSyncProvider.ApplyRetentionPolicyAsync(4);
+            remoteSyncVersion = await remoteSyncProviderFull.ApplyRetentionPolicyAsync(4);
             remoteSyncVersion.Minimum.ShouldBe(4);
             remoteSyncVersion.Current.ShouldBe(13);// +2 posts
 
@@ -824,7 +825,7 @@ namespace CoreSync.Tests
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
-            ISyncProvider remoteSyncProvider)
+            ISyncProviderBase remoteSyncProvider)
         {
             var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
             await syncAgent.SynchronizeAsync();
@@ -869,7 +870,7 @@ namespace CoreSync.Tests
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
-            ISyncProvider remoteSyncProvider)
+            ISyncProviderBase remoteSyncProvider)
         {
             var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
             await syncAgent.SynchronizeAsync();
@@ -933,7 +934,7 @@ namespace CoreSync.Tests
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
-            ISyncProvider remoteSyncProvider)
+            ISyncProviderBase remoteSyncProvider)
         {
             var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
             await syncAgent.SynchronizeAsync();
@@ -982,7 +983,7 @@ namespace CoreSync.Tests
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
-            ISyncProvider remoteSyncProvider)
+            ISyncProviderBase remoteSyncProvider)
         {
             var syncAgent = new SyncAgent(localSyncProvider, remoteSyncProvider);
             await syncAgent.SynchronizeAsync();
@@ -1031,7 +1032,7 @@ namespace CoreSync.Tests
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
-            ISyncProvider remoteSyncProvider)
+            ISyncProviderBase remoteSyncProvider)
         {
             //NOTE: remoteSyncProvider is already configured to accept a sync filter @userId on user (see definition)
 
@@ -1154,7 +1155,7 @@ namespace CoreSync.Tests
     BlogDbContext localDb,
     ISyncProvider localSyncProvider,
     BlogDbContext remoteDb,
-    ISyncProvider remoteSyncProvider)
+    ISyncProviderBase remoteSyncProvider)
         {
             //add 1 users and sync data linked to only one of them
             var remoteUser1 = new User() { Email = "user1@test.com", Name = "User 1", Created = DateTime.Now };
@@ -1174,7 +1175,7 @@ namespace CoreSync.Tests
 
             //now disable change tracking for table and make a change on remote entity
 
-            await remoteSyncProvider.DisableChangeTrackingForTable("Users");
+            await ((ISyncProvider)remoteSyncProvider).DisableChangeTrackingForTable("Users");
             
             remoteDb = remoteDb.Refresh();
             remoteDb.Users.First().Name = "User 1 edited with CT disabled";
@@ -1193,7 +1194,7 @@ namespace CoreSync.Tests
             localUsers[0].Name.ShouldBe("User 1");
 
             //re-enable the change tracking
-            await remoteSyncProvider.EnableChangeTrackingForTable("Users");
+            await ((ISyncProvider)remoteSyncProvider).EnableChangeTrackingForTable("Users");
 
             await syncAgent.SynchronizeAsync();
 
@@ -1229,10 +1230,10 @@ namespace CoreSync.Tests
             BlogDbContext localDb,
             ISyncProvider localSyncProvider,
             BlogDbContext remoteDb,
-            ISyncProvider remoteSyncProvider)
+            ISyncProviderBase remoteSyncProvider)
         {
             await localSyncProvider.ApplyProvisionAsync();
-            await remoteSyncProvider.ApplyProvisionAsync();
+            if (remoteSyncProvider is ISyncProvider remoteProvider) await remoteProvider.ApplyProvisionAsync();
 
             var localStoreId = await localSyncProvider.GetStoreIdAsync();
             var remoteStoreId = await remoteSyncProvider.GetStoreIdAsync();

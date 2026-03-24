@@ -25,6 +25,7 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="MSTest.TestAdapter" Version="3.6.4" />
     <PackageReference Include="MSTest.TestFramework" Version="3.6.4" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.11" />
     <PackageReference Include="Shouldly" Version="4.2.1" />
     <PackageReference Include="sqlite-net-pcl" Version="1.9.172" />
   </ItemGroup>
@@ -35,6 +36,8 @@
     <ProjectReference Include="..\CoreSync.SqlServerCT\CoreSync.SqlServerCT.csproj" />
     <ProjectReference Include="..\CoreSync.PostgreSQL\CoreSync.PostgreSQL.csproj" />
     <ProjectReference Include="..\CoreSync\CoreSync.csproj" />
+    <ProjectReference Include="..\CoreSync.Http.Client\CoreSync.Http.Client.csproj" />
+    <ProjectReference Include="..\CoreSync.Http.Server\CoreSync.Http.Server.csproj" />
   </ItemGroup>
 
 

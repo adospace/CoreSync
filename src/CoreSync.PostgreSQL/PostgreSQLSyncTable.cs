@@ -53,11 +53,14 @@ namespace CoreSync.PostgreSQL
         internal string IncrementalAddOrUpdatesQuery => $@"SELECT DISTINCT {string.Join(",", Columns.Keys.Except(SkipColumns).Select(_ => "T.\"" + _ + "\""))}, CT.op AS __OP
                                 FROM {SelectQueryWithFilter} AS T INNER JOIN __core_sync_ct AS CT ON T.""{PrimaryColumnName}""{(Columns[PrimaryColumnName].Type.Equals("uuid", StringComparison.OrdinalIgnoreCase) ? "::text" : "")} = CT.pk_{PrimaryColumnType.ToString().ToLowerInvariant()} WHERE CT.id > ${(SelectIncrementalQuery != null ? 2 : 1)} AND CT.tbl = ${(SelectIncrementalQuery != null ? 3 : 2)} AND (CT.src IS NULL OR CT.src != ${(SelectIncrementalQuery != null ? 4 : 3)})";
 
-        internal string IncrementalDeletesQuery => 
-            $@"SELECT pk_{PrimaryColumnType.ToString().ToLowerInvariant()} AS ""{PrimaryColumnName}"" FROM __core_sync_ct WHERE tbl = $1 AND id > $2 AND op = 'D' AND (src IS NULL OR src != $3)";
+        internal string IncrementalDeletesQuery =>
+            $@"SELECT {(Columns[PrimaryColumnName].Type.Equals("uuid", StringComparison.OrdinalIgnoreCase) ? "UPPER(" : "")}pk_{PrimaryColumnType.ToString().ToLowerInvariant()}{(Columns[PrimaryColumnName].Type.Equals("uuid", StringComparison.OrdinalIgnoreCase) ? ")" : "")} AS ""{PrimaryColumnName}"" FROM __core_sync_ct WHERE tbl = $1 AND id > $2 AND op = 'D' AND (src IS NULL OR src != $3)";
 
-        internal string SelectExistingQuery => $@"SELECT COUNT(*) FROM ""{Name}"" 
+        internal string SelectExistingQuery => $@"SELECT COUNT(*) FROM ""{Name}""
             WHERE ""{PrimaryColumnName}"" = $1";
+
+        internal object ConvertPrimaryKeyValue(object? value)
+            => ConvertValueForColumn(PrimaryColumnName, value);
 
         private object ConvertValueForColumn(string columnName, object? value)
         {
@@ -105,7 +108,7 @@ namespace CoreSync.PostgreSQL
             {
                 case ChangeType.Insert:
                     {
-                        cmd.CommandText = $@"INSERT INTO ""{Name}"" ({string.Join(", ", valuesForValidColumns.Select(_ => "\"" + _.Key + "\""))}) 
+                        cmd.CommandText = $@"INSERT INTO ""{Name}"" ({string.Join(", ", valuesForValidColumns.Select(_ => "\"" + _.Key + "\""))})
 VALUES ({string.Join(", ", valuesForValidColumns.Select((_, index) => $"${index + 1}"))}) ON CONFLICT DO NOTHING;";
 
                         int pIndex = 1;
@@ -130,7 +133,7 @@ AND (${valuesForValidColumns.Count + 2} = true OR (SELECT MAX(id) FROM __core_sy
                             cmd.Parameters.Add(new NpgsqlParameter { Value = ConvertValueForColumn(valueItem.Key, valueItem.Value.Value) });
                             pIndex++;
                         }
-                        
+
                         cmd.Parameters.Add(new NpgsqlParameter { Value = ConvertValueForColumn(PrimaryColumnName, syncItemValues[PrimaryColumnName].Value) });
                     }
                     break;

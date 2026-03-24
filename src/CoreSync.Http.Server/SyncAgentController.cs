@@ -170,8 +170,12 @@ class SyncAgentController
             {
                 foreach (var itemValueEntry in item.Values.Where(_ => _.Key != "__OP").ToList())
                 {
-                    item.Values[itemValueEntry.Key].Value = itemValueEntry.Value.Value == null ? null :
-                        ConvertJsonElementToObject((JsonElement)itemValueEntry.Value.Value, itemValueEntry.Value.Type);
+                    item.Values[itemValueEntry.Key].Value = itemValueEntry.Value.Value switch
+                    {
+                        null => null,
+                        JsonElement jsonElement => ConvertJsonElementToObject(jsonElement, itemValueEntry.Value.Type),
+                        _ => itemValueEntry.Value.Value // already deserialized to the target type
+                    };
                 }
             }
 

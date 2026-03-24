@@ -84,7 +84,14 @@ namespace CoreSync.PostgreSQL
 
                     try
                     {
+                        // Create a savepoint before the DML so that a FK violation
+                        // doesn't poison the entire transaction. This mirrors SQL Server's
+                        // BEGIN TRY / END TRY / BEGIN CATCH / END CATCH pattern.
+                        await tr.SaveAsync("sync_sp", cancellationToken);
+
                         affectedRows = await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+                        await tr.ReleaseAsync("sync_sp", cancellationToken);
 
                         if (affectedRows > 0)
                         {
@@ -95,9 +102,17 @@ namespace CoreSync.PostgreSQL
                     {
                         throw;
                     }
+                    catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+                    {
+                        // FK violation: rollback to savepoint so the transaction stays usable
+                        await tr.RollbackAsync("sync_sp", cancellationToken);
+                        _logger?.Warning($"[{_storeId}] FK violation applying {itemChangeType} on {item}, skipping: {ex.MessageText}");
+                        affectedRows = 0;
+                    }
                     catch (Exception ex)
                     {
                         _logger?.Error($"Unable to {itemChangeType} item {item} to store for table {table}.{Environment.NewLine}{ex}{Environment.NewLine}Generated SQL:{Environment.NewLine}{cmd.CommandText}");
+                        throw new SynchronizationException($"Unable to {itemChangeType} item {item} to store for table {table}", ex);
                     }
 
                     if (affectedRows == 0)
@@ -107,7 +122,7 @@ namespace CoreSync.PostgreSQL
                             cmd.CommandText = table.SelectExistingQuery;
                             cmd.Parameters.Clear();
                             var valueItem = item.Values[table.PrimaryColumnName];
-                            cmd.Parameters.Add(new NpgsqlParameter { Value = valueItem.Value ?? DBNull.Value });
+                            cmd.Parameters.Add(new NpgsqlParameter { Value = table.ConvertPrimaryKeyValue(valueItem.Value) });
                             if (1 == await cmd.ExecuteLongScalarAsync(cancellationToken) && !syncForceWrite)
                             {
                                 itemChangeType = ChangeType.Update;
