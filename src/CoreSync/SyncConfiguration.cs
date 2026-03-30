@@ -17,7 +17,7 @@ namespace CoreSync
 
         /// <summary>
         /// Returns the subset of <see cref="Tables"/> that match the requested table names,
-        /// preserving the configuration-defined order. When <paramref name="requestedTables"/>
+        /// preserving the order of <paramref name="requestedTables"/>. When <paramref name="requestedTables"/>
         /// is <c>null</c>, all configured tables are returned.
         /// </summary>
         /// <param name="requestedTables">
@@ -39,7 +39,8 @@ namespace CoreSync
             if (unknown.Length > 0)
                 throw new ArgumentException($"The following tables are not present in the sync configuration: {string.Join(", ", unknown)}");
 
-            return Tables.Where(t => requestedSet.Contains(t.Name)).ToArray();
+            var tablesByName = Tables.ToDictionary(t => t.Name, StringComparer.OrdinalIgnoreCase);
+            return requestedTables.Select(name => tablesByName[name]).ToArray();
         }
     }
 }
