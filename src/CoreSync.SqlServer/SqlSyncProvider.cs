@@ -77,112 +77,137 @@ namespace CoreSync.SqlServer
                     var contextInfo = await cmd.ExecuteScalarAsync(cancellationToken);
                     cmd.Parameters.Clear();
 
-                    foreach (var item in changeSet.Items)
+                    var remainingItems = changeSet.Items.ToList();
+                    int pass = 0;
+                    while (remainingItems.Count > 0)
                     {
-                        var table = (SqlSyncTable)Configuration.Tables.FirstOrDefault(_ => _.Name == item.TableName);
+                        pass++;
+                        var failedItems = new List<SyncItem>();
+                        int appliedInPass = 0;
 
-                        if (table == null)
+                        foreach (var item in remainingItems)
                         {
-                            continue;
-                        }
+                            var table = (SqlSyncTable)Configuration.Tables.FirstOrDefault(_ => _.Name == item.TableName);
 
-                        bool syncForceWrite = false;
-                        var itemChangeType = item.ChangeType;
+                            if (table == null)
+                            {
+                                continue;
+                            }
 
-                    retryWrite:
-                        cmd.Parameters.Clear();
+                            bool syncForceWrite = false;
+                            var itemChangeType = item.ChangeType;
+                            bool itemHandled = false;
 
-                        table.SetupCommand(cmd, itemChangeType, item.Values);
+                        retryWrite:
+                            cmd.Parameters.Clear();
 
-                        cmd.Parameters.Add(new SqlParameter("@last_sync_version", changeSet.TargetAnchor.Version));
-                        cmd.Parameters.Add(new SqlParameter("@sync_force_write", syncForceWrite));
+                            table.SetupCommand(cmd, itemChangeType, item.Values);
 
-                        int affectedRows;
+                            cmd.Parameters.Add(new SqlParameter("@last_sync_version", changeSet.TargetAnchor.Version));
+                            cmd.Parameters.Add(new SqlParameter("@sync_force_write", syncForceWrite));
 
-                        try
-                        {
-                            affectedRows = cmd.ExecuteNonQuery();
+                            int affectedRows;
+
+                            try
+                            {
+                                affectedRows = cmd.ExecuteNonQuery();
+
+                                if (affectedRows > 0)
+                                {
+                                    _logger?.Trace($"[{_storeId}] Successfully applied {item}");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger?.Error($"Unable to {itemChangeType} item {item} to store for table {table}.{Environment.NewLine}Generated SQL:{Environment.NewLine}{cmd.CommandText}");
+                                throw new SynchronizationException($"Unable to {itemChangeType} item {item} to store for table {table}", ex);
+                            }
+
+                            if (affectedRows == 0)
+                            {
+                                if (itemChangeType == ChangeType.Insert)
+                                {
+                                    //If we can't apply an insert means that we already
+                                    //applied the insert or another record with same values (see primary key)
+                                    //is already present in table.
+                                    var executedCommand = cmd.CommandText;
+
+                                    cmd.CommandText = table.SelectExistingQuery;
+                                    cmd.Parameters.Clear();
+                                    var valueItem = item.Values[table.PrimaryColumnName];
+
+                                    cmd.Parameters.Add(table.Columns[table.PrimaryColumnName].CreateParameter("@PrimaryColumnParameter", valueItem));
+
+                                    if (1 == (int)await cmd.ExecuteScalarAsync(cancellationToken) && !syncForceWrite)
+                                    {
+                                        itemChangeType = ChangeType.Update;
+                                        goto retryWrite;
+                                    }
+                                    else
+                                    {
+                                        _logger?.Warning($"[{_storeId}] Unable to {itemChangeType} item {item} on table {table} (pass {pass}). Messages:{Environment.NewLine}{string.Join(Environment.NewLine, messageLog.Select(_ => _.Message))}{Environment.NewLine}Generated SQL:{Environment.NewLine}{executedCommand}");
+                                    }
+                                }
+                                else if (itemChangeType == ChangeType.Update ||
+                                    itemChangeType == ChangeType.Delete)
+                                {
+                                    if (syncForceWrite)
+                                    {
+                                        if (itemChangeType == ChangeType.Delete)
+                                        {
+                                            _logger?.Trace($"[{_storeId}] Insert on delete conflict occurred for {item}");
+                                            itemHandled = true;
+                                        }
+                                        else
+                                        {
+                                            _logger?.Trace($"[{_storeId}] Insert on delete conflict occurred for {item}");
+                                            itemChangeType = ChangeType.Insert;
+                                            goto retryWrite;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        //conflict detected
+                                        var res = onConflictFunc?.Invoke(item);
+                                        if (res.HasValue && res.Value == ConflictResolution.ForceWrite)
+                                        {
+                                            _logger?.Trace($"[{_storeId}] Force write on conflict occurred for {item}");
+
+                                            syncForceWrite = true;
+                                            goto retryWrite;
+                                        }
+                                        else
+                                        {
+                                            _logger?.Warning($"[{_storeId}] Skip conflict for {item}");
+                                            itemHandled = true;
+                                        }
+                                    }
+                                }
+                            }
 
                             if (affectedRows > 0)
                             {
-                                _logger?.Trace($"[{_storeId}] Successfully applied {item}");
+                                itemHandled = true;
+                                appliedInPass++;
                             }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger?.Error($"Unable to {itemChangeType} item {item} to store for table {table}.{Environment.NewLine}Generated SQL:{Environment.NewLine}{cmd.CommandText}");
-                            throw new SynchronizationException($"Unable to {itemChangeType} item {item} to store for table {table}", ex);
-                        }
 
-                        if (affectedRows == 0)
-                        {
-                            if (itemChangeType == ChangeType.Insert)
+                            if (!itemHandled)
                             {
-                                //If we can't apply an insert means that we already
-                                //applied the insert or another record with same values (see primary key)
-                                //is already present in table.
-                                var executedCommand = cmd.CommandText;
-
-                                cmd.CommandText = table.SelectExistingQuery;
-                                cmd.Parameters.Clear();
-                                var valueItem = item.Values[table.PrimaryColumnName];
-
-                                cmd.Parameters.Add(table.Columns[table.PrimaryColumnName].CreateParameter("@PrimaryColumnParameter", valueItem));
-
-                                //cmd.Parameters.Add(new SqlParameter("@PrimaryColumnParameter", table.Columns[table.PrimaryColumnName].DbType)
-                                //{
-                                //    Value = Utils.ConvertToSqlType(valueItem, table.Columns[table.PrimaryColumnName].DbType)
-                                //});
-                                if (1 == (int)await cmd.ExecuteScalarAsync(cancellationToken) && !syncForceWrite)
-                                {
-                                    itemChangeType = ChangeType.Update;
-                                    goto retryWrite;
-                                    //_logger?.Trace($"[{_storeId}] Existing record for {item}");
-                                }
-                                else
-                                {
-                                    _logger?.Warning($"[{_storeId}] Unable to {itemChangeType} item {item} on table {table}. Messages: Messages:{Environment.NewLine}{string.Join(Environment.NewLine, messageLog.Select(_ => _.Message))}{Environment.NewLine}Generated SQL:{Environment.NewLine}{executedCommand}");
-                                }
-                            }
-                            else if (itemChangeType == ChangeType.Update ||
-                                itemChangeType == ChangeType.Delete)
-                            {
-                                if (syncForceWrite)
-                                {
-                                    if (itemChangeType == ChangeType.Delete)
-                                    {
-                                        //item is already deleted in data store
-                                        //so this means that we're going to delete a already deleted record
-                                        //i.e. nothing to do
-                                        _logger?.Trace($"[{_storeId}] Insert on delete conflict occurred for {item}");
-                                    }
-                                    else
-                                    {
-                                        //if user wants to update forcely a deleted record means
-                                        //he wants to actually insert it again in store
-                                        _logger?.Trace($"[{_storeId}] Insert on delete conflict occurred for {item}");
-                                        itemChangeType = ChangeType.Insert;
-                                        goto retryWrite;
-                                    }
-                                }
-                                else
-                                {
-                                    //conflict detected
-                                    var res = onConflictFunc?.Invoke(item);
-                                    if (res.HasValue && res.Value == ConflictResolution.ForceWrite)
-                                    {
-                                        _logger?.Trace($"[{_storeId}] Force write on conflict occurred for {item}");
-
-                                        syncForceWrite = true;
-                                        goto retryWrite;
-                                    }
-                                    else
-                                    {
-                                        _logger?.Warning($"[{_storeId}] Skip conflict for {item}");
-                                    }
-                                }
+                                failedItems.Add(item);
                             }
                         }
+
+                        if (failedItems.Count == 0 || appliedInPass == 0)
+                        {
+                            if (failedItems.Count > 0)
+                            {
+                                _logger?.Warning($"[{_storeId}] {failedItems.Count} item(s) could not be applied after {pass} pass(es) (possible unresolvable foreign key constraint)");
+                            }
+                            break;
+                        }
+
+                        _logger?.Info($"[{_storeId}] Pass {pass}: applied {appliedInPass} item(s), retrying {failedItems.Count} remaining item(s)");
+                        remainingItems = failedItems;
                     }
 
                     cmd.CommandText = $"UPDATE [__CORE_SYNC_REMOTE_ANCHOR] SET [REMOTE_VERSION] = @version WHERE [ID] = @id";

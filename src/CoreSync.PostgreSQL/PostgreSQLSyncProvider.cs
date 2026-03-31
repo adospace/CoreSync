@@ -61,126 +61,158 @@ namespace CoreSync.PostgreSQL
                 cmd.CommandText = "SELECT MIN(id) FROM __core_sync_ct";
                 var minVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
-                foreach (var item in changeSet.Items)
+                var remainingItems = changeSet.Items.ToList();
+                int pass = 0;
+                while (remainingItems.Count > 0)
                 {
-                    var table = (PostgreSQLSyncTable)Configuration.Tables.FirstOrDefault(_ => _.Name == item.TableName);
-                    if (table == null)
+                    pass++;
+                    var failedItems = new List<SyncItem>();
+                    int appliedInPass = 0;
+
+                    foreach (var item in remainingItems)
                     {
-                        continue;
-                    }
+                        var table = (PostgreSQLSyncTable)Configuration.Tables.FirstOrDefault(_ => _.Name == item.TableName);
+                        if (table == null)
+                        {
+                            continue;
+                        }
 
-                    bool syncForceWrite = false;
-                    var itemChangeType = item.ChangeType;
+                        bool syncForceWrite = false;
+                        var itemChangeType = item.ChangeType;
+                        bool itemHandled = false;
 
-                retryWrite:
-                    cmd.Parameters.Clear();
+                    retryWrite:
+                        cmd.Parameters.Clear();
 
-                    table.SetupCommand(cmd, itemChangeType, item.Values);
+                        table.SetupCommand(cmd, itemChangeType, item.Values);
 
-                    cmd.Parameters.Add(new NpgsqlParameter { Value = syncForceWrite });
-                    cmd.Parameters.Add(new NpgsqlParameter { Value = changeSet.TargetAnchor.Version });
+                        cmd.Parameters.Add(new NpgsqlParameter { Value = syncForceWrite });
+                        cmd.Parameters.Add(new NpgsqlParameter { Value = changeSet.TargetAnchor.Version });
 
-                    int affectedRows = 0;
+                        int affectedRows = 0;
 
-                    try
-                    {
-                        // Create a savepoint before the DML so that a FK violation
-                        // doesn't poison the entire transaction. This mirrors SQL Server's
-                        // BEGIN TRY / END TRY / BEGIN CATCH / END CATCH pattern.
-                        await tr.SaveAsync("sync_sp", cancellationToken);
+                        try
+                        {
+                            // Create a savepoint before the DML so that a FK violation
+                            // doesn't poison the entire transaction. This mirrors SQL Server's
+                            // BEGIN TRY / END TRY / BEGIN CATCH / END CATCH pattern.
+                            await tr.SaveAsync("sync_sp", cancellationToken);
 
-                        affectedRows = await cmd.ExecuteNonQueryAsync(cancellationToken);
+                            affectedRows = await cmd.ExecuteNonQueryAsync(cancellationToken);
 
-                        await tr.ReleaseAsync("sync_sp", cancellationToken);
+                            await tr.ReleaseAsync("sync_sp", cancellationToken);
+
+                            if (affectedRows > 0)
+                            {
+                                _logger?.Trace($"[{_storeId}] Successfully applied {item}");
+                            }
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
+                        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+                        {
+                            // FK violation: rollback to savepoint so the transaction stays usable
+                            await tr.RollbackAsync("sync_sp", cancellationToken);
+                            _logger?.Warning($"[{_storeId}] FK violation applying {itemChangeType} on {item}, skipping: {ex.MessageText}");
+                            affectedRows = 0;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger?.Error($"Unable to {itemChangeType} item {item} to store for table {table}.{Environment.NewLine}{ex}{Environment.NewLine}Generated SQL:{Environment.NewLine}{cmd.CommandText}");
+                            throw new SynchronizationException($"Unable to {itemChangeType} item {item} to store for table {table}", ex);
+                        }
+
+                        if (affectedRows == 0)
+                        {
+                            if (itemChangeType == ChangeType.Insert)
+                            {
+                                cmd.CommandText = table.SelectExistingQuery;
+                                cmd.Parameters.Clear();
+                                var valueItem = item.Values[table.PrimaryColumnName];
+                                cmd.Parameters.Add(new NpgsqlParameter { Value = table.ConvertPrimaryKeyValue(valueItem.Value) });
+                                if (1 == await cmd.ExecuteLongScalarAsync(cancellationToken) && !syncForceWrite)
+                                {
+                                    itemChangeType = ChangeType.Update;
+                                    goto retryWrite;
+                                }
+                                else
+                                {
+                                    _logger?.Warning($"Unable to {item}: much probably there is a foreign key constraint issue logged before (pass {pass})");
+                                }
+                            }
+                            else if (itemChangeType == ChangeType.Update ||
+                                itemChangeType == ChangeType.Delete)
+                            {
+                                if (syncForceWrite)
+                                {
+                                    if (itemChangeType == ChangeType.Delete)
+                                    {
+                                        _logger?.Trace($"[{_storeId}] Insert on delete conflict occurred for {item}");
+                                        itemHandled = true;
+                                    }
+                                    else
+                                    {
+                                        _logger?.Trace($"[{_storeId}] Insert on delete conflict occurred for {item}");
+                                        itemChangeType = ChangeType.Insert;
+                                        goto retryWrite;
+                                    }
+                                }
+                                else
+                                {
+                                    //conflict detected
+                                    var res = onConflictFunc?.Invoke(item);
+                                    if (res.HasValue && res.Value == ConflictResolution.ForceWrite)
+                                    {
+                                        _logger?.Trace($"[{_storeId}] Force write on conflict occurred for {item}");
+
+                                        syncForceWrite = true;
+                                        goto retryWrite;
+                                    }
+                                    else
+                                    {
+                                        _logger?.Warning($"[{_storeId}] Skip conflict for {item}");
+                                        itemHandled = true;
+                                    }
+                                }
+                            }
+                        }
 
                         if (affectedRows > 0)
                         {
-                            _logger?.Trace($"[{_storeId}] Successfully applied {item}");
-                        }
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        throw;
-                    }
-                    catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.ForeignKeyViolation)
-                    {
-                        // FK violation: rollback to savepoint so the transaction stays usable
-                        await tr.RollbackAsync("sync_sp", cancellationToken);
-                        _logger?.Warning($"[{_storeId}] FK violation applying {itemChangeType} on {item}, skipping: {ex.MessageText}");
-                        affectedRows = 0;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger?.Error($"Unable to {itemChangeType} item {item} to store for table {table}.{Environment.NewLine}{ex}{Environment.NewLine}Generated SQL:{Environment.NewLine}{cmd.CommandText}");
-                        throw new SynchronizationException($"Unable to {itemChangeType} item {item} to store for table {table}", ex);
-                    }
+                            itemHandled = true;
+                            appliedInPass++;
 
-                    if (affectedRows == 0)
-                    {
-                        if (itemChangeType == ChangeType.Insert)
-                        {
-                            cmd.CommandText = table.SelectExistingQuery;
+                            cmd.CommandText = "SELECT MAX(id) FROM __core_sync_ct";
                             cmd.Parameters.Clear();
-                            var valueItem = item.Values[table.PrimaryColumnName];
-                            cmd.Parameters.Add(new NpgsqlParameter { Value = table.ConvertPrimaryKeyValue(valueItem.Value) });
-                            if (1 == await cmd.ExecuteLongScalarAsync(cancellationToken) && !syncForceWrite)
-                            {
-                                itemChangeType = ChangeType.Update;
-                                goto retryWrite;
-                            }
-                            else
-                            {
-                                _logger?.Warning($"Unable to {item}: much probably there is a foreign key constraint issue logged before");
-                            }
+                            var currentVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
+
+                            cmd.CommandText = "UPDATE __core_sync_ct SET src = $1 WHERE id = $2";
+                            cmd.Parameters.Clear();
+                            cmd.Parameters.Add(new NpgsqlParameter { Value = changeSet.SourceAnchor.StoreId.ToString() });
+                            cmd.Parameters.Add(new NpgsqlParameter { Value = currentVersion });
+
+                            await cmd.ExecuteNonQueryAsync(cancellationToken);
                         }
-                        else if (itemChangeType == ChangeType.Update ||
-                            itemChangeType == ChangeType.Delete)
+
+                        if (!itemHandled)
                         {
-                            if (syncForceWrite)
-                            {
-                                if (itemChangeType == ChangeType.Delete)
-                                {
-                                    _logger?.Trace($"[{_storeId}] Insert on delete conflict occurred for {item}");
-                                }
-                                else
-                                {
-                                    _logger?.Trace($"[{_storeId}] Insert on delete conflict occurred for {item}");
-                                    itemChangeType = ChangeType.Insert;
-                                    goto retryWrite;
-                                }
-                            }
-                            else
-                            {
-                                //conflict detected
-                                var res = onConflictFunc?.Invoke(item);
-                                if (res.HasValue && res.Value == ConflictResolution.ForceWrite)
-                                {
-                                    _logger?.Trace($"[{_storeId}] Force write on conflict occurred for {item}");
-
-                                    syncForceWrite = true;
-                                    goto retryWrite;
-                                }
-                                else
-                                {
-                                    _logger?.Warning($"[{_storeId}] Skip conflict for {item}");
-                                }
-                            }
+                            failedItems.Add(item);
                         }
                     }
 
-                    if (affectedRows > 0)
+                    if (failedItems.Count == 0 || appliedInPass == 0)
                     {
-                        cmd.CommandText = "SELECT MAX(id) FROM __core_sync_ct";
-                        cmd.Parameters.Clear();
-                        var currentVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
-
-                        cmd.CommandText = "UPDATE __core_sync_ct SET src = $1 WHERE id = $2";
-                        cmd.Parameters.Clear();
-                        cmd.Parameters.Add(new NpgsqlParameter { Value = changeSet.SourceAnchor.StoreId.ToString() });
-                        cmd.Parameters.Add(new NpgsqlParameter { Value = currentVersion });
-
-                        await cmd.ExecuteNonQueryAsync(cancellationToken);
+                        if (failedItems.Count > 0)
+                        {
+                            _logger?.Warning($"[{_storeId}] {failedItems.Count} item(s) could not be applied after {pass} pass(es) (possible unresolvable foreign key constraint)");
+                        }
+                        break;
                     }
+
+                    _logger?.Info($"[{_storeId}] Pass {pass}: applied {appliedInPass} item(s), retrying {failedItems.Count} remaining item(s)");
+                    remainingItems = failedItems;
                 }
 
                 cmd.CommandText = $"UPDATE __core_sync_remote_anchor SET remote_version = $1 WHERE id = $2";
