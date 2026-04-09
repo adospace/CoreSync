@@ -13,7 +13,6 @@ using System.Text.Json;
 using System.Net.Http.Json;
 using Polly.Retry;
 using Polly;
-using MessagePack;
 using System.Net.Http.Headers;
 
 namespace CoreSync.Http.Client.Implementation;
@@ -71,7 +70,7 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
                 };
 
                 var beginUploadItemContent = new ByteArrayContent(
-                    MessagePackSerializer.Typeless.Serialize(bulkUploadItem, cancellationToken: cancellationToken));
+                    CoreSyncMessagePackSerializer.Serialize<object>(bulkUploadItem, cancellationToken));
 
                 beginUploadItemContent.Headers.ContentType = new MediaTypeHeaderValue("application/x-msgpack");
 
@@ -185,7 +184,7 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
                     response.EnsureSuccessStatusCode();
 
                     using var s = await response.Content.ReadAsStreamAsync(cancellationToken);
-                    var downloadedItems = await MessagePackSerializer.Typeless.DeserializeAsync(s, cancellationToken: cancellationToken);
+                    var downloadedItems = await CoreSyncMessagePackSerializer.DeserializeAsync<object>(s, cancellationToken);
                     var bulkItems = (List<SyncItem>?)(downloadedItems) ?? throw new InvalidOperationException();
                     items.AddRange(bulkItems);
                     break;

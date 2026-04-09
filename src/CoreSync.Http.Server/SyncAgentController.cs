@@ -1,5 +1,4 @@
 ﻿using CoreSync.Http;
-using MessagePack;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
@@ -121,7 +120,7 @@ class SyncAgentController
             if (item.Skip + item.Take >= cachedSyncChangeSet.ChangeSet.Items.Count)
                 _memoryCache.Remove(item.SessionId);
 
-            return MessagePackSerializer.Typeless.Serialize(bufferList);
+            return CoreSyncMessagePackSerializer.Serialize<object>(bufferList);
         }
 
         throw new InvalidOperationException();
@@ -149,7 +148,7 @@ class SyncAgentController
     public async Task ApplyBulkChangesItemBinary(HttpRequest httpRequest)
     {
         var bulkUploadItem = ((BulkChangeSetUploadItem?)
-            await MessagePackSerializer.Typeless.DeserializeAsync(httpRequest.Body)) ?? throw new InvalidProgramException();
+            await CoreSyncMessagePackSerializer.DeserializeAsync<object>(httpRequest.Body)) ?? throw new InvalidProgramException();
 
         if (_memoryCache.TryGetValue(bulkUploadItem.SessionId, out var changeSetObject) &&
             changeSetObject is SyncChangeSet changeSet)
