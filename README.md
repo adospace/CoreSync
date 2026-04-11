@@ -270,6 +270,17 @@ SyncAgent.SynchronizeAsync()
 A full sample application using .NET MAUI with MauiReactor is available at:
 https://github.com/adospace/mauireactor-core-sync
 
+## CoreSyncServer
+
+Don't want to host the CoreSync server on your backend? Aren't you using .NET for the server (e.g., Supabase, Node, etc.)?
+
+CoreSyncServer is a MIT-licensed open-source sync server that can handle your database synchronizations.
+
+<img width="1919" height="943" alt="Screenshot 2026-04-11 123732" src="https://github.com/user-attachments/assets/1ecae685-7e60-4030-8f70-a6393a9c2c15" />
+
+Check it out at: https://github.com/adospace/CoreSyncServer
+
+
 ## Resources
 
 - [Data Synchronization Primer](https://codeburst.io/data-synchronization-primer-88ad04e1747b) — introductory article explaining the concepts behind CoreSync
