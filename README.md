@@ -262,8 +262,8 @@ SyncAgent.SynchronizeAsync()
 
 ## Target Frameworks
 
-- **Core library and providers**: .NET Standard 2.0 (compatible with .NET Framework 4.6.1+ and .NET Core 2.0+)
-- **HTTP packages**: .NET 8.0
+- **Core library and providers**: .NET 8.0+ (compatible with .NET 10/9)
+- **Tested on**: .NET 10/9/8
 
 ## Sample App
 

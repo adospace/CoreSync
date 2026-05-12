@@ -1,7 +1,5 @@
 ﻿using Microsoft.Data.Sqlite;
 using System;
-using System.Collections.Generic;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -14,7 +12,7 @@ namespace CoreSync.Sqlite
             long version = 0;
             var res = await cmd.ExecuteScalarAsync(cancellationToken);
             if (!(res is DBNull))
-                version = (long)res;
+                version = (long)res!;
 
             return version;
         }

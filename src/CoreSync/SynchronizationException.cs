@@ -1,7 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Runtime.Serialization;
-using System.Text;
 
 namespace CoreSync
 {
@@ -16,10 +13,6 @@ namespace CoreSync
         }
 
         public SynchronizationException(string message, Exception innerException) : base($"{message}: {innerException.Message}", innerException)
-        {
-        }
-
-        protected SynchronizationException(SerializationInfo info, StreamingContext context) : base(info, context)
         {
         }
     }

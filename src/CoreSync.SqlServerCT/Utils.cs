@@ -13,7 +13,7 @@ namespace CoreSync.SqlServerCT
 
             if (dbType == SqlDbType.UniqueIdentifier &&
                 value.Value is string)
-                return Guid.Parse(value.Value.ToString());
+                return Guid.Parse(value.Value.ToString()!);
 
             if (dbType == SqlDbType.Decimal &&
                 value.Value is decimal == false)

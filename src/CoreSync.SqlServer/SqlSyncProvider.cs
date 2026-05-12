@@ -2,10 +2,8 @@
 using Microsoft.Data.SqlClient;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations.Schema;
 using System.Data;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -87,7 +85,7 @@ namespace CoreSync.SqlServer
 
                         foreach (var item in remainingItems)
                         {
-                            var table = (SqlSyncTable)Configuration.Tables.FirstOrDefault(_ => _.Name == item.TableName);
+                            var table = (SqlSyncTable?)Configuration.Tables.FirstOrDefault(_ => _.Name == item.TableName);
 
                             if (table == null)
                             {

@@ -72,7 +72,7 @@ namespace CoreSync.SqlServerCT
 
                         foreach (var item in remainingItems)
                         {
-                            var table = (SqlServerCTSyncTable)Configuration.Tables.FirstOrDefault(_ => _.Name == item.TableName);
+                            var table = (SqlServerCTSyncTable?)Configuration.Tables.FirstOrDefault(_ => _.Name == item.TableName);
 
                             if (table == null)
                             {

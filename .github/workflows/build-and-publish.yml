@@ -9,6 +9,10 @@ on:
 
 jobs:
   build-and-test:
+    strategy:
+      matrix:
+        tfm: [net10.0, net9.0, net8.0]
+
     runs-on: ubuntu-latest
 
     services:
@@ -49,7 +53,10 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
 
       - name: Restore dependencies
         run: dotnet restore src/CoreSync.sln
@@ -58,7 +65,7 @@ jobs:
         run: dotnet build src/CoreSync.sln --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test src/CoreSync.sln --configuration Release --no-restore --no-build --verbosity normal
+        run: dotnet test src/CoreSync.sln --configuration Release --no-restore --no-build  --framework ${{ matrix.tfm }} --verbosity normal
 
   publish:
     needs: build-and-test
@@ -71,7 +78,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
 
       - name: Extract version from tag
         id: version

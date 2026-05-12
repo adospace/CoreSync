@@ -71,7 +71,7 @@ namespace CoreSync.PostgreSQL
 
                     foreach (var item in remainingItems)
                     {
-                        var table = (PostgreSQLSyncTable)Configuration.Tables.FirstOrDefault(_ => _.Name == item.TableName);
+                        var table = (PostgreSQLSyncTable?)Configuration.Tables.FirstOrDefault(_ => _.Name == item.TableName);
                         if (table == null)
                         {
                             continue;
@@ -352,13 +352,13 @@ namespace CoreSync.PostgreSQL
                     {
                         cmd.CommandText = table.IncrementalAddOrUpdatesQuery;
                         cmd.Parameters.Clear();
-                        
+
                         // Add filter parameters first (for custom selectIncrementalQuery)
                         foreach (var syncFilterParameter in syncFilterParameters)
                         {
                             cmd.Parameters.Add(new NpgsqlParameter { Value = syncFilterParameter.Value });
                         }
-                        
+
                         // Then add incremental query parameters
                         cmd.Parameters.Add(new NpgsqlParameter { Value = fromAnchor.Version });
                         cmd.Parameters.Add(new NpgsqlParameter { Value = table.Name });
@@ -732,7 +732,7 @@ CREATE TRIGGER __{table.Name}_ct_{op.ToLower()}__
                 await DisableChangeTrackingForTable(cmd, table.Name, cancellationToken);
             }
         }
-        
+
         public async Task<SyncVersion> GetSyncVersionAsync(CancellationToken cancellationToken = default)
         {
             await InitializeStoreAsync(cancellationToken);
@@ -836,7 +836,7 @@ CREATE TRIGGER __{table.Name}_ct_{op.ToLower()}__
                 await SetupTableForUpdatesOrDeletesOnly(table, cmd, cancellationToken);
             }
         }
-         
+
         public async Task DisableChangeTrackingForTable(string name, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(name))
@@ -853,7 +853,7 @@ CREATE TRIGGER __{table.Name}_ct_{op.ToLower()}__
         }
 
         private async Task DisableChangeTrackingForTable(NpgsqlCommand cmd, string tableName, CancellationToken cancellationToken)
-        { 
+        {
             var dropTriggerAndFunctionBase = new Func<string, string>((op) => $@"
 DROP TRIGGER IF EXISTS __{tableName}_ct_{op.ToLower()}__ ON ""{tableName}"";
 DROP FUNCTION IF EXISTS __{tableName}_ct_{op.ToLower()}__();");
@@ -865,8 +865,8 @@ DROP FUNCTION IF EXISTS __{tableName}_ct_{op.ToLower()}__();");
             await cmd.ExecuteNonQueryAsync();
 
             cmd.CommandText = dropTriggerAndFunctionBase("DELETE");
-            await cmd.ExecuteNonQueryAsync();        
+            await cmd.ExecuteNonQueryAsync();
         }
 
     }
-} 
+}

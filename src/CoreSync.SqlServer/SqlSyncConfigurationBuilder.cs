@@ -134,7 +134,7 @@ namespace CoreSync.SqlServer
             string? customSnapshotQuery = null)
         {
             var name = typeof(T).Name;
-            var tableAttribute = (TableAttribute)Attribute.GetCustomAttribute(typeof(T), typeof(TableAttribute));
+            var tableAttribute = (TableAttribute?)Attribute.GetCustomAttribute(typeof(T), typeof(TableAttribute));
             if (tableAttribute != null)
             {
                 name = tableAttribute.Name;

@@ -116,7 +116,7 @@ namespace CoreSync.Sqlite
         {
             if (name == null)
             {
-                var tableAttribute = (TableAttribute)Attribute.GetCustomAttribute(typeof(T), typeof(TableAttribute));
+                var tableAttribute = (TableAttribute?)Attribute.GetCustomAttribute(typeof(T), typeof(TableAttribute));
                 if (tableAttribute != null)
                     name = tableAttribute.Name;
             }

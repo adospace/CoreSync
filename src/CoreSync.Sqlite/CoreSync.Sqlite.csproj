@@ -3,7 +3,7 @@
   <PropertyGroup>
     <Version Condition=" '$(APPVEYOR_BUILD_VERSION)' == '' ">0.0.1-local</Version>
     <Version Condition=" '$(APPVEYOR_BUILD_VERSION)' != '' ">$(APPVEYOR_BUILD_VERSION)</Version>
-    <TargetFramework>netstandard2.0</TargetFramework>
+		<TargetFramework>net8.0</TargetFramework>
     <Authors>adospace</Authors>
     <Description>CoreSync is a .NET standard library that provides data synchronization functions between databases. This is the SQLite provider assembly.</Description>
     <Copyright>Adolfo Marinucci</Copyright>
@@ -29,8 +29,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
-    <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.8" />
   </ItemGroup>
 
   <ItemGroup>

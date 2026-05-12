@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 
 namespace CoreSync
 {
@@ -64,7 +63,7 @@ namespace CoreSync
             if (syncItemValue.Type == SyncItemValueType.String)
                 return $"\"{syncItemValue.Value}\"";
 
-            return syncItemValue.Value.ToString();
+            return syncItemValue.Value.ToString()!;
         }
     }
 }

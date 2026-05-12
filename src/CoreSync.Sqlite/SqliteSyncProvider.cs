@@ -71,7 +71,7 @@ namespace CoreSync.Sqlite
 
                     foreach (var item in remainingItems)
                     {
-                        var table = (SqliteSyncTable)Configuration.Tables.FirstOrDefault(_ => _.Name == item.TableName);
+                        var table = (SqliteSyncTable?)Configuration.Tables.FirstOrDefault(_ => _.Name == item.TableName);
                         if (table == null)
                         {
                             continue;
@@ -126,7 +126,7 @@ namespace CoreSync.Sqlite
                                 cmd.Parameters.Clear();
                                 var valueItem = item.Values[table.PrimaryColumnName];
                                 cmd.Parameters.Add(new SqliteParameter("@PrimaryColumnParameter", valueItem.Value ?? DBNull.Value));
-                                if (1 == (long)await cmd.ExecuteScalarAsync(cancellationToken) && !syncForceWrite)
+                                if (1 == (long?)await cmd.ExecuteScalarAsync(cancellationToken) && !syncForceWrite)
                                 {
                                     itemChangeType = ChangeType.Update;
                                     goto retryWrite;
@@ -742,7 +742,7 @@ namespace CoreSync.Sqlite
                 await DisableChangeTrackingForTable(cmd, tableName, cancellationToken);
             }
         }
-        
+
         public async Task<SyncVersion> GetSyncVersionAsync(CancellationToken cancellationToken = default)
         {
             await InitializeStoreAsync(cancellationToken);
@@ -844,7 +844,7 @@ namespace CoreSync.Sqlite
                 await SetupTableForUpdatesOrDeletesOnly(table, cmd, cancellationToken);
             }
         }
-         
+
         public async Task DisableChangeTrackingForTable(string name, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(name))
@@ -861,7 +861,7 @@ namespace CoreSync.Sqlite
         }
 
         private async Task DisableChangeTrackingForTable(SqliteCommand cmd, string tableName, CancellationToken cancellationToken)
-        { 
+        {
             var commandTextBase = new Func<string, string>((op) => $@"DROP TRIGGER IF EXISTS [__{tableName}_ct-{op}__]");
             cmd.CommandText = commandTextBase("INSERT");
             await cmd.ExecuteNonQueryAsync();
@@ -870,7 +870,7 @@ namespace CoreSync.Sqlite
             await cmd.ExecuteNonQueryAsync();
 
             cmd.CommandText = commandTextBase("DELETE");
-            await cmd.ExecuteNonQueryAsync();        
+            await cmd.ExecuteNonQueryAsync();
         }
 
     }
