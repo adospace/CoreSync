@@ -36,8 +36,8 @@ namespace CoreSync.Sqlite
         public async Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, [CanBeNull] Func<SyncItem, ConflictResolution>? onConflictFunc = null, CancellationToken cancellationToken = default)
         {
             Validate.NotNull(changeSet, nameof(changeSet));
-            Validate.NotNull(changeSet.SourceAnchor, nameof(changeSet.SourceAnchor));
-            Validate.NotNull(changeSet.TargetAnchor, nameof(changeSet.TargetAnchor));
+            Validate.NotNullAnchor(changeSet.SourceAnchor, nameof(changeSet), nameof(changeSet.SourceAnchor));
+            Validate.NotNull(changeSet.TargetAnchor, nameof(changeSet), nameof(changeSet.TargetAnchor));
 
             await InitializeStoreAsync(cancellationToken);
 

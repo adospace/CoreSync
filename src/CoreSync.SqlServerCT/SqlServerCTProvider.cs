@@ -35,7 +35,8 @@ namespace CoreSync.SqlServerCT
         public async Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, Func<SyncItem, ConflictResolution>? onConflictFunc = null, CancellationToken cancellationToken = default)
         {
             Validate.NotNull(changeSet, nameof(changeSet));
-            Validate.NotNull(changeSet.SourceAnchor, nameof(changeSet));
+            Validate.NotNullAnchor(changeSet.SourceAnchor, nameof(changeSet), nameof(changeSet.SourceAnchor));
+            Validate.NotNull(changeSet.TargetAnchor, nameof(changeSet), nameof(changeSet.TargetAnchor));
 
             await InitializeStoreAsync(cancellationToken);
 

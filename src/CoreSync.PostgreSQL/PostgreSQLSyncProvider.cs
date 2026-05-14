@@ -36,8 +36,8 @@ namespace CoreSync.PostgreSQL
         public async Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, [CanBeNull] Func<SyncItem, ConflictResolution>? onConflictFunc = null, CancellationToken cancellationToken = default)
         {
             Validate.NotNull(changeSet, nameof(changeSet));
-            Validate.NotNull(changeSet.SourceAnchor, nameof(changeSet.SourceAnchor));
-            Validate.NotNull(changeSet.TargetAnchor, nameof(changeSet.TargetAnchor));
+            Validate.NotNullAnchor(changeSet.SourceAnchor, nameof(changeSet), nameof(changeSet.SourceAnchor));
+            Validate.NotNull(changeSet.TargetAnchor, nameof(changeSet), nameof(changeSet.TargetAnchor));
 
             await InitializeStoreAsync(cancellationToken);
 
@@ -402,9 +402,10 @@ namespace CoreSync.PostgreSQL
                 return resChangeSet;
 
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                tr.Rollback();
+                _logger?.Error($"[{_storeId}] Unable to complete GetChanges(from={otherStoreId}):{Environment.NewLine}{ex}");
+                try { tr.Rollback(); } catch { /* transaction may already be committed or aborted */ }
                 throw;
             }
 

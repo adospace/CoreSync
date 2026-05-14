@@ -47,5 +47,12 @@ namespace CoreSync
             if (value <= 0) throw new ArgumentException($"Parameter must be greater than 0", parameterName + (field == null ? string.Empty : "." + field));
         }
 
+        public static void NotNullAnchor([CanBeNull] SyncAnchor? value, [NotNull] string? parameterName, [CanBeNull] string? field = null)
+        {
+            var name = parameterName + (field == null ? string.Empty : "." + field);
+            if (value == null) throw new ArgumentNullException(name);
+            if (value.IsNull()) throw new ArgumentException("Anchor must not be the Null sentinel (Version=-1)", name);
+        }
+
     }
 }
