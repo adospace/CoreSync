@@ -26,7 +26,7 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="MessagePack.AspNetCoreMvcFormatter" Version="2.5.187" />
+    <PackageReference Include="MessagePack.AspNetCoreMvcFormatter" Version="3.1.7" />
   </ItemGroup>
 
   <ItemGroup>

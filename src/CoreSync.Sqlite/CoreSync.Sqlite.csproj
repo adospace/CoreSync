@@ -29,7 +29,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
+    <!-- Pin patched native SQLite to remediate GHSA-2m69-gcr7-jv3q (CVE-2025-6965).
+         Microsoft.Data.Sqlite 10.0.9 transitively pulls SQLitePCLRaw 2.1.11 (vulnerable);
+         no released Microsoft.Data.Sqlite ships the fixed 3.0.x line yet, so we pin the bundle directly. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
     <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
   </ItemGroup>
 
