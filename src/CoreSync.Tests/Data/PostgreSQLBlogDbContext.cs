@@ -28,6 +28,14 @@ namespace CoreSync.Tests.Data
             {
                 entity.ToTable("Posts");
                 entity.Property(e => e.Updated).HasColumnType("timestamp");
+
+                // Npgsql 9 defaults this optional FK to no cascade, unlike the
+                // SqlServer/Sqlite providers. Keep cascade delete so deleting a
+                // User removes its Posts, matching the other providers and the
+                // existing migration/snapshot.
+                entity.HasOne(e => e.Author)
+                    .WithMany(u => u.Posts)
+                    .OnDelete(DeleteBehavior.Cascade);
             });
 
             modelBuilder.Entity<Comment>(entity =>

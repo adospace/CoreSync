@@ -17,7 +17,7 @@ namespace CoreSync.Tests.Migrations.PostgreSQLMigrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "9.0.17")
+                .HasAnnotation("ProductVersion", "8.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -127,7 +127,8 @@ namespace CoreSync.Tests.Migrations.PostgreSQLMigrations
                 {
                     b.HasOne("CoreSync.Tests.Data.User", "Author")
                         .WithMany("Posts")
-                        .HasForeignKey("AuthorEmail");
+                        .HasForeignKey("AuthorEmail")
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.Navigation("Author");
                 });
