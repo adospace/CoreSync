@@ -182,17 +182,6 @@ namespace CoreSync.Sqlite
                         {
                             itemHandled = true;
                             appliedInPass++;
-
-                            cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
-                            cmd.Parameters.Clear();
-                            var currentVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
-
-                            cmd.CommandText = "UPDATE [__CORE_SYNC_CT] SET [SRC] = @sourceId WHERE [ID] = @version";
-                            cmd.Parameters.Clear();
-                            cmd.Parameters.AddWithValue("@sourceId", changeSet.SourceAnchor.StoreId.ToString());
-                            cmd.Parameters.AddWithValue("@version", currentVersion);
-
-                            await cmd.ExecuteNonQueryAsync(cancellationToken);
                         }
 
                         if (!itemHandled)
@@ -213,6 +202,19 @@ namespace CoreSync.Sqlite
                     _logger?.Info($"[{_storeId}] Pass {pass}: applied {appliedInPass} item(s), retrying {failedItems.Count} remaining item(s)");
                     remainingItems = failedItems;
                 }
+
+                // Stamp every change-tracking row produced while applying this change set as
+                // originating from the source store, so those changes are not echoed back on the
+                // next GetChanges (IncrementalAddOrUpdatesQuery filters on SRC != @sourceId).
+                // The AFTER INSERT/UPDATE/DELETE triggers create these rows with SRC = NULL and
+                // IDs strictly greater than the version captured before applying, so a single bulk
+                // UPDATE here replaces the former per-item SELECT MAX(ID) + UPDATE (which executed
+                // two extra statements for every applied item).
+                cmd.CommandText = "UPDATE [__CORE_SYNC_CT] SET [SRC] = @sourceId WHERE [ID] > @version AND [SRC] IS NULL";
+                cmd.Parameters.Clear();
+                cmd.Parameters.AddWithValue("@sourceId", changeSet.SourceAnchor.StoreId.ToString());
+                cmd.Parameters.AddWithValue("@version", version);
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
 
                 cmd.CommandText = $"UPDATE [__CORE_SYNC_REMOTE_ANCHOR] SET [REMOTE_VERSION] = @version WHERE [ID] = @id";
                 cmd.Parameters.Clear();
