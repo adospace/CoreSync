@@ -55,57 +55,25 @@ namespace CoreSync.Sqlite
         internal string SelectExistingQuery => $@"SELECT COUNT(*) FROM [{Name}] 
             WHERE [{PrimaryColumnName}] = @PrimaryColumnParameter";
 
-        internal void SetupCommand(SqliteCommand cmd, ChangeType itemChangeType, Dictionary<string, SyncItemValue> syncItemValues)
-        {
-            //take values only for existing columns (server table schema could be not in sync with local table schema)
-            var valuesForValidColumns = syncItemValues
+        //take values only for existing columns (server table schema could be not in sync with local table schema)
+        internal List<KeyValuePair<string, SyncItemValue>> GetValuesForValidColumns(Dictionary<string, SyncItemValue> syncItemValues)
+            => syncItemValues
                 .Where(value => Columns.Any(_ => StringComparer.OrdinalIgnoreCase.Compare(_.Key, value.Key) == 0))
                 .ToList();
 
-            switch (itemChangeType)
-            {
-                case ChangeType.Insert:
-                    {
-                        cmd.CommandText = $@"INSERT OR IGNORE INTO [{Name}] ({string.Join(", ", valuesForValidColumns.Select(_ => "[" + _.Key + "]"))}) 
-VALUES ({string.Join(", ", valuesForValidColumns.Select((_, index) => $"@p{index}"))});";
+        internal string BuildInsertCommandText(IReadOnlyList<string> columns)
+            => $@"INSERT OR IGNORE INTO [{Name}] ({string.Join(", ", columns.Select(_ => "[" + _ + "]"))})
+VALUES ({string.Join(", ", columns.Select((_, index) => $"@p{index}"))});";
 
-                        int pIndex = 0;
-                        foreach (var valueItem in valuesForValidColumns)
-                        {
-                            cmd.Parameters.Add(new SqliteParameter($"@p{pIndex}", valueItem.Value.Value ?? DBNull.Value));
-                            pIndex++;
-                        }
-                    }
-                    break;
-
-                case ChangeType.Update:
-                    {
-                        cmd.CommandText = $@"UPDATE [{Name}]
-SET {string.Join(", ", valuesForValidColumns.Select((_, index) => $"[{_.Key}] = @p{index}"))}
+        internal string BuildUpdateCommandText(IReadOnlyList<string> columns)
+            => $@"UPDATE [{Name}]
+SET {string.Join(", ", columns.Select((column, index) => $"[{column}] = @p{index}"))}
 WHERE [{Name}].[{PrimaryColumnName}] = @PrimaryColumnParameter
 AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK_{PrimaryColumnType} = @PrimaryColumnParameter AND TBL = '{Name}') <= @last_sync_version)";
 
-                        cmd.Parameters.Add(new SqliteParameter("@PrimaryColumnParameter", syncItemValues[PrimaryColumnName].Value ?? DBNull.Value));
-
-                        int pIndex = 0;
-                        foreach (var valueItem in valuesForValidColumns)
-                        {
-                            cmd.Parameters.Add(new SqliteParameter($"@p{pIndex}", valueItem.Value.Value ?? DBNull.Value));
-                            pIndex++;
-                        }
-                    }
-                    break;
-
-                case ChangeType.Delete:
-                    {
-                        cmd.CommandText = $@"DELETE FROM [{Name}]
+        internal string BuildDeleteCommandText()
+            => $@"DELETE FROM [{Name}]
 WHERE [{Name}].[{PrimaryColumnName}] = @PrimaryColumnParameter
 AND (@sync_force_write = 1 OR (SELECT MAX(ID) FROM __CORE_SYNC_CT WHERE PK_{PrimaryColumnType} = @PrimaryColumnParameter AND TBL = '{Name}') <= @last_sync_version)";
-
-                        cmd.Parameters.Add(new SqliteParameter("@PrimaryColumnParameter", syncItemValues[PrimaryColumnName].Value ?? DBNull.Value));
-                    }
-                    break;
-            }
-        }
     }
 }

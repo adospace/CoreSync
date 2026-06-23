@@ -53,6 +53,13 @@ namespace CoreSync.Sqlite
             cmd.Connection = c;
             cmd.Transaction = tr;
 
+            // Reusable prepared commands, cached by (change type + table + column shape). The
+            // per-item write loop then only binds parameter values instead of rebuilding the SQL
+            // text and re-allocating parameters for each of (potentially) 100K+ items; SQLite keeps
+            // the compiled statement as long as the command text is unchanged.
+            var preparedCommands = new Dictionary<string, PreparedItemCommand>();
+            var existsCommands = new Dictionary<string, SqliteCommand>();
+
             try
             {
                 cmd.CommandText = "SELECT MAX(ID) FROM  __CORE_SYNC_CT";
@@ -62,6 +69,85 @@ namespace CoreSync.Sqlite
                 var minVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
                 var remainingItems = changeSet.Items.ToList();
+
+                PreparedItemCommand GetItemCommand(SqliteSyncTable itemTable, ChangeType changeType, List<KeyValuePair<string, SyncItemValue>> validColumns)
+                {
+                    var columns = new string[validColumns.Count];
+                    for (int i = 0; i < validColumns.Count; i++)
+                    {
+                        columns[i] = validColumns[i].Key;
+                    }
+
+                    var cacheKey = $"{(int)changeType}|{itemTable.Name}|{string.Join(",", columns)}";
+                    if (preparedCommands.TryGetValue(cacheKey, out var cached))
+                    {
+                        return cached;
+                    }
+
+                    var command = new SqliteCommand { Connection = c, Transaction = tr };
+                    var valueParameters = new SqliteParameter[columns.Length];
+
+                    void AddValueParameters()
+                    {
+                        for (int i = 0; i < columns.Length; i++)
+                        {
+                            var valueParameter = new SqliteParameter($"@p{i}", DBNull.Value);
+                            command.Parameters.Add(valueParameter);
+                            valueParameters[i] = valueParameter;
+                        }
+                    }
+
+                    SqliteParameter? primaryKeyParameter = null;
+                    SqliteParameter? lastSyncVersionParameter = null;
+                    SqliteParameter? forceWriteParameter = null;
+
+                    switch (changeType)
+                    {
+                        case ChangeType.Insert:
+                            command.CommandText = itemTable.BuildInsertCommandText(columns);
+                            AddValueParameters();
+                            break;
+
+                        case ChangeType.Update:
+                            command.CommandText = itemTable.BuildUpdateCommandText(columns);
+                            primaryKeyParameter = new SqliteParameter("@PrimaryColumnParameter", DBNull.Value);
+                            command.Parameters.Add(primaryKeyParameter);
+                            AddValueParameters();
+                            lastSyncVersionParameter = new SqliteParameter("@last_sync_version", DBNull.Value);
+                            command.Parameters.Add(lastSyncVersionParameter);
+                            forceWriteParameter = new SqliteParameter("@sync_force_write", DBNull.Value);
+                            command.Parameters.Add(forceWriteParameter);
+                            break;
+
+                        case ChangeType.Delete:
+                            command.CommandText = itemTable.BuildDeleteCommandText();
+                            valueParameters = Array.Empty<SqliteParameter>();
+                            primaryKeyParameter = new SqliteParameter("@PrimaryColumnParameter", DBNull.Value);
+                            command.Parameters.Add(primaryKeyParameter);
+                            lastSyncVersionParameter = new SqliteParameter("@last_sync_version", DBNull.Value);
+                            command.Parameters.Add(lastSyncVersionParameter);
+                            forceWriteParameter = new SqliteParameter("@sync_force_write", DBNull.Value);
+                            command.Parameters.Add(forceWriteParameter);
+                            break;
+                    }
+
+                    var preparedCommand = new PreparedItemCommand(command, valueParameters, primaryKeyParameter, lastSyncVersionParameter, forceWriteParameter);
+                    preparedCommands[cacheKey] = preparedCommand;
+                    return preparedCommand;
+                }
+
+                SqliteCommand GetExistsCommand(SqliteSyncTable itemTable)
+                {
+                    if (!existsCommands.TryGetValue(itemTable.Name, out var existsCommand))
+                    {
+                        existsCommand = new SqliteCommand { Connection = c, Transaction = tr };
+                        existsCommand.CommandText = itemTable.SelectExistingQuery;
+                        existsCommand.Parameters.Add(new SqliteParameter("@PrimaryColumnParameter", DBNull.Value));
+                        existsCommands[itemTable.Name] = existsCommand;
+                    }
+
+                    return existsCommand;
+                }
                 int pass = 0;
                 while (remainingItems.Count > 0)
                 {
@@ -82,18 +168,37 @@ namespace CoreSync.Sqlite
                         bool itemHandled = false;
 
                     retryWrite:
-                        cmd.Parameters.Clear();
+                        var validColumns = table.GetValuesForValidColumns(item.Values);
+                        var prepared = GetItemCommand(table, itemChangeType, validColumns);
+                        var itemCommand = prepared.Command;
 
-                        table.SetupCommand(cmd, itemChangeType, item.Values);
+                        // ValueParameters is empty for deletes (which bind only the primary key);
+                        // for inserts/updates it is parallel to validColumns.
+                        for (int i = 0; i < prepared.ValueParameters.Length; i++)
+                        {
+                            prepared.ValueParameters[i].Value = validColumns[i].Value.Value ?? DBNull.Value;
+                        }
 
-                        cmd.Parameters.Add(new SqliteParameter("@last_sync_version", changeSet.TargetAnchor.Version));
-                        cmd.Parameters.Add(new SqliteParameter("@sync_force_write", syncForceWrite));
+                        if (prepared.PrimaryKeyParameter != null)
+                        {
+                            prepared.PrimaryKeyParameter.Value = item.Values[table.PrimaryColumnName].Value ?? DBNull.Value;
+                        }
+
+                        if (prepared.LastSyncVersionParameter != null)
+                        {
+                            prepared.LastSyncVersionParameter.Value = changeSet.TargetAnchor.Version;
+                        }
+
+                        if (prepared.ForceWriteParameter != null)
+                        {
+                            prepared.ForceWriteParameter.Value = syncForceWrite;
+                        }
 
                         int affectedRows = 0;
 
                         try
                         {
-                            affectedRows = await cmd.ExecuteNonQueryAsync(cancellationToken);
+                            affectedRows = await itemCommand.ExecuteNonQueryAsync(cancellationToken);
 
                             if (affectedRows > 0)
                             {
@@ -101,7 +206,7 @@ namespace CoreSync.Sqlite
                             }
                             else
                             {
-                                _logger?.Trace($"[{_storeId}] No row affected on insert for {item} (maybe it's a conflict? or a different table schema between client and server):{Environment.NewLine}Generated SQL:{Environment.NewLine}{cmd.CommandText}");
+                                _logger?.Trace($"[{_storeId}] No row affected on insert for {item} (maybe it's a conflict? or a different table schema between client and server):{Environment.NewLine}Generated SQL:{Environment.NewLine}{itemCommand.CommandText}");
                             }
                         }
                         catch (OperationCanceledException)
@@ -111,7 +216,7 @@ namespace CoreSync.Sqlite
                         catch (Exception ex)
                         {
                             //throw new SynchronizationException($"Unable to {item} item to store for table {table}", ex);
-                            _logger?.Error($"Unable to {itemChangeType} item {item} to store for table {table}.{Environment.NewLine}{ex}{Environment.NewLine}Generated SQL:{Environment.NewLine}{cmd.CommandText}");
+                            _logger?.Error($"Unable to {itemChangeType} item {item} to store for table {table}.{Environment.NewLine}{ex}{Environment.NewLine}Generated SQL:{Environment.NewLine}{itemCommand.CommandText}");
                         }
 
                         if (affectedRows == 0)
@@ -122,11 +227,9 @@ namespace CoreSync.Sqlite
                                 //applied the insert or another record with same values (see primary key)
                                 //is already present in table.
                                 //In any case we can't proceed
-                                cmd.CommandText = table.SelectExistingQuery;
-                                cmd.Parameters.Clear();
-                                var valueItem = item.Values[table.PrimaryColumnName];
-                                cmd.Parameters.Add(new SqliteParameter("@PrimaryColumnParameter", valueItem.Value ?? DBNull.Value));
-                                if (1 == (long)await cmd.ExecuteScalarAsync(cancellationToken) && !syncForceWrite)
+                                var existsCommand = GetExistsCommand(table);
+                                existsCommand.Parameters[0].Value = item.Values[table.PrimaryColumnName].Value ?? DBNull.Value;
+                                if (1 == (long)await existsCommand.ExecuteScalarAsync(cancellationToken) && !syncForceWrite)
                                 {
                                     itemChangeType = ChangeType.Update;
                                     goto retryWrite;
@@ -242,6 +345,49 @@ namespace CoreSync.Sqlite
                 tr.Rollback();
                 throw;
             }
+            finally
+            {
+                foreach (var preparedCommand in preparedCommands.Values)
+                {
+                    preparedCommand.Command.Dispose();
+                }
+
+                foreach (var existsCommand in existsCommands.Values)
+                {
+                    existsCommand.Dispose();
+                }
+            }
+        }
+
+        /// <summary>
+        /// A reusable command for applying a single change type against a table with a fixed column
+        /// shape. The command text is built once; each item only rebinds the parameter values.
+        /// </summary>
+        private sealed class PreparedItemCommand
+        {
+            public PreparedItemCommand(
+                SqliteCommand command,
+                SqliteParameter[] valueParameters,
+                SqliteParameter? primaryKeyParameter,
+                SqliteParameter? lastSyncVersionParameter,
+                SqliteParameter? forceWriteParameter)
+            {
+                Command = command;
+                ValueParameters = valueParameters;
+                PrimaryKeyParameter = primaryKeyParameter;
+                LastSyncVersionParameter = lastSyncVersionParameter;
+                ForceWriteParameter = forceWriteParameter;
+            }
+
+            public SqliteCommand Command { get; }
+
+            public SqliteParameter[] ValueParameters { get; }
+
+            public SqliteParameter? PrimaryKeyParameter { get; }
+
+            public SqliteParameter? LastSyncVersionParameter { get; }
+
+            public SqliteParameter? ForceWriteParameter { get; }
         }
 
         public async Task SaveVersionForStoreAsync(Guid otherStoreId, long version, CancellationToken cancellationToken = default)
