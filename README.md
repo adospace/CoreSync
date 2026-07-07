@@ -1,6 +1,6 @@
 # CoreSync
 
-**CoreSync** is a .NET library for bidirectional data synchronization between databases. It supports SQLite, SQL Server, and PostgreSQL, letting you keep multiple database instances in sync — whether they're on the same machine or communicating over HTTP.
+**CoreSync** is a .NET library for bidirectional data synchronization between databases. It supports SQLite, SQL Server, PostgreSQL, and MySQL, letting you keep multiple database instances in sync — whether they're on the same machine or communicating over HTTP.
 
 [![Build status](https://ci.appveyor.com/api/projects/status/8cloij4060cbnvfp?svg=true)](https://ci.appveyor.com/project/adospace/coresync)
 [![NuGet](https://img.shields.io/nuget/v/CoreSync.svg)](https://www.nuget.org/packages/CoreSync/)
@@ -8,12 +8,12 @@
 
 ## Key Features
 
-- **Bidirectional sync** between any supported database combination (e.g. SQLite ↔ SQL Server, PostgreSQL ↔ SQLite, etc.)
+- **Bidirectional sync** between any supported database combination (e.g. SQLite ↔ SQL Server, PostgreSQL ↔ SQLite, MySQL ↔ SQLite, etc.)
 - **Automatic change tracking** — detects inserts, updates, and deletes with version-based anchors
 - **Conflict resolution** — built-in strategies (Skip or ForceWrite) with per-item customization
 - **Filtered sync** — synchronize a subset of data using parameterized queries
 - **HTTP transport** — sync over the network with ASP.NET Core server endpoints and a resilient HTTP client (with Polly retries and MessagePack binary format)
-- **Multiple providers**: SQLite, SQL Server (custom change tracking), SQL Server CT (native Change Tracking), PostgreSQL
+- **Multiple providers**: SQLite, SQL Server (custom change tracking), SQL Server CT (native Change Tracking), PostgreSQL, MySQL
 
 ## How It Works
 
@@ -42,6 +42,7 @@ CoreSync uses a **version-based change tracking** approach:
 | `CoreSync.SqlServer` | SQL Server | Custom trigger-based |
 | `CoreSync.SqlServerCT` | SQL Server | Native Change Tracking |
 | `CoreSync.PostgreSQL` | PostgreSQL | Custom trigger-based |
+| `CoreSync.MySql` | MySQL | Custom trigger-based |
 
 **HTTP packages** for remote sync over the network:
 
@@ -228,6 +229,7 @@ CoreSync (core interfaces and SyncAgent)
 ├── CoreSync.SqlServer         (SQL Server provider - custom CT)
 ├── CoreSync.SqlServerCT       (SQL Server provider - native CT)
 ├── CoreSync.PostgreSQL        (PostgreSQL provider)
+├── CoreSync.MySql             (MySQL provider)
 ├── CoreSync.Http              (shared HTTP types)
 ├── CoreSync.Http.Server       (ASP.NET Core sync endpoints)
 └── CoreSync.Http.Client       (resilient HTTP sync client)

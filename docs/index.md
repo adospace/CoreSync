@@ -5,7 +5,7 @@ title: CoreSync Documentation
 
 # CoreSync
 
-**CoreSync** is a .NET library for bidirectional data synchronization between databases. It supports SQLite, SQL Server, and PostgreSQL, letting you keep multiple database instances in sync — whether they're on the same machine or communicating over HTTP.
+**CoreSync** is a .NET library for bidirectional data synchronization between databases. It supports SQLite, SQL Server, PostgreSQL, and MySQL, letting you keep multiple database instances in sync — whether they're on the same machine or communicating over HTTP.
 
 ## Pages
 

@@ -1,6 +1,7 @@
 using CoreSync.Sqlite;
 using CoreSync.SqlServer;
 using CoreSync.PostgreSQL;
+using CoreSync.MySql;
 using CoreSync.Tests.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -82,6 +83,70 @@ public partial class IntegrationTests
 
     #endregion
 
+    #region TestSyncAgent Multiple Records over HTTP — Sqlite_MySql
+
+    [TestMethod]
+    public async Task TestSyncAgent_Sqlite_MySql_MultipleRecordsSameTable_HttpJson()
+    {
+        var localDbFile = $"{Path.GetTempPath()}TestSyncAgent_Sqlite_MySql_MultipleRecordsSameTable_HttpJson.sqlite";
+        if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+        using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+        using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("coresync_http_multi_mysql_json"));
+        await localDb.Database.EnsureDeletedAsync();
+        await remoteDb.Database.EnsureDeletedAsync();
+
+        await localDb.Database.MigrateAsync();
+        await remoteDb.Database.MigrateAsync();
+
+        var remoteSyncProvider = new MySqlSyncProvider(
+            new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users").Table("Posts").Table("Comments").Build(),
+            logger: new ConsoleLogger("REM"));
+        await remoteSyncProvider.ApplyProvisionAsync();
+
+        var localSyncProvider = new SqliteSyncProvider(
+            new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table<User>("Users").Table<Post>("Posts").Table<Comment>("Comments").Build(),
+            logger: new ConsoleLogger("LOC"));
+        await localSyncProvider.ApplyProvisionAsync();
+
+        using var server = SyncTestServer.Create(remoteSyncProvider, useBinaryFormat: false);
+        await TestSyncAgentMultipleRecordsOnSameTable(localDb, localSyncProvider, remoteDb, server.HttpSyncProvider);
+    }
+
+    [TestMethod]
+    public async Task TestSyncAgent_Sqlite_MySql_MultipleRecordsSameTable_HttpBinary()
+    {
+        var localDbFile = $"{Path.GetTempPath()}TestSyncAgent_Sqlite_MySql_MultipleRecordsSameTable_HttpBinary.sqlite";
+        if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+        using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+        using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("coresync_http_multi_mysql_binary"));
+        await localDb.Database.EnsureDeletedAsync();
+        await remoteDb.Database.EnsureDeletedAsync();
+
+        await localDb.Database.MigrateAsync();
+        await remoteDb.Database.MigrateAsync();
+
+        var remoteSyncProvider = new MySqlSyncProvider(
+            new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users").Table("Posts").Table("Comments").Build(),
+            logger: new ConsoleLogger("REM"));
+        await remoteSyncProvider.ApplyProvisionAsync();
+
+        var localSyncProvider = new SqliteSyncProvider(
+            new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table<User>("Users").Table<Post>("Posts").Table<Comment>("Comments").Build(),
+            logger: new ConsoleLogger("LOC"));
+        await localSyncProvider.ApplyProvisionAsync();
+
+        using var server = SyncTestServer.Create(remoteSyncProvider, useBinaryFormat: true);
+        await TestSyncAgentMultipleRecordsOnSameTable(localDb, localSyncProvider, remoteDb, server.HttpSyncProvider);
+    }
+
+    #endregion
+
     #region TestSyncAgent Multiple Records over HTTP — Sqlite_SqlServer
 
     [TestMethod]
@@ -146,6 +211,70 @@ public partial class IntegrationTests
 
     #endregion
 
+    #region TestSyncAgent UpdatedRemoteDeletedLocal over HTTP — Sqlite_MySql
+
+    [TestMethod]
+    public async Task TestSyncAgent_Sqlite_MySql_UpdatedRemoteDeletedLocal_HttpJson()
+    {
+        var localDbFile = $"{Path.GetTempPath()}TestSyncAgent_Sqlite_MySql_UpdatedRemoteDeletedLocal_HttpJson.sqlite";
+        if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+        using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+        using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("coresync_http_urdl_mysql_json"));
+        await localDb.Database.EnsureDeletedAsync();
+        await remoteDb.Database.EnsureDeletedAsync();
+
+        await localDb.Database.MigrateAsync();
+        await remoteDb.Database.MigrateAsync();
+
+        var remoteSyncProvider = new MySqlSyncProvider(
+            new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users").Table("Posts").Table("Comments").Build(),
+            ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+        await remoteSyncProvider.ApplyProvisionAsync();
+
+        var localSyncProvider = new SqliteSyncProvider(
+            new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table("Users").Table("Posts").Table("Comments").Build(),
+            logger: new ConsoleLogger("LOC"));
+        await localSyncProvider.ApplyProvisionAsync();
+
+        using var server = SyncTestServer.Create(remoteSyncProvider, useBinaryFormat: false);
+        await TestSyncAgentWithUpdatedRemoteDeletedLocal(localDb, localSyncProvider, remoteDb, server.HttpSyncProvider);
+    }
+
+    [TestMethod]
+    public async Task TestSyncAgent_Sqlite_MySql_UpdatedRemoteDeletedLocal_HttpBinary()
+    {
+        var localDbFile = $"{Path.GetTempPath()}TestSyncAgent_Sqlite_MySql_UpdatedRemoteDeletedLocal_HttpBinary.sqlite";
+        if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+        using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+        using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("coresync_http_urdl_mysql_binary"));
+        await localDb.Database.EnsureDeletedAsync();
+        await remoteDb.Database.EnsureDeletedAsync();
+
+        await localDb.Database.MigrateAsync();
+        await remoteDb.Database.MigrateAsync();
+
+        var remoteSyncProvider = new MySqlSyncProvider(
+            new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users").Table("Posts").Table("Comments").Build(),
+            ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+        await remoteSyncProvider.ApplyProvisionAsync();
+
+        var localSyncProvider = new SqliteSyncProvider(
+            new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table("Users").Table("Posts").Table("Comments").Build(),
+            logger: new ConsoleLogger("LOC"));
+        await localSyncProvider.ApplyProvisionAsync();
+
+        using var server = SyncTestServer.Create(remoteSyncProvider, useBinaryFormat: true);
+        await TestSyncAgentWithUpdatedRemoteDeletedLocal(localDb, localSyncProvider, remoteDb, server.HttpSyncProvider);
+    }
+
+    #endregion
+
     #region TestSyncAgent Multiple Records over HTTP — Sqlite_PostgreSQL
 
     [TestMethod]
@@ -206,6 +335,70 @@ public partial class IntegrationTests
 
         using var server = SyncTestServer.Create(remoteSyncProvider, useBinaryFormat: true);
         await TestSyncAgentMultipleRecordsOnSameTable(localDb, localSyncProvider, remoteDb, server.HttpSyncProvider);
+    }
+
+    #endregion
+
+    #region DeleteWithForeignKeys over HTTP — Sqlite_MySql
+
+    [TestMethod]
+    public async Task Test_Sqlite_MySql_DeleteWithForeignKeys_HttpJson()
+    {
+        var localDbFile = $"{Path.GetTempPath()}Test_Sqlite_MySql_DeleteWithForeignKeys_HttpJson.sqlite";
+        if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+        using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+        using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("coresync_http_delfk_mysql_json"));
+        await localDb.Database.EnsureDeletedAsync();
+        await remoteDb.Database.EnsureDeletedAsync();
+
+        await localDb.Database.MigrateAsync();
+        await remoteDb.Database.MigrateAsync();
+
+        var remoteSyncProvider = new MySqlSyncProvider(
+            new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users").Table("Posts").Table("Comments").Build(),
+            ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+        await remoteSyncProvider.ApplyProvisionAsync();
+
+        var localSyncProvider = new SqliteSyncProvider(
+            new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table<User>("Users").Table<Post>("Posts").Table<Comment>("Comments").Build(),
+            ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+        await localSyncProvider.ApplyProvisionAsync();
+
+        using var server = SyncTestServer.Create(remoteSyncProvider, useBinaryFormat: false);
+        await TestSyncAgentDeleteWithForeignKeys(localDb, localSyncProvider, remoteDb, server.HttpSyncProvider);
+    }
+
+    [TestMethod]
+    public async Task Test_Sqlite_MySql_DeleteWithForeignKeys_HttpBinary()
+    {
+        var localDbFile = $"{Path.GetTempPath()}Test_Sqlite_MySql_DeleteWithForeignKeys_HttpBinary.sqlite";
+        if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+        using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+        using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("coresync_http_delfk_mysql_binary"));
+        await localDb.Database.EnsureDeletedAsync();
+        await remoteDb.Database.EnsureDeletedAsync();
+
+        await localDb.Database.MigrateAsync();
+        await remoteDb.Database.MigrateAsync();
+
+        var remoteSyncProvider = new MySqlSyncProvider(
+            new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users").Table("Posts").Table("Comments").Build(),
+            ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+        await remoteSyncProvider.ApplyProvisionAsync();
+
+        var localSyncProvider = new SqliteSyncProvider(
+            new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table<User>("Users").Table<Post>("Posts").Table<Comment>("Comments").Build(),
+            ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+        await localSyncProvider.ApplyProvisionAsync();
+
+        using var server = SyncTestServer.Create(remoteSyncProvider, useBinaryFormat: true);
+        await TestSyncAgentDeleteWithForeignKeys(localDb, localSyncProvider, remoteDb, server.HttpSyncProvider);
     }
 
     #endregion
@@ -800,6 +993,74 @@ public partial class IntegrationTests
 
         var remoteSyncProvider = new PostgreSQLSyncProvider(
             new PostgreSQLSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users").Table("Posts").Table("Comments").Build(),
+            ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+        await remoteSyncProvider.ApplyProvisionAsync();
+
+        var localSyncProvider = new SqliteSyncProvider(
+            new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table("Users").Table("Posts").Table("Comments").Build(),
+            ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+        await localSyncProvider.ApplyProvisionAsync();
+
+        using var server = SyncTestServer.Create(remoteSyncProvider, useBinaryFormat: true);
+        await TestSyncAgentDeleteParentRecordInRelatedTables(localDb, localSyncProvider, remoteDb, server.HttpSyncProvider);
+    }
+
+    #endregion
+
+    #region DeleteParentRecordInRelatedTables over HTTP — Sqlite_MySql
+
+    [TestMethod]
+    public async Task Test_Sqlite_MySql_DeleteParentRecordInRelatedTables_HttpJson()
+    {
+        var localDbFile = $"{Path.GetTempPath()}Test_Sqlite_MySql_DeleteParentRecordInRelatedTables_HttpJson.sqlite";
+        if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+        using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+        using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("coresync_http_delparent_mysql_json"));
+        await localDb.Database.EnsureDeletedAsync();
+        await remoteDb.Database.EnsureDeletedAsync();
+
+        await localDb.Database.MigrateAsync();
+        await remoteDb.Database.MigrateAsync();
+
+        localDb.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+
+        var remoteSyncProvider = new MySqlSyncProvider(
+            new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users").Table("Posts").Table("Comments").Build(),
+            ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+        await remoteSyncProvider.ApplyProvisionAsync();
+
+        var localSyncProvider = new SqliteSyncProvider(
+            new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table("Users").Table("Posts").Table("Comments").Build(),
+            ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+        await localSyncProvider.ApplyProvisionAsync();
+
+        using var server = SyncTestServer.Create(remoteSyncProvider, useBinaryFormat: false);
+        await TestSyncAgentDeleteParentRecordInRelatedTables(localDb, localSyncProvider, remoteDb, server.HttpSyncProvider);
+    }
+
+    [TestMethod]
+    public async Task Test_Sqlite_MySql_DeleteParentRecordInRelatedTables_HttpBinary()
+    {
+        var localDbFile = $"{Path.GetTempPath()}Test_Sqlite_MySql_DeleteParentRecordInRelatedTables_HttpBinary.sqlite";
+        if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+        using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+        using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("coresync_http_delparent_mysql_binary"));
+        await localDb.Database.EnsureDeletedAsync();
+        await remoteDb.Database.EnsureDeletedAsync();
+
+        await localDb.Database.MigrateAsync();
+        await remoteDb.Database.MigrateAsync();
+
+        localDb.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+
+        var remoteSyncProvider = new MySqlSyncProvider(
+            new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
                 .Table("Users").Table("Posts").Table("Comments").Build(),
             ProviderMode.Remote, logger: new ConsoleLogger("REM"));
         await remoteSyncProvider.ApplyProvisionAsync();

@@ -15,7 +15,7 @@ Both CoreSync and [Debezium](https://debezium.io/) deal with change data capture
 | **Language / Ecosystem** | .NET (C#) | Java (JVM / Kafka ecosystem) |
 | **Sync direction** | Bidirectional | Unidirectional (source to consumers) |
 | **Infrastructure required** | None beyond your app and databases | Kafka + Kafka Connect (primary mode), or standalone JVM server |
-| **Supported databases** | SQLite, SQL Server, PostgreSQL | MySQL, MariaDB, PostgreSQL, SQL Server, Oracle, MongoDB, Db2, Cassandra, Spanner, Vitess, Informix |
+| **Supported databases** | SQLite, SQL Server, PostgreSQL, MySQL | MySQL, MariaDB, PostgreSQL, SQL Server, Oracle, MongoDB, Db2, Cassandra, Spanner, Vitess, Informix |
 | **Change detection method** | Trigger-based or SQL Server native CT | Transaction log reading (binlog, WAL, redo logs) |
 | **Conflict resolution** | Built-in (Skip / ForceWrite with per-item control) | N/A (unidirectional — no conflicts) |
 | **Target framework** | .NET Standard 2.0 / .NET 8.0 | Java 11+ |
@@ -103,6 +103,7 @@ Debezium's primary deployment (Kafka Connect) requires a running Kafka cluster, 
 | SQLite | Yes | No |
 | SQL Server | Yes (custom triggers + native CT) | Yes |
 | PostgreSQL | Yes | Yes |
+| MySQL | Yes | Yes |
 | MySQL / MariaDB | No | Yes |
 | Oracle | No | Yes |
 | MongoDB | No | Yes |
@@ -200,7 +201,7 @@ CoreSync is the right choice when:
 - Desktop applications caching data locally
 - Field service apps that work without connectivity
 - Multi-site databases that need bidirectional replication
-- Any .NET application synchronizing between SQLite, SQL Server, and/or PostgreSQL
+- Any .NET application synchronizing between SQLite, SQL Server, PostgreSQL, and/or MySQL
 
 ## When to Choose Debezium
 

@@ -1,6 +1,7 @@
 using CoreSync.Sqlite;
 using CoreSync.SqlServer;
 using CoreSync.PostgreSQL;
+using CoreSync.MySql;
 using CoreSync.Tests.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -20,6 +21,18 @@ namespace CoreSync.Tests
 
         public static string PostgreSQLConnectionString => Environment.GetEnvironmentVariable("CORE-SYNC_POSTGRESQL_CONNECTION_STRING") ??
                                                            "Host=localhost;Port=5432;Database=coresync_test;Username=coresync;Password=test123";
+
+        public static string MySqlConnectionString => Environment.GetEnvironmentVariable("CORE-SYNC_MYSQL_CONNECTION_STRING") ??
+                                                      "Server=localhost;Port=3306;Database=coresync_test;User=root;Password=test123;GuidFormat=Char36";
+
+        public static string GetMySqlConnectionString(string dbName)
+        {
+            var builder = new MySqlConnector.MySqlConnectionStringBuilder(MySqlConnectionString)
+            {
+                Database = dbName
+            };
+            return builder.ToString();
+        }
 
         private static async Task Test1(
             BlogDbContext localDb,
