@@ -2330,6 +2330,38 @@ namespace CoreSync.Tests
             await TestSynchronizationAfterDisabledChangeTrackingForTable(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
         }
 
+        [TestMethod]
+        public async Task Test_MySql_EnableChangeTrackingForTable_InitializesFreshProvider()
+        {
+            using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("cs_mysql_enablect_fresh"));
+            await remoteDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var configuration = new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users")
+                .Build();
+
+            var provisioningProvider = new MySqlSyncProvider(configuration, ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+            await provisioningProvider.ApplyProvisionAsync();
+            await provisioningProvider.DisableChangeTrackingForTable("Users");
+
+            var freshProvider = new MySqlSyncProvider(configuration, ProviderMode.Remote, logger: new ConsoleLogger("REM2"));
+            await freshProvider.EnableChangeTrackingForTable("Users");
+
+            var otherStoreId = Guid.NewGuid();
+            var initialChanges = await freshProvider.GetChangesAsync(otherStoreId);
+            await freshProvider.SaveVersionForStoreAsync(otherStoreId, initialChanges.SourceAnchor.Version);
+
+            remoteDb.Users.Add(new User { Email = "fresh-enable@test.com", Name = "Fresh Enable", Created = new DateTime(2020, 1, 1) });
+            await remoteDb.SaveChangesAsync();
+
+            var incrementalChanges = await freshProvider.GetChangesAsync(otherStoreId);
+            incrementalChanges.Items.Count.ShouldBe(1);
+            incrementalChanges.Items[0].TableName.ShouldBe("Users");
+            incrementalChanges.Items[0].ChangeType.ShouldBe(ChangeType.Insert);
+            incrementalChanges.Items[0].Values["Email"].Value.ShouldBe("fresh-enable@test.com");
+        }
+
         #region GetChangesWithTableFilter Tests
 
         [TestMethod]

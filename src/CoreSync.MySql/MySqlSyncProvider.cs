@@ -832,6 +832,8 @@ VALUES ('{table.Name}', '{op[0]}', {rowReference}.`{table.PrimaryColumnName}`)";
         {
             Validate.NotNullOrEmptyOrWhiteSpace(name, nameof(name));
 
+            await InitializeStoreAsync(cancellationToken);
+
             var table = Configuration.Tables.Cast<MySqlSyncTable>().FirstOrDefault(_ => _.Name == name);
             if (table == null)
             {
