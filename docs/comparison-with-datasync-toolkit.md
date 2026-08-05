@@ -14,7 +14,7 @@ Both CoreSync and the [Datasync Community Toolkit](https://github.com/CommunityT
 | **Primary purpose** | Bidirectional database-to-database sync | Client-server offline sync (successor to Azure Mobile Apps) |
 | **Architecture** | Library — direct provider-to-provider | Client-server — requires ASP.NET Core controllers |
 | **Sync direction** | Bidirectional (peer-to-peer) | Bidirectional (client-server only) |
-| **Server databases** | SQLite, SQL Server, PostgreSQL | SQL Server, PostgreSQL, MySQL, Cosmos DB, MongoDB, LiteDB |
+| **Server databases** | SQLite, SQL Server, PostgreSQL, MySQL | SQL Server, PostgreSQL, MySQL, Cosmos DB, MongoDB, LiteDB |
 | **Client databases** | Any supported provider | SQLite only |
 | **Change detection** | Database triggers or SQL Server native CT | Timestamp-based (`UpdatedAt` field) |
 | **Entity requirements** | No changes to your schema | Must implement `ITableData` (Id, UpdatedAt, Version, Deleted) |
@@ -117,13 +117,14 @@ Both libraries support per-item conflict resolution. CoreSync uses a simpler mod
 | SQLite | Yes | Not recommended (timestamp precision) | Yes (only option) |
 | SQL Server / Azure SQL | Yes (custom triggers + native CT) | Yes | — |
 | PostgreSQL | Yes | Yes | — |
+| MySQL | Yes | Yes | — |
 | MySQL / MariaDB | — | Yes | — |
 | Cosmos DB | — | Yes | — |
 | MongoDB | — | Yes | — |
 | LiteDB | — | Yes | — |
 | In-Memory | — | Yes (testing) | — |
 
-CoreSync uniquely supports **SQLite as both a source and target** for sync — not just as a client-side cache. This means you can sync SQLite-to-SQLite, SQLite-to-SQL Server, or SQLite-to-PostgreSQL in any direction.
+CoreSync uniquely supports **SQLite as both a source and target** for sync — not just as a client-side cache. This means you can sync SQLite-to-SQLite, SQLite-to-SQL Server, SQLite-to-PostgreSQL, or SQLite-to-MySQL in any direction.
 
 The Datasync Toolkit has broader server-side database support (including NoSQL options), but the client is always SQLite.
 
@@ -235,7 +236,7 @@ The Datasync Toolkit has a richer security model since it's designed as a server
 CoreSync is the right choice when:
 
 - **You need database-to-database sync** — no server API required
-- **You want any-to-any database combinations** — SQLite ↔ SQL Server ↔ PostgreSQL in any direction
+- **You want any-to-any database combinations** — SQLite ↔ SQL Server ↔ PostgreSQL ↔ MySQL in any direction
 - **You need SQLite as a full sync participant** — not just a client cache
 - **Your existing schema should stay unchanged** — no base classes or required fields
 - **You need broad .NET compatibility** — .NET Standard 2.0 supports everything from .NET Framework 4.6.1 to .NET 10

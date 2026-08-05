@@ -10,6 +10,8 @@ namespace CoreSync.Tests.Data
 
         Sqlite,
 
-        PostgreSQL
+        PostgreSQL,
+
+        MySql
     }
 }

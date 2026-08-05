@@ -2,9 +2,11 @@ using CoreSync.Sqlite;
 using CoreSync.SqlServer;
 using CoreSync.SqlServerCT;
 using CoreSync.PostgreSQL;
+using CoreSync.MySql;
 using Microsoft.Data.Sqlite;
 using Microsoft.Data.SqlClient;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using MySqlConnector;
 using Npgsql;
 using Shouldly;
 using System;
@@ -20,6 +22,9 @@ public partial class SelfReferencingForeignKeyTests
 
     private static string PostgreSQLConnectionString => Environment.GetEnvironmentVariable("CORE-SYNC_POSTGRESQL_CONNECTION_STRING") ??
         "Host=localhost;Port=5432;Database=coresync_test;Username=coresync;Password=test123";
+
+    private static string MySqlConnectionString => Environment.GetEnvironmentVariable("CORE-SYNC_MYSQL_CONNECTION_STRING") ??
+        "Server=localhost;Port=3306;Database=coresync_test;User=root;Password=test123;GuidFormat=Char36";
 
     #region SQLite helpers
 
@@ -268,6 +273,108 @@ public partial class SelfReferencingForeignKeyTests
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT \"Content\", \"ParentId\" FROM \"Comments\" WHERE \"Id\" = $1";
         cmd.Parameters.Add(new NpgsqlParameter { Value = id });
+        using var reader = await cmd.ExecuteReaderAsync();
+        await reader.ReadAsync();
+        var content = reader.GetString(0);
+        var parentId = reader.IsDBNull(1) ? (int?)null : reader.GetInt32(1);
+        return (content, parentId);
+    }
+
+    #endregion
+
+    #region MySQL helpers
+
+    private static async Task CreateMySqlDatabase(string dbName)
+    {
+        var builder = new MySqlConnectionStringBuilder(MySqlConnectionString)
+        {
+            Database = "mysql"
+        };
+
+        using var conn = new MySqlConnection(builder.ToString());
+        await conn.OpenAsync();
+        using var cmd = conn.CreateCommand();
+
+        cmd.CommandText = $"DROP DATABASE IF EXISTS `{dbName}`";
+        await cmd.ExecuteNonQueryAsync();
+        cmd.CommandText = $"CREATE DATABASE `{dbName}`";
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private static async Task DropMySqlDatabase(string dbName)
+    {
+        var builder = new MySqlConnectionStringBuilder(MySqlConnectionString)
+        {
+            Database = "mysql"
+        };
+
+        using var conn = new MySqlConnection(builder.ToString());
+        await conn.OpenAsync();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"DROP DATABASE IF EXISTS `{dbName}`";
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private static string GetMySqlConnectionString(string dbName)
+    {
+        var builder = new MySqlConnectionStringBuilder(MySqlConnectionString)
+        {
+            Database = dbName
+        };
+        return builder.ToString();
+    }
+
+    private static async Task CreateMySqlCommentsTable(string connectionString, bool withForeignKey = true)
+    {
+        using var conn = new MySqlConnection(connectionString);
+        await conn.OpenAsync();
+        using var cmd = conn.CreateCommand();
+
+        var fkClause = withForeignKey
+            ? ", CONSTRAINT `FK_Comments_Parent` FOREIGN KEY (`ParentId`) REFERENCES `Comments`(`Id`)"
+            : string.Empty;
+        cmd.CommandText = $@"
+            CREATE TABLE `Comments` (
+                `Id` INT PRIMARY KEY,
+                `Content` LONGTEXT NOT NULL,
+                `ParentId` INT NULL{fkClause}
+            ) ENGINE=InnoDB";
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private static async Task InsertMySqlComments(string connectionString, params (int id, string content, int? parentId)[] records)
+    {
+        using var conn = new MySqlConnection(connectionString);
+        await conn.OpenAsync();
+        using var cmd = conn.CreateCommand();
+
+        foreach (var (id, content, parentId) in records)
+        {
+            cmd.CommandText = "INSERT INTO `Comments` (`Id`, `Content`, `ParentId`) VALUES (@id, @content, @parentId)";
+            cmd.Parameters.Clear();
+            cmd.Parameters.AddWithValue("@id", id);
+            cmd.Parameters.AddWithValue("@content", content);
+            cmd.Parameters.AddWithValue("@parentId", parentId.HasValue ? parentId.Value : DBNull.Value);
+            await cmd.ExecuteNonQueryAsync();
+        }
+    }
+
+    private static async Task<long> GetMySqlCommentCount(string connectionString)
+    {
+        using var conn = new MySqlConnection(connectionString);
+        await conn.OpenAsync();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM `Comments`";
+        return Convert.ToInt64((await cmd.ExecuteScalarAsync())!);
+    }
+
+    private static async Task<(string content, int? parentId)> GetMySqlComment(string connectionString, int id)
+    {
+        using var conn = new MySqlConnection(connectionString);
+        await conn.OpenAsync();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT `Content`, `ParentId` FROM `Comments` WHERE `Id` = @id";
+        cmd.Parameters.AddWithValue("@id", id);
         using var reader = await cmd.ExecuteReaderAsync();
         await reader.ReadAsync();
         var content = reader.GetString(0);
@@ -683,6 +790,102 @@ public partial class SelfReferencingForeignKeyTests
 
     #endregion
 
+    #region MySQL -> MySQL
+
+    [TestMethod]
+    public async Task SelfReferencingFK_ChildBeforeParent_MySql_MySql()
+    {
+        var remoteDb = "coresync_selfrefk_mysql_remote";
+        var localDb = "coresync_selfrefk_mysql_local";
+
+        try
+        {
+            await CreateMySqlDatabase(remoteDb);
+            await CreateMySqlDatabase(localDb);
+
+            var remoteConnStr = GetMySqlConnectionString(remoteDb);
+            var localConnStr = GetMySqlConnectionString(localDb);
+
+            await CreateMySqlCommentsTable(remoteConnStr);
+            await CreateMySqlCommentsTable(localConnStr);
+
+            var remoteConfig = new MySqlSyncConfigurationBuilder(remoteConnStr).Table("Comments").Build();
+            ISyncProvider remoteSyncProvider = new MySqlSyncProvider(remoteConfig, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfig = new MySqlSyncConfigurationBuilder(localConnStr).Table("Comments").Build();
+            ISyncProvider localSyncProvider = new MySqlSyncProvider(localConfig, logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await InsertMySqlComments(remoteConnStr,
+                (1, "Parent comment", null),
+                (2, "Child comment", 1));
+
+            await TestChildBeforeParent(remoteSyncProvider, localSyncProvider, async () =>
+            {
+                (await GetMySqlCommentCount(localConnStr)).ShouldBe(2);
+                var (content1, _) = await GetMySqlComment(localConnStr, 1);
+                content1.ShouldBe("Parent comment");
+                var (content2, parentId2) = await GetMySqlComment(localConnStr, 2);
+                content2.ShouldBe("Child comment");
+                parentId2.ShouldBe(1);
+            });
+        }
+        finally
+        {
+            await DropMySqlDatabase(remoteDb);
+            await DropMySqlDatabase(localDb);
+        }
+    }
+
+    [TestMethod]
+    public async Task SelfReferencingFK_DeepChain_MySql_MySql()
+    {
+        var remoteDb = "coresync_selfrefk_mysql_deep_remote";
+        var localDb = "coresync_selfrefk_mysql_deep_local";
+
+        try
+        {
+            await CreateMySqlDatabase(remoteDb);
+            await CreateMySqlDatabase(localDb);
+
+            var remoteConnStr = GetMySqlConnectionString(remoteDb);
+            var localConnStr = GetMySqlConnectionString(localDb);
+
+            await CreateMySqlCommentsTable(remoteConnStr);
+            await CreateMySqlCommentsTable(localConnStr);
+
+            var remoteConfig = new MySqlSyncConfigurationBuilder(remoteConnStr).Table("Comments").Build();
+            ISyncProvider remoteSyncProvider = new MySqlSyncProvider(remoteConfig, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfig = new MySqlSyncConfigurationBuilder(localConnStr).Table("Comments").Build();
+            ISyncProvider localSyncProvider = new MySqlSyncProvider(localConfig, logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await InsertMySqlComments(remoteConnStr,
+                (1, "Root", null),
+                (2, "Child", 1),
+                (3, "Grandchild", 2));
+
+            await TestDeepChain(remoteSyncProvider, localSyncProvider, async () =>
+            {
+                (await GetMySqlCommentCount(localConnStr)).ShouldBe(3);
+                var (_, parentId3) = await GetMySqlComment(localConnStr, 3);
+                parentId3.ShouldBe(2);
+                var (_, parentId2) = await GetMySqlComment(localConnStr, 2);
+                parentId2.ShouldBe(1);
+            });
+        }
+        finally
+        {
+            await DropMySqlDatabase(remoteDb);
+            await DropMySqlDatabase(localDb);
+        }
+    }
+
+    #endregion
+
     #region Mixed: SqlServer remote -> Sqlite local
 
     [TestMethod]
@@ -772,6 +975,54 @@ public partial class SelfReferencingForeignKeyTests
         finally
         {
             await DropPostgreSQLDatabase(remoteDb);
+            SqliteConnection.ClearAllPools();
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+        }
+    }
+
+    #endregion
+
+    #region Mixed: MySQL remote -> Sqlite local
+
+    [TestMethod]
+    public async Task SelfReferencingFK_ChildBeforeParent_MySql_Sqlite()
+    {
+        var remoteDb = "coresync_selfrefk_mysql_sqlite_remote";
+        var localDbFile = Path.Combine(Path.GetTempPath(), $"SelfRefFK_MySql_Sqlite_local_{Guid.NewGuid()}.sqlite");
+
+        try
+        {
+            await CreateMySqlDatabase(remoteDb);
+
+            var remoteConnStr = GetMySqlConnectionString(remoteDb);
+            await CreateMySqlCommentsTable(remoteConnStr);
+
+            var remoteConfig = new MySqlSyncConfigurationBuilder(remoteConnStr).Table("Comments").Build();
+            ISyncProvider remoteSyncProvider = new MySqlSyncProvider(remoteConfig, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var (localSyncProvider, localConnStr) = await CreateSqliteProvider(localDbFile, "LOC");
+
+            await InsertMySqlComments(remoteConnStr,
+                (1, "Parent comment", null),
+                (2, "Child comment", 1));
+
+            await TestChildBeforeParent(remoteSyncProvider, localSyncProvider, async () =>
+            {
+                using var conn = new SqliteConnection(localConnStr);
+                await conn.OpenAsync();
+                using var cmd = conn.CreateCommand();
+
+                cmd.CommandText = "SELECT COUNT(*) FROM [Comments]";
+                ((long)(await cmd.ExecuteScalarAsync())!).ShouldBe(2);
+
+                cmd.CommandText = "SELECT [ParentId] FROM [Comments] WHERE [Id] = 2";
+                ((long)(await cmd.ExecuteScalarAsync())!).ShouldBe(1);
+            });
+        }
+        finally
+        {
+            await DropMySqlDatabase(remoteDb);
             SqliteConnection.ClearAllPools();
             if (File.Exists(localDbFile)) File.Delete(localDbFile);
         }

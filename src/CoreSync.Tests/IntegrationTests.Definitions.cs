@@ -2,6 +2,7 @@ using CoreSync.Sqlite;
 using CoreSync.SqlServer;
 using CoreSync.SqlServerCT;
 using CoreSync.PostgreSQL;
+using CoreSync.MySql;
 using CoreSync.Tests.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -1829,6 +1830,538 @@ namespace CoreSync.Tests
             await TestSynchronizationAfterDisabledChangeTrackingForTable(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
         }
 
+        [TestMethod]
+        public async Task Test_Sqlite_MySql_DeleteParentRecordInRelatedTables()
+        {
+            var localDbFile = $"{Path.GetTempPath()}Test_Sqlite_MySql_DeleteParentRecordInRelatedTables_local.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("cs_delparent_sqlite_mysql"));
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            localDb.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+
+            var remoteConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var remoteSyncProvider = new MySqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await TestSyncAgentDeleteParentRecordInRelatedTables(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test_Sqlite_MySql_DeleteLocalParentRecordInRelatedTablesUpdatedOnServer()
+        {
+            var localDbFile = $"{Path.GetTempPath()}Test_Sqlite_MySql_DeleteLocalParentRecordInRelatedTablesUpdatedOnServer.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("cs_dellocalupd_mysql"));
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            localDb.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+
+            var remoteConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var remoteSyncProvider = new MySqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await TestDeleteLocalParentRecordInRelatedTablesUpdatedOnServer(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test_Sqlite_MySql_TestDeleteLocalParentRecordInRelatedTablesUpdatedOnServerSkipApplyChanges()
+        {
+            var localDbFile = $"{Path.GetTempPath()}Test_Sqlite_MySql_DelLocalParentUpdOnSrvSkip.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("cs_dellocalupdskip_mysql"));
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            localDb.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+
+            var remoteConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var remoteSyncProvider = new MySqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await TestDeleteLocalParentRecordInRelatedTablesUpdatedOnServerSkipApplyChanges(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test1_MySql_MySql()
+        {
+            using var localDb = new MySqlBlogDbContext(GetMySqlConnectionString("coresync_mysql_test1_local"));
+            using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("coresync_mysql_test1_remote"));
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new MySqlSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider localSyncProvider = new MySqlSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await Test1(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test2_MySql_MySql()
+        {
+            using var localDb = new MySqlBlogDbContext(GetMySqlConnectionString("coresync_mysql_test2_local"));
+            using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("coresync_mysql_test2_remote"));
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new MySqlSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider localSyncProvider = new MySqlSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await Test2(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test1_MySql_SqlServer()
+        {
+            using var localDb = new MySqlBlogDbContext(GetMySqlConnectionString("coresync_mysql_test1_local_sqlserver"));
+            using var remoteDb = new SqlServerBlogDbContext(ConnectionString + ";Initial Catalog=Test1_Remote_MySql");
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new SqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new SqlSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider localSyncProvider = new MySqlSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await Test1(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test1_Sqlite_MySql()
+        {
+            var localDbFile = $"{Path.GetTempPath()}Test1_Sqlite_MySql_local.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("coresync_sqlite_mysql_test1_remote"));
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new MySqlSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table<User>("Users")
+                    .Table<Post>("Posts")
+                    .Table<Comment>("Comments");
+
+            ISyncProvider localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await Test1(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test2_Sqlite_MySql()
+        {
+            var localDbFile = $"{Path.GetTempPath()}Test2_Sqlite_MySql_local.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("coresync_sqlite_mysql_test2_remote"));
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new MySqlSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table<User>("Users")
+                    .Table<Post>("Posts")
+                    .Table<Comment>("Comments");
+
+            ISyncProvider localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await Test2(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test_MySql_MySql_TestSynchronizationWithFilter()
+        {
+            using var localDb = new MySqlBlogDbContext(GetMySqlConnectionString("cs_mysql_filter_l"));
+            using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("cs_mysql_filter_r"));
+
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users", selectIncrementalQuery: "SELECT * FROM `Users` WHERE `Email` = @userId")
+                    .Table("Posts", selectIncrementalQuery: "SELECT * FROM `Posts` WHERE `AuthorEmail` = @userId")
+                    .Table("Comments", selectIncrementalQuery: "SELECT c.* FROM `Comments` c INNER JOIN `Posts` p ON c.`PostId` = p.`Id` WHERE p.`AuthorEmail` = @userId");
+
+            var remoteSyncProvider = new MySqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var localSyncProvider = new MySqlSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await TestSynchronizationWithFilter(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test_MySql_Sqlite_TestSynchronizationWithFilter()
+        {
+            var localDbFile = $"{Path.GetTempPath()}Test_MySql_Sqlite_TestSynchronizationWithFilter_local.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("cs_mysql_sqlite_filter_r"));
+
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            localDb.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+
+            var remoteConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users", selectIncrementalQuery: "SELECT * FROM `Users` WHERE `Email` = @userId")
+                    .Table("Posts", selectIncrementalQuery: "SELECT * FROM `Posts` WHERE `AuthorEmail` = @userId")
+                    .Table("Comments", selectIncrementalQuery: "SELECT c.* FROM `Comments` c INNER JOIN `Posts` p ON c.`PostId` = p.`Id` WHERE p.`AuthorEmail` = @userId");
+
+            var remoteSyncProvider = new MySqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await TestSynchronizationWithFilter(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test_Sqlite_MySql_TestSynchronizationWithFilter()
+        {
+            var remoteDbFile = $"{Path.GetTempPath()}Test_Sqlite_MySql_TestSynchronizationWithFilter_remote.sqlite";
+
+            if (File.Exists(remoteDbFile)) File.Delete(remoteDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={remoteDbFile}");
+            using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("cs_sqlite_mysql_filter_r"));
+
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            localDb.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON;");
+
+            var remoteConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users", selectIncrementalQuery: "SELECT * FROM `Users` WHERE `Email` = @userId")
+                    .Table("Posts", selectIncrementalQuery: "SELECT * FROM `Posts` WHERE `AuthorEmail` = @userId")
+                    .Table("Comments", selectIncrementalQuery: "SELECT c.* FROM `Comments` c INNER JOIN `Posts` p ON c.`PostId` = p.`Id` WHERE p.`AuthorEmail` = @userId");
+
+            var remoteSyncProvider = new MySqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await TestSynchronizationWithFilter(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test_MySql_MySql_TestSynchronizationAfterDisabledChangeTrackingForTable()
+        {
+            using var localDb = new MySqlBlogDbContext(GetMySqlConnectionString("cs_mysql_disable_l"));
+            using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("cs_mysql_disable_r"));
+
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var remoteSyncProvider = new MySqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var localSyncProvider = new MySqlSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await TestSynchronizationAfterDisabledChangeTrackingForTable(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test_MySql_Sqlite_TestSynchronizationAfterDisabledChangeTrackingForTable()
+        {
+            var localDbFile = $"{Path.GetTempPath()}Test_MySql_Sqlite_TestSynchronizationAfterDisabledChangeTrackingForTable.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("cs_mysql_sqlite_disable_r"));
+
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var remoteSyncProvider = new MySqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await TestSynchronizationAfterDisabledChangeTrackingForTable(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test_Sqlite_MySql_TestSynchronizationAfterDisabledChangeTrackingForTable()
+        {
+            var remoteDbFile = $"{Path.GetTempPath()}Test_Sqlite_MySql_TestSynchronizationAfterDisabledChangeTrackingForTable.sqlite";
+
+            if (File.Exists(remoteDbFile)) File.Delete(remoteDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={remoteDbFile}");
+            using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("cs_sqlite_mysql_disable_r"));
+
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var remoteSyncProvider = new MySqlSyncProvider(remoteConfigurationBuilder.Build(), ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+            await remoteSyncProvider.ApplyProvisionAsync();
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table("Users")
+                    .Table("Posts")
+                    .Table("Comments");
+
+            var localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), ProviderMode.Local, logger: new ConsoleLogger("LOC"));
+            await localSyncProvider.ApplyProvisionAsync();
+
+            await TestSynchronizationAfterDisabledChangeTrackingForTable(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task Test_MySql_EnableChangeTrackingForTable_InitializesFreshProvider()
+        {
+            using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("cs_mysql_enablect_fresh"));
+            await remoteDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var configuration = new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users")
+                .Build();
+
+            var provisioningProvider = new MySqlSyncProvider(configuration, ProviderMode.Remote, logger: new ConsoleLogger("REM"));
+            await provisioningProvider.ApplyProvisionAsync();
+            await provisioningProvider.DisableChangeTrackingForTable("Users");
+
+            var freshProvider = new MySqlSyncProvider(configuration, ProviderMode.Remote, logger: new ConsoleLogger("REM2"));
+            await freshProvider.EnableChangeTrackingForTable("Users");
+
+            var otherStoreId = Guid.NewGuid();
+            var initialChanges = await freshProvider.GetChangesAsync(otherStoreId);
+            await freshProvider.SaveVersionForStoreAsync(otherStoreId, initialChanges.SourceAnchor.Version);
+
+            remoteDb.Users.Add(new User { Email = "fresh-enable@test.com", Name = "Fresh Enable", Created = new DateTime(2020, 1, 1) });
+            await remoteDb.SaveChangesAsync();
+
+            var incrementalChanges = await freshProvider.GetChangesAsync(otherStoreId);
+            incrementalChanges.Items.Count.ShouldBe(1);
+            incrementalChanges.Items[0].TableName.ShouldBe("Users");
+            incrementalChanges.Items[0].ChangeType.ShouldBe(ChangeType.Insert);
+            incrementalChanges.Items[0].Values["Email"].Value.ShouldBe("fresh-enable@test.com");
+        }
+
         #region GetChangesWithTableFilter Tests
 
         [TestMethod]
@@ -1983,6 +2516,70 @@ namespace CoreSync.Tests
                 .Table("Comments");
 
             ISyncProvider remoteSyncProvider = new PostgreSQLSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+
+            var localConfigurationBuilder =
+                new SqliteSyncConfigurationBuilder(localDb.ConnectionString)
+                    .Table<User>("Users")
+                    .Table<Post>("Posts")
+                    .Table<Comment>("Comments");
+
+            ISyncProvider localSyncProvider = new SqliteSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+
+            await TestGetChangesWithTableFilter(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task TestGetChangesWithTableFilter_MySql_MySql()
+        {
+            using var localDb = new MySqlBlogDbContext(GetMySqlConnectionString("cs_mysql_tblfilter_l"));
+            using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("cs_mysql_tblfilter_r"));
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new MySqlSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
+
+            var localConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(localDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider localSyncProvider = new MySqlSyncProvider(localConfigurationBuilder.Build(), logger: new ConsoleLogger("LOC"));
+
+            await TestGetChangesWithTableFilter(localDb, localSyncProvider, remoteDb, remoteSyncProvider);
+        }
+
+        [TestMethod]
+        public async Task TestGetChangesWithTableFilter_Sqlite_MySql()
+        {
+            var localDbFile = $"{Path.GetTempPath()}TestGetChangesWithTableFilter_Sqlite_MySql_local.sqlite";
+
+            if (File.Exists(localDbFile)) File.Delete(localDbFile);
+
+            using var localDb = new SqliteBlogDbContext($"Data Source={localDbFile}");
+            using var remoteDb = new MySqlBlogDbContext(GetMySqlConnectionString("cs_sqlite_mysql_tblfilter_r"));
+            await localDb.Database.EnsureDeletedAsync();
+            await remoteDb.Database.EnsureDeletedAsync();
+
+            await localDb.Database.MigrateAsync();
+            await remoteDb.Database.MigrateAsync();
+
+            var remoteConfigurationBuilder =
+                new MySqlSyncConfigurationBuilder(remoteDb.ConnectionString)
+                .Table("Users")
+                .Table("Posts")
+                .Table("Comments");
+
+            ISyncProvider remoteSyncProvider = new MySqlSyncProvider(remoteConfigurationBuilder.Build(), logger: new ConsoleLogger("REM"));
 
             var localConfigurationBuilder =
                 new SqliteSyncConfigurationBuilder(localDb.ConnectionString)

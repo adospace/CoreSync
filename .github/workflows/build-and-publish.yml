@@ -39,9 +39,23 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: test123
+          MYSQL_DATABASE: coresync_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -ptest123"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
     env:
       CORE-SYNC_CONNECTION_STRING: "Server=localhost;User Id=sa;Password=CoreSync_Test123!;TrustServerCertificate=True"
       CORE-SYNC_POSTGRESQL_CONNECTION_STRING: "Host=localhost;Port=5432;Database=coresync_test;Username=coresync;Password=test123"
+      CORE-SYNC_MYSQL_CONNECTION_STRING: "Server=localhost;Port=3306;Database=coresync_test;User ID=root;Password=test123;GuidFormat=Char36"
 
     steps:
       - uses: actions/checkout@v4
@@ -49,7 +63,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '9.0.x'
 
       - name: Restore dependencies
         run: dotnet restore src/CoreSync.sln
@@ -71,7 +85,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '9.0.x'
 
       - name: Extract version from tag
         id: version
