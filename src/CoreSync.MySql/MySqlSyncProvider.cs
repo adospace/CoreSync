@@ -97,14 +97,14 @@ namespace CoreSync.MySql
                             }
                             else
                             {
-                            await ExecuteSavepointCommandAsync(connection, tr, "SAVEPOINT sync_sp", cancellationToken);
-                            affectedRows = await cmd.ExecuteNonQueryAsync(cancellationToken);
-                            await ExecuteSavepointCommandAsync(connection, tr, "RELEASE SAVEPOINT sync_sp", cancellationToken);
+                                await ExecuteSavepointCommandAsync(connection, tr, "SAVEPOINT sync_sp", cancellationToken);
+                                affectedRows = await cmd.ExecuteNonQueryAsync(cancellationToken);
+                                await ExecuteSavepointCommandAsync(connection, tr, "RELEASE SAVEPOINT sync_sp", cancellationToken);
 
-                            if (affectedRows > 0)
-                            {
-                                _logger?.Trace($"[{_storeId}] Successfully applied {item}");
-                            }
+                                if (affectedRows > 0)
+                                {
+                                    _logger?.Trace($"[{_storeId}] Successfully applied {item}");
+                                }
                             }
                         }
                         catch (OperationCanceledException)
@@ -626,6 +626,8 @@ namespace CoreSync.MySql
 
             foreach (var table in Configuration.Tables.Cast<MySqlSyncTable>())
             {
+                table.Columns.Clear();
+
                 cmd.CommandText = @"
 SELECT c.COLUMN_NAME, c.DATA_TYPE, c.COLUMN_TYPE,
        CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN TRUE ELSE FALSE END AS IS_PRIMARY_KEY
@@ -660,7 +662,7 @@ ORDER BY c.ORDINAL_POSITION";
                         throw new NotSupportedException($"Unable to synchronize table '{table.Name}': one column has a reserved name '__op'");
                     }
 
-                    table.Columns.Add(colName, new MySqlColumn(colName, dataType, columnType, pk));
+                    table.Columns[colName] = new MySqlColumn(colName, dataType, columnType, pk);
                 }
 
                 if (table.Columns.Count == 0)
