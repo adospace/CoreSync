@@ -85,7 +85,13 @@ WHERE [{PrimaryColumnName}] = @PrimaryColumnParameter";
 
             var allSyncItemsExceptPrimaryKey = allSyncItems.Where(_ => !PrimaryKeyColumns.Any(kc => kc == _.Key)).ToArray();
 
-            // WITH CHANGE_TRACKING_CONTEXT(@sync_client_id) must immediately precede the DML statement
+            // WITH CHANGE_TRACKING_CONTEXT(@sync_client_id) must immediately precede the DML statement,
+            // and the leading semicolon terminates whatever came before it (an empty statement when the
+            // batch starts here).
+            //
+            // These statements are deliberately not wrapped in BEGIN TRY/CATCH: a swallowed error makes
+            // the batch report zero affected rows, which the caller cannot tell apart from a genuine
+            // write conflict. Letting the SqlException surface keeps "zero rows" meaning "conflict".
             const string ctContext = ";WITH CHANGE_TRACKING_CONTEXT(@sync_client_id) ";
 
             switch (itemChangeType)
@@ -109,13 +115,8 @@ WHERE [{PrimaryColumnName}] = @PrimaryColumnParameter";
                             identityInsertCommand = $"SET IDENTITY_INSERT {NameWithSchema} OFF\n";
                         }
 
-                        cmd.CommandText = $@"{identityInsertCommand}BEGIN TRY
-{ctContext}INSERT INTO {NameWithSchema} ({string.Join(", ", allSyncItems.Select(_ => "[" + _.Key + "]"))})
+                        cmd.CommandText = $@"{identityInsertCommand}{ctContext}INSERT INTO {NameWithSchema} ({string.Join(", ", allSyncItems.Select(_ => "[" + _.Key + "]"))})
 VALUES ({string.Join(", ", allSyncItems.Select((_, index) => $"@p{index}"))});
-END TRY
-BEGIN CATCH
-PRINT ERROR_MESSAGE()
-END CATCH
 ";
 
                         int pIndex = 0;
@@ -130,19 +131,14 @@ END CATCH
 
                 case ChangeType.Update:
                     {
-                        cmd.CommandText = $@"BEGIN TRY
-{ctContext}UPDATE {NameWithSchema}
+                        cmd.CommandText = $@"{ctContext}UPDATE {NameWithSchema}
 SET {string.Join(", ", allSyncItemsExceptPrimaryKey.Select((_, index) => $"[{_.Key}] = @p{index}"))}
 WHERE {NameWithSchema}.[{PrimaryColumnName}] = @PrimaryColumnParameter
 AND (@sync_force_write = 1 OR NOT EXISTS (
     SELECT 1 FROM CHANGETABLE(CHANGES {NameWithSchema}, @last_sync_version) AS CT
     WHERE CT.[{PrimaryColumnName}] = @PrimaryColumnParameter
     AND (CT.SYS_CHANGE_CONTEXT IS NULL OR CT.SYS_CHANGE_CONTEXT <> @sync_client_id)
-))
-END TRY
-BEGIN CATCH
-PRINT ERROR_MESSAGE()
-END CATCH";
+))";
 
                         cmd.Parameters.Add(Columns[PrimaryColumnName].CreateParameter("@PrimaryColumnParameter", syncItemValues[PrimaryColumnName]));
 
@@ -158,18 +154,13 @@ END CATCH";
 
                 case ChangeType.Delete:
                     {
-                        cmd.CommandText = $@"BEGIN TRY
-{ctContext}DELETE FROM {NameWithSchema}
+                        cmd.CommandText = $@"{ctContext}DELETE FROM {NameWithSchema}
 WHERE {NameWithSchema}.[{PrimaryColumnName}] = @PrimaryColumnParameter
 AND (@sync_force_write = 1 OR NOT EXISTS (
     SELECT 1 FROM CHANGETABLE(CHANGES {NameWithSchema}, @last_sync_version) AS CT
     WHERE CT.[{PrimaryColumnName}] = @PrimaryColumnParameter
     AND (CT.SYS_CHANGE_CONTEXT IS NULL OR CT.SYS_CHANGE_CONTEXT <> @sync_client_id)
-))
-END TRY
-BEGIN CATCH
-PRINT ERROR_MESSAGE()
-END CATCH";
+))";
 
                         cmd.Parameters.Add(Columns[PrimaryColumnName]
                             .CreateParameter("@PrimaryColumnParameter", syncItemValues[PrimaryColumnName]));
