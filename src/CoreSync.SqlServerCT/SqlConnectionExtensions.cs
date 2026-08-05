@@ -16,11 +16,65 @@ namespace CoreSync.SqlServerCT
             return ((int)await cmd.ExecuteScalarAsync(cancellationToken)) == 1;
         }
 
-        public static async Task EnableChangeTrackingAsync(this SqlConnection connection, int days = 7, bool autoCleanup = true, CancellationToken cancellationToken = default)
+        /// <summary>
+        /// Reads the change tracking retention settings currently in effect for the connected database,
+        /// or <c>null</c> when change tracking is not enabled on it.
+        /// </summary>
+        public static async Task<ChangeTrackingDatabaseOptions?> GetChangeTrackingOptionsAsync(this SqlConnection connection, CancellationToken cancellationToken)
         {
-            var cmdText = $@"ALTER DATABASE CURRENT SET CHANGE_TRACKING = ON (CHANGE_RETENTION = {days} DAYS, AUTO_CLEANUP = {(autoCleanup ? "ON" : "OFF")})";
+            var cmdText = @"SELECT retention_period, retention_period_units, is_auto_cleanup_on
+FROM sys.change_tracking_databases
+WHERE database_id = DB_ID()";
+            using var cmd = new SqlCommand(cmdText, connection);
+            using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+
+            if (!await reader.ReadAsync(cancellationToken))
+                return null;
+
+            // sys.change_tracking_databases reports retention_period_units as tinyint and
+            // is_auto_cleanup_on as tinyint too, so read them through Convert rather than the typed
+            // getters.
+            return new ChangeTrackingDatabaseOptions(
+                Convert.ToInt32(reader.GetValue(0)),
+                (ChangeRetentionUnit)Convert.ToInt32(reader.GetValue(1)),
+                Convert.ToBoolean(reader.GetValue(2)));
+        }
+
+        /// <summary>
+        /// Turns change tracking on for the connected database. Only valid when change tracking is off:
+        /// the <c>= ON (...)</c> form is rejected once it is already enabled - use
+        /// <see cref="AlterChangeTrackingRetentionAsync"/> to change the settings of a database that
+        /// already has it on.
+        /// </summary>
+        public static async Task EnableChangeTrackingAsync(this SqlConnection connection, int retentionPeriod = 7, ChangeRetentionUnit retentionPeriodUnit = ChangeRetentionUnit.Days, bool autoCleanup = true, CancellationToken cancellationToken = default)
+        {
+            var cmdText = $@"ALTER DATABASE CURRENT SET CHANGE_TRACKING = ON ({FormatChangeTrackingOptions(retentionPeriod, retentionPeriodUnit, autoCleanup)})";
             using var cmd = new SqlCommand(cmdText, connection);
             await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        /// <summary>
+        /// Changes the retention settings of a database that already has change tracking enabled.
+        /// </summary>
+        public static async Task AlterChangeTrackingRetentionAsync(this SqlConnection connection, int retentionPeriod, ChangeRetentionUnit retentionPeriodUnit, bool autoCleanup, CancellationToken cancellationToken)
+        {
+            var cmdText = $@"ALTER DATABASE CURRENT SET CHANGE_TRACKING ({FormatChangeTrackingOptions(retentionPeriod, retentionPeriodUnit, autoCleanup)})";
+            using var cmd = new SqlCommand(cmdText, connection);
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        private static string FormatChangeTrackingOptions(int retentionPeriod, ChangeRetentionUnit retentionPeriodUnit, bool autoCleanup)
+            => $"CHANGE_RETENTION = {retentionPeriod} {ToSqlKeyword(retentionPeriodUnit)}, AUTO_CLEANUP = {(autoCleanup ? "ON" : "OFF")}";
+
+        private static string ToSqlKeyword(ChangeRetentionUnit unit)
+        {
+            switch (unit)
+            {
+                case ChangeRetentionUnit.Minutes: return "MINUTES";
+                case ChangeRetentionUnit.Hours: return "HOURS";
+                case ChangeRetentionUnit.Days: return "DAYS";
+                default: throw new ArgumentOutOfRangeException(nameof(unit), unit, "Unsupported change retention unit");
+            }
         }
 
         public static async Task DisableChangeTrackingAsync(this SqlConnection connection, CancellationToken cancellationToken)

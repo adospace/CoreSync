@@ -88,6 +88,13 @@ namespace CoreSync
                 //await LocalSyncProvider.ApplyProvisionAsync(cancellationToken: cancellationToken);
                 //await RemoteSyncProvider.ApplyProvisionAsync(cancellationToken: cancellationToken);
             }
+            catch (SyncAnchorTooOldException)
+            {
+                // Deliberately not wrapped: this one is not retryable, the client has to be
+                // reinitialized from a fresh snapshot, and callers need to see that without digging
+                // through inner exceptions.
+                throw;
+            }
             catch (Exception ex)
             {
                 throw new SynchronizationException("Unable to synchronize stores", ex);

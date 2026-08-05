@@ -63,6 +63,25 @@ namespace CoreSync.SqlServerCT
                     cmd.CommandText = "SELECT CHANGE_TRACKING_CURRENT_VERSION()";
                     var version = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
+                    // Update and Delete resolve conflicts through CHANGETABLE(CHANGES <table>,
+                    // @last_sync_version), which SQL Server rejects outright once the requested version
+                    // falls out of the table's retention window. Validate the anchor up front so a stale
+                    // client gets a typed "reinitialize me" signal instead of a masked failure.
+                    // Inserts never touch CHANGETABLE, so a first-time sync - which legitimately carries
+                    // a null target anchor and nothing but inserts - must not be validated here.
+                    var minValidVersions = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var item in changeSet.Items)
+                    {
+                        if (item.ChangeType != ChangeType.Update && item.ChangeType != ChangeType.Delete)
+                            continue;
+
+                        var tableToValidate = (SqlServerCTSyncTable?)Configuration.Tables.FirstOrDefault(_ => _.Name == item.TableName);
+                        if (tableToValidate == null)
+                            continue;
+
+                        await EnsureAnchorNotTooOldAsync(cmd, tableToValidate, changeSet.TargetAnchor, minValidVersions, cancellationToken);
+                    }
+
                     var remainingItems = changeSet.Items.ToList();
                     int pass = 0;
                     while (remainingItems.Count > 0)
@@ -70,6 +89,7 @@ namespace CoreSync.SqlServerCT
                         pass++;
                         var failedItems = new List<SyncItem>();
                         int appliedInPass = 0;
+                        SqlException? lastFailure = null;
 
                         foreach (var item in remainingItems)
                         {
@@ -83,9 +103,14 @@ namespace CoreSync.SqlServerCT
                             bool syncForceWrite = false;
                             var itemChangeType = item.ChangeType;
                             bool itemHandled = false;
+                            SqlException? itemFailure = null;
 
                         retryWrite:
                             cmd.Parameters.Clear();
+
+                            // messageLog accumulates for the lifetime of the connection; reset it so a
+                            // failure reports only the messages this statement produced.
+                            messageLog.Clear();
 
                             table.SetupCommand(cmd, itemChangeType, item.Values);
 
@@ -100,16 +125,38 @@ namespace CoreSync.SqlServerCT
 
                             try
                             {
-                                affectedRows = cmd.ExecuteNonQuery();
+                                affectedRows = await cmd.ExecuteNonQueryAsync(cancellationToken);
 
                                 if (affectedRows > 0)
                                 {
                                     _logger?.Trace($"[{_storeId}] Successfully applied {item}");
                                 }
                             }
+                            catch (SqlException ex) when (itemChangeType == ChangeType.Insert && IsDuplicateKeyViolation(ex))
+                            {
+                                // The row is already there. Report zero rows affected and let the handling
+                                // below confirm it exists and retry the item as an update - the behaviour
+                                // the swallowed T-SQL error used to produce, now driven by the real error.
+                                _logger?.Trace($"[{_storeId}] {item} already exists on table {table}: {ex.Message}");
+                                itemFailure = ex;
+                                affectedRows = 0;
+                            }
+                            catch (SqlException ex) when (ex.Number == SqlConstraintViolationErrorNumber)
+                            {
+                                // A referenced row may simply not have been applied yet (the change set
+                                // is not dependency ordered). Defer the item and let the retry loop have
+                                // another go once the rest of the pass has landed. A constraint violation
+                                // is statement-scoped, so the transaction stays usable.
+                                // If the loop stops making progress the error is rethrown below rather
+                                // than dropped.
+                                _logger?.Trace($"[{_storeId}] Deferring {itemChangeType} of {item} on table {table} (pass {pass}): {ex.Message}");
+                                lastFailure = ex;
+                                failedItems.Add(item);
+                                continue;
+                            }
                             catch (Exception ex)
                             {
-                                _logger?.Error($"Unable to {itemChangeType} item {item} to store for table {table}.{Environment.NewLine}Generated SQL:{Environment.NewLine}{cmd.CommandText}");
+                                _logger?.Error(DescribeItemFailure(itemChangeType, item, table, cmd.CommandText, messageLog, ex));
                                 throw new SynchronizationException($"Unable to {itemChangeType} item {item} to store for table {table}", ex);
                             }
 
@@ -127,6 +174,11 @@ namespace CoreSync.SqlServerCT
 
                                     if (1 == (int)await cmd.ExecuteScalarAsync(cancellationToken) && !syncForceWrite)
                                     {
+                                        // The row is already there, so this insert becomes an update -
+                                        // which does query CHANGETABLE. Validate the anchor before the
+                                        // statement runs, since the up-front pass skipped this table.
+                                        await EnsureAnchorNotTooOldAsync(cmd, table, changeSet.TargetAnchor, minValidVersions, cancellationToken);
+
                                         itemChangeType = ChangeType.Update;
                                         goto retryWrite;
                                     }
@@ -179,6 +231,11 @@ namespace CoreSync.SqlServerCT
                             if (!itemHandled)
                             {
                                 failedItems.Add(item);
+
+                                if (itemFailure != null)
+                                {
+                                    lastFailure = itemFailure;
+                                }
                             }
                         }
 
@@ -186,7 +243,18 @@ namespace CoreSync.SqlServerCT
                         {
                             if (failedItems.Count > 0)
                             {
-                                _logger?.Warning($"[{_storeId}] {failedItems.Count} item(s) could not be applied after {pass} pass(es) (possible unresolvable foreign key constraint)");
+                                if (lastFailure != null)
+                                {
+                                    // The retry loop has stopped making progress and the remaining items
+                                    // still fail against the database. Surface it: dropping them here
+                                    // would be silent data loss.
+                                    _logger?.Error($"[{_storeId}] {failedItems.Count} item(s) could not be applied after {pass} pass(es): {lastFailure.Message}");
+                                    throw new SynchronizationException(
+                                        $"Unable to apply {failedItems.Count} item(s) after {pass} pass(es); the change set does not resolve the last failure",
+                                        lastFailure);
+                                }
+
+                                _logger?.Warning($"[{_storeId}] {failedItems.Count} item(s) could not be applied after {pass} pass(es)");
                             }
                             break;
                         }
@@ -195,16 +263,11 @@ namespace CoreSync.SqlServerCT
                         remainingItems = failedItems;
                     }
 
-                    cmd.CommandText = $"UPDATE [__CORE_SYNC_CT_REMOTE_ANCHOR] SET [REMOTE_VERSION] = @version WHERE [ID] = @id";
+                    cmd.CommandText = UpsertRemoteVersionCommandText;
                     cmd.Parameters.Clear();
-                    cmd.Parameters.AddWithValue("@id", changeSet.SourceAnchor.StoreId.ToString());
-                    cmd.Parameters.AddWithValue("@version", changeSet.SourceAnchor.Version);
-
-                    if (0 == await cmd.ExecuteNonQueryAsync(cancellationToken))
-                    {
-                        cmd.CommandText = "INSERT INTO [__CORE_SYNC_CT_REMOTE_ANCHOR] ([ID], [REMOTE_VERSION]) VALUES (@id, @version)";
-                        await cmd.ExecuteNonQueryAsync(cancellationToken);
-                    }
+                    cmd.Parameters.Add(new SqlParameter("@id", SqlDbType.UniqueIdentifier) { Value = changeSet.SourceAnchor.StoreId });
+                    cmd.Parameters.Add(new SqlParameter("@version", SqlDbType.BigInt) { Value = changeSet.SourceAnchor.Version });
+                    await cmd.ExecuteNonQueryAsync(cancellationToken);
 
                     tr.Commit();
 
@@ -220,11 +283,76 @@ namespace CoreSync.SqlServerCT
                     throw;
                 }
             }
+            catch (SyncAnchorTooOldException)
+            {
+                // Deliberately not wrapped: callers have to be able to tell "reinitialize this client"
+                // apart from a transient error worth retrying.
+                throw;
+            }
             catch (Exception ex)
             {
-                var exceptionMessage = $"An exception occurred during synchronization:{Environment.NewLine}Errors:{Environment.NewLine}{string.Join(Environment.NewLine, messageLog.SelectMany(_ => _.Errors.Cast<SqlError>()))}{Environment.NewLine}Messages:{Environment.NewLine}{string.Join(Environment.NewLine, messageLog.Select(_ => _.Message))}";
+                var exceptionMessage = $"An exception occurred during synchronization: {ex.Message}{Environment.NewLine}Errors:{Environment.NewLine}{string.Join(Environment.NewLine, messageLog.SelectMany(_ => _.Errors.Cast<SqlError>()))}{Environment.NewLine}Messages:{Environment.NewLine}{string.Join(Environment.NewLine, messageLog.Select(_ => _.Message))}";
                 throw new SyncErrorException(exceptionMessage, ex);
             }
+        }
+
+        /// <summary>
+        /// SQL Server error raised when a statement conflicts with a FOREIGN KEY or CHECK constraint.
+        /// </summary>
+        private const int SqlConstraintViolationErrorNumber = 547;
+
+        /// <summary>
+        /// Returns whether <paramref name="ex"/> reports an attempt to insert a row that is already
+        /// there - either a PRIMARY KEY / UNIQUE constraint or a unique index violation.
+        /// </summary>
+        private static bool IsDuplicateKeyViolation(SqlException ex)
+            => ex.Number == 2627 || ex.Number == 2601;
+
+        /// <summary>
+        /// Retention windows shorter than this are legal but risky: a client offline for longer can no
+        /// longer resume an incremental sync.
+        /// </summary>
+        private const int ShortChangeRetentionWarningThresholdInMinutes = 7 * 1440;
+
+        private const string UpsertRemoteVersionCommandText = @"MERGE [dbo].[__CORE_SYNC_CT_REMOTE_ANCHOR] WITH (HOLDLOCK) AS T
+USING (SELECT @id AS [ID]) AS S ON T.[ID] = S.[ID]
+WHEN MATCHED THEN UPDATE SET [REMOTE_VERSION] = @version
+WHEN NOT MATCHED THEN INSERT ([ID], [REMOTE_VERSION]) VALUES (@id, @version);";
+
+        private const string UpsertLocalVersionCommandText = @"MERGE [dbo].[__CORE_SYNC_CT_REMOTE_ANCHOR] WITH (HOLDLOCK) AS T
+USING (SELECT @id AS [ID]) AS S ON T.[ID] = S.[ID]
+WHEN MATCHED THEN UPDATE SET [LOCAL_VERSION] = @version
+WHEN NOT MATCHED THEN INSERT ([ID], [LOCAL_VERSION]) VALUES (@id, @version);";
+
+        /// <summary>
+        /// Reads (and memoizes) the minimum version <paramref name="table"/> can still resolve changes
+        /// from, and throws <see cref="SyncAnchorTooOldException"/> when the anchor predates it.
+        /// </summary>
+        private static async Task EnsureAnchorNotTooOldAsync(SqlCommand cmd, SqlServerCTSyncTable table, SyncAnchor anchor, IDictionary<string, long> minValidVersions, CancellationToken cancellationToken)
+        {
+            if (!minValidVersions.TryGetValue(table.NameWithSchema, out var minValidVersion))
+            {
+                cmd.CommandText = $"SELECT CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID('{table.NameWithSchema}'))";
+                cmd.Parameters.Clear();
+                minValidVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
+                minValidVersions[table.NameWithSchema] = minValidVersion;
+            }
+
+            // A null anchor (version -1) means no anchor was ever recorded for the peer store, which is
+            // just as unrecoverable as one that fell out of the retention window.
+            if (anchor.Version < minValidVersion)
+            {
+                throw new SyncAnchorTooOldException(table.NameWithSchema, anchor.Version, minValidVersion);
+            }
+        }
+
+        private static string DescribeItemFailure(ChangeType changeType, SyncItem item, SqlServerCTSyncTable table, string commandText, List<SqlInfoMessageEventArgs> messageLog, Exception ex)
+        {
+            return $"Unable to {changeType} item {item} to store for table {table}: {ex.Message}" +
+                $"{Environment.NewLine}Errors:{Environment.NewLine}{string.Join(Environment.NewLine, messageLog.SelectMany(_ => _.Errors.Cast<SqlError>()))}" +
+                $"{Environment.NewLine}Messages:{Environment.NewLine}{string.Join(Environment.NewLine, messageLog.Select(_ => _.Message))}" +
+                $"{Environment.NewLine}Generated SQL:{Environment.NewLine}{commandText}" +
+                $"{Environment.NewLine}Exception:{Environment.NewLine}{ex}";
         }
 
         public async Task SaveVersionForStoreAsync(Guid otherStoreId, long version, CancellationToken cancellationToken = default)
@@ -238,15 +366,10 @@ namespace CoreSync.SqlServerCT
             cmd.Transaction = tr;
             try
             {
-                cmd.CommandText = $"UPDATE [__CORE_SYNC_CT_REMOTE_ANCHOR] SET [LOCAL_VERSION] = @version WHERE [ID] = @id";
-                cmd.Parameters.AddWithValue("@id", otherStoreId.ToString());
-                cmd.Parameters.AddWithValue("@version", version);
-
-                if (0 == await cmd.ExecuteNonQueryAsync(cancellationToken))
-                {
-                    cmd.CommandText = "INSERT INTO [__CORE_SYNC_CT_REMOTE_ANCHOR] ([ID], [LOCAL_VERSION]) VALUES (@id, @version)";
-                    await cmd.ExecuteNonQueryAsync(cancellationToken);
-                }
+                cmd.CommandText = UpsertLocalVersionCommandText;
+                cmd.Parameters.Add(new SqlParameter("@id", SqlDbType.UniqueIdentifier) { Value = otherStoreId });
+                cmd.Parameters.Add(new SqlParameter("@version", SqlDbType.BigInt) { Value = version });
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
 
                 tr.Commit();
 
@@ -268,7 +391,7 @@ namespace CoreSync.SqlServerCT
 
             using var cmd = c.CreateCommand();
             cmd.CommandText = "SELECT [LOCAL_VERSION] FROM [dbo].[__CORE_SYNC_CT_REMOTE_ANCHOR] WHERE [ID] = @storeId";
-            cmd.Parameters.AddWithValue("@storeId", otherStoreId);
+            cmd.Parameters.Add(new SqlParameter("@storeId", SqlDbType.UniqueIdentifier) { Value = otherStoreId });
 
             var version = await cmd.ExecuteScalarAsync(cancellationToken);
 
@@ -284,13 +407,17 @@ namespace CoreSync.SqlServerCT
             await c.OpenAsync(cancellationToken);
 
             using var cmd = c.CreateCommand();
-            cmd.CommandText = "SELECT [REMOTE_VERSION] FROM [__CORE_SYNC_CT_REMOTE_ANCHOR] WHERE [ID] = @storeId";
-            cmd.Parameters.AddWithValue("@storeId", otherStoreId.ToString());
+            cmd.CommandText = "SELECT [REMOTE_VERSION] FROM [dbo].[__CORE_SYNC_CT_REMOTE_ANCHOR] WHERE [ID] = @storeId";
+            cmd.Parameters.Add(new SqlParameter("@storeId", SqlDbType.UniqueIdentifier) { Value = otherStoreId });
 
             var version = await cmd.ExecuteScalarAsync(cancellationToken);
 
+            // Version 0 would not be a sentinel: it is a real-looking version permanently below the
+            // change tracking retention floor, so every Update/Delete sent against it is doomed to fail.
+            // Report the missing anchor as null and let ApplyChangesAsync turn it into a typed
+            // "reinitialize this client" signal.
             if (version == null || version == DBNull.Value)
-                return new SyncAnchor(otherStoreId, 0);
+                return SyncAnchor.Null;
 
             return new SyncAnchor(otherStoreId, (long)version);
         }
@@ -439,11 +566,7 @@ namespace CoreSync.SqlServerCT
             using var connection = new SqlConnection(Configuration.ConnectionString);
             await connection.OpenAsync(cancellationToken);
 
-            // Enable change tracking at database level if not already enabled
-            if (!await connection.GetIsChangeTrackingEnabledAsync(cancellationToken))
-            {
-                await connection.EnableChangeTrackingAsync(Configuration.ChangeRetentionDays, Configuration.AutoCleanup, cancellationToken);
-            }
+            await ReconcileChangeTrackingRetentionAsync(connection, cancellationToken);
 
             // Enable change tracking per table
             foreach (SqlServerCTSyncTable table in Configuration.Tables.Cast<SqlServerCTSyncTable>())
@@ -465,6 +588,85 @@ namespace CoreSync.SqlServerCT
                 {
                     await connection.EnableChangeTrackingForTableAsync(table, cancellationToken);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Brings the database-level change tracking retention in line with the configuration.
+        /// </summary>
+        /// <remarks>
+        /// Enabling change tracking is only half of it: on a database that already has it on, the
+        /// <c>= ON (...)</c> form is rejected, so the configured retention used to be silently ignored
+        /// forever. Here the current settings are read back from <c>sys.change_tracking_databases</c>
+        /// and, when they differ, applied through the modify form of the statement.
+        /// <para>
+        /// A database that already has change tracking enabled is only touched when the retention was
+        /// set explicitly on the builder, so provisioning with a low privilege account against a
+        /// pre-configured database keeps working.
+        /// </para>
+        /// </remarks>
+        private async Task ReconcileChangeTrackingRetentionAsync(SqlConnection connection, CancellationToken cancellationToken)
+        {
+            if (Configuration.ChangeRetentionInMinutes < ShortChangeRetentionWarningThresholdInMinutes)
+            {
+                _logger?.Warning($"[{_storeId}] Change tracking retention is configured to {Configuration.ChangeRetention} {Configuration.ChangeRetentionUnit}, " +
+                    $"which is shorter than {ShortChangeRetentionWarningThresholdInMinutes / 1440} days. Any client that stays offline longer than the retention window " +
+                    "cannot resume an incremental sync and has to be reinitialized from a fresh snapshot.");
+            }
+
+            var isEnabled = await connection.GetIsChangeTrackingEnabledAsync(cancellationToken);
+
+            try
+            {
+                if (!isEnabled)
+                {
+                    await connection.EnableChangeTrackingAsync(Configuration.ChangeRetention, Configuration.ChangeRetentionUnit, Configuration.AutoCleanup, cancellationToken);
+                    return;
+                }
+
+                if (!Configuration.IsChangeRetentionConfigured)
+                {
+                    return;
+                }
+
+                var current = await connection.GetChangeTrackingOptionsAsync(cancellationToken);
+
+                if (current != null &&
+                    current.RetentionPeriod == Configuration.ChangeRetention &&
+                    current.RetentionPeriodUnit == Configuration.ChangeRetentionUnit &&
+                    current.AutoCleanup == Configuration.AutoCleanup)
+                {
+                    return;
+                }
+
+                _logger?.Info($"[{_storeId}] Change tracking retention is '{current?.ToString() ?? "unknown"}', applying configured " +
+                    $"'CHANGE_RETENTION = {Configuration.ChangeRetention} {Configuration.ChangeRetentionUnit}, AUTO_CLEANUP = {(Configuration.AutoCleanup ? "ON" : "OFF")}'");
+
+                await connection.AlterChangeTrackingRetentionAsync(Configuration.ChangeRetention, Configuration.ChangeRetentionUnit, Configuration.AutoCleanup, cancellationToken);
+            }
+            catch (SqlException ex)
+            {
+                var action = isEnabled ? "update the change tracking retention policy of" : "enable change tracking on";
+                var hint = IsPermissionError(ex)
+                    ? " The account used by the connection string needs the ALTER DATABASE permission (or membership of db_owner)."
+                    : string.Empty;
+
+                throw new InvalidOperationException(
+                    $"Unable to {action} database '{connection.Database}': {ex.Message}.{hint}", ex);
+            }
+        }
+
+        private static bool IsPermissionError(SqlException ex)
+        {
+            switch (ex.Number)
+            {
+                case 262:   // ALTER DATABASE permission denied in database '%.*ls'
+                case 300:   // VIEW SERVER STATE / generic permission denied on object
+                case 5011:  // User does not have permission to alter database '%.*ls'
+                case 15151: // Cannot alter the database '%.*ls', because it does not exist or you do not have permission
+                    return true;
+                default:
+                    return false;
             }
         }
 
@@ -556,7 +758,7 @@ namespace CoreSync.SqlServerCT
                         var minVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
                         if (fromAnchor.Version < minVersion)
-                            throw new InvalidOperationException($"Unable to get changes for table '{table.NameWithSchema}', version of data requested ({fromAnchor.Version}) is too old (min valid version {minVersion})");
+                            throw new SyncAnchorTooOldException(table.NameWithSchema, fromAnchor.Version, minVersion);
                     }
                 }
 

@@ -343,8 +343,11 @@ namespace CoreSync.SqlServer
 
             var version = await cmd.ExecuteScalarAsync(cancellationToken);
 
+            // Report a missing anchor row as the null sentinel, matching
+            // GetLastLocalAnchorForStoreAsync and the other providers. Version 0 is not a sentinel: it
+            // is a real-looking version that callers cannot tell apart from "synchronized up to 0".
             if (version == null || version == DBNull.Value)
-                return new SyncAnchor(otherStoreId, 0);
+                return SyncAnchor.Null;
 
             return new SyncAnchor(otherStoreId, (long)version);
         }

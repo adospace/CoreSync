@@ -32,8 +32,10 @@ namespace CoreSync.SqlServerCT
         private readonly string _connectionString;
         private readonly List<SqlServerCTSyncTable> _tables = new List<SqlServerCTSyncTable>();
         private string _schema = "dbo";
-        private int _changeRetentionDays = 7;
+        private int _changeRetention = 7;
+        private ChangeRetentionUnit _changeRetentionUnit = ChangeRetentionUnit.Days;
         private bool _autoCleanup = true;
+        private bool _changeRetentionConfigured;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="SqlServerCTSyncConfigurationBuilder"/> class.
@@ -67,10 +69,45 @@ namespace CoreSync.SqlServerCT
         /// Defaults to <c>true</c>.
         /// </param>
         /// <returns>This builder instance for method chaining.</returns>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="days"/> is not greater than zero.</exception>
         public SqlServerCTSyncConfigurationBuilder ChangeRetention(int days, bool autoCleanup = true)
+            => ChangeRetention(days, ChangeRetentionUnit.Days, autoCleanup);
+
+        /// <summary>
+        /// Configures the SQL Server Change Tracking retention policy using an explicit time unit.
+        /// This controls how long change history is retained before being automatically cleaned up.
+        /// </summary>
+        /// <param name="value">The retention period, expressed in <paramref name="unit"/>.</param>
+        /// <param name="unit">The unit <paramref name="value"/> is expressed in.</param>
+        /// <param name="autoCleanup">
+        /// When <c>true</c>, SQL Server automatically removes expired change tracking data.
+        /// Defaults to <c>true</c>.
+        /// </param>
+        /// <returns>This builder instance for method chaining.</returns>
+        /// <remarks>
+        /// Provisioning reconciles the setting: calling this makes
+        /// <see cref="SqlServerCTProvider.ApplyProvisionAsync"/> apply the retention even to a database
+        /// that already has change tracking enabled. A retention shorter than seven days is applied but
+        /// logged as a warning, because clients that stay offline longer than the window have to be
+        /// reinitialized from a fresh snapshot.
+        /// </remarks>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="value"/> is not greater than zero.</exception>
+        public SqlServerCTSyncConfigurationBuilder ChangeRetention(int value, ChangeRetentionUnit unit, bool autoCleanup = true)
         {
-            _changeRetentionDays = days;
+            if (value <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), value, "Change retention must be greater than zero");
+            }
+
+            if (!Enum.IsDefined(typeof(ChangeRetentionUnit), unit))
+            {
+                throw new ArgumentOutOfRangeException(nameof(unit), unit, "Unsupported change retention unit");
+            }
+
+            _changeRetention = value;
+            _changeRetentionUnit = unit;
             _autoCleanup = autoCleanup;
+            _changeRetentionConfigured = true;
             return this;
         }
 
@@ -257,6 +294,6 @@ namespace CoreSync.SqlServerCT
         /// Builds the <see cref="SqlServerCTSyncConfiguration"/> from the registered tables and change tracking settings.
         /// </summary>
         /// <returns>A new <see cref="SqlServerCTSyncConfiguration"/> instance.</returns>
-        public SqlServerCTSyncConfiguration Build() => new SqlServerCTSyncConfiguration(_connectionString, _tables.ToArray(), _changeRetentionDays, _autoCleanup);
+        public SqlServerCTSyncConfiguration Build() => new SqlServerCTSyncConfiguration(_connectionString, _tables.ToArray(), _changeRetention, _changeRetentionUnit, _autoCleanup, _changeRetentionConfigured);
     }
 }

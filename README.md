@@ -195,14 +195,41 @@ If you prefer SQL Server's built-in Change Tracking over custom triggers:
 
 ```csharp
 var config = new SqlServerCTSyncConfigurationBuilder(connectionString)
-    .ChangeRetentionDays(7)    // how long change history is kept
-    .AutoCleanup(true)
+    .ChangeRetention(days: 7, autoCleanup: true)    // how long change history is kept
     .Table("Users")
     .Table("Posts")
     .Build();
 
 var provider = new SqlServerCTProvider(config);
 await provider.ApplyProvisionAsync();
+```
+
+The retention can also be expressed in hours or minutes:
+
+```csharp
+.ChangeRetention(90, ChangeRetentionUnit.Minutes)
+```
+
+`ApplyProvisionAsync` reconciles the setting: when the retention is configured explicitly it is applied
+even to a database that already has change tracking enabled. Leave `ChangeRetention` unset to keep
+whatever the database is already configured with.
+
+Retention matters. A client that stays offline longer than the window can no longer resume an
+incremental sync: both `GetChangesAsync` and `ApplyChangesAsync` then fail with
+`SyncAnchorTooOldException`, which is permanent for that client. Catch it to trigger a
+reinitialization from a fresh snapshot rather than retrying:
+
+```csharp
+try
+{
+    await agent.SynchronizeAsync();
+}
+catch (SyncAnchorTooOldException ex)
+{
+    // ex.TableName / ex.RequestedVersion / ex.MinValidVersion
+    // Retrying can never succeed - drop the local copy and take a fresh initial snapshot.
+    await ReinitializeClientAsync();
+}
 ```
 
 ### Managing Change Tracking
