@@ -848,49 +848,27 @@ namespace CoreSync.Sqlite
             using var connection = new SqliteConnection(Configuration.ConnectionString);
             await connection.OpenAsync(cancellationToken);
 
-            //1. discover tables
             using var cmd = connection.CreateCommand();
-            var listOfTables = new List<string>();
-            foreach (SqliteSyncTable table in Configuration.Tables)
-            {
-                cmd.CommandText = $"PRAGMA table_info('{table.Name}')";
-                using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-                /*
-                cid         name        type        notnull     dflt_value  pk
-                ----------  ----------  ----------  ----------  ----------  ----------
-                */
-                while (await reader.ReadAsync(cancellationToken))
-                {
-                    var colName = reader.GetString(1);
 
-                    if (string.CompareOrdinal(colName, "__OP") == 0)
-                    {
-                        continue;
-                    }
-
-                    listOfTables.Add(colName);
-                }
-            }
-
-            //2. drop ct table
+            //1. drop ct table
             cmd.CommandText = $"DROP TABLE IF EXISTS __CORE_SYNC_CT";
             await cmd.ExecuteNonQueryAsync();
 
-            //3. drop remote anchor table
+            //2. drop remote anchor table
             cmd.CommandText = $"DROP TABLE IF EXISTS __CORE_SYNC_REMOTE_ANCHOR";
             await cmd.ExecuteNonQueryAsync();
 
-            //4. drop local anchor table
+            //3. drop local anchor table
             cmd.CommandText = $"DROP TABLE IF EXISTS __CORE_SYNC_LOCAL_ID";
             await cmd.ExecuteNonQueryAsync();
 
-            //5. drop triggers
-            foreach (var tableName in listOfTables)
+            //4. drop triggers — iterate table names directly; DROP TRIGGER IF EXISTS is safe even if never provisioned
+            foreach (SqliteSyncTable table in Configuration.Tables)
             {
-                await DisableChangeTrackingForTable(cmd, tableName, cancellationToken);
+                await DisableChangeTrackingForTable(cmd, table.Name, cancellationToken);
             }
         }
-        
+
         public async Task<SyncVersion> GetSyncVersionAsync(CancellationToken cancellationToken = default)
         {
             await InitializeStoreAsync(cancellationToken);
@@ -992,7 +970,7 @@ namespace CoreSync.Sqlite
                 await SetupTableForUpdatesOrDeletesOnly(table, cmd, cancellationToken);
             }
         }
-         
+
         public async Task DisableChangeTrackingForTable(string name, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(name))
@@ -1009,7 +987,7 @@ namespace CoreSync.Sqlite
         }
 
         private async Task DisableChangeTrackingForTable(SqliteCommand cmd, string tableName, CancellationToken cancellationToken)
-        { 
+        {
             var commandTextBase = new Func<string, string>((op) => $@"DROP TRIGGER IF EXISTS [__{tableName}_ct-{op}__]");
             cmd.CommandText = commandTextBase("INSERT");
             await cmd.ExecuteNonQueryAsync();
@@ -1018,7 +996,7 @@ namespace CoreSync.Sqlite
             await cmd.ExecuteNonQueryAsync();
 
             cmd.CommandText = commandTextBase("DELETE");
-            await cmd.ExecuteNonQueryAsync();        
+            await cmd.ExecuteNonQueryAsync();
         }
 
     }
