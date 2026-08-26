@@ -61,7 +61,23 @@ namespace CoreSync
         /// Optional filter parameters applied when retrieving changes from the local provider.
         /// </param>
         /// <returns>A task that represents the asynchronous synchronization operation.</returns>
-        /// <exception cref="SynchronizationException">Thrown when synchronization fails.</exception>
+        /// <exception cref="SynchronizationException">
+        /// Thrown when synchronization fails, with the underlying failure as
+        /// <see cref="Exception.InnerException"/>.
+        /// <para>
+        /// An inner <see cref="SyncAnchorTooOldException"/> means one of the stores can no longer
+        /// resolve changes from the other's anchor, because the change history covering it has been
+        /// discarded by its retention policy. That is permanent: the affected store has to be
+        /// reinitialized from a fresh snapshot, and retrying will not help.
+        /// <code>
+        /// catch (SynchronizationException ex)
+        ///     when (ex.InnerException is SyncAnchorTooOldException tooOld)
+        /// {
+        ///     // tooOld.TableName, tooOld.RequestedVersion, tooOld.MinValidVersion
+        /// }
+        /// </code>
+        /// </para>
+        /// </exception>
         public async Task SynchronizeAsync(
             Func<SyncItem, ConflictResolution>? remoteConflictResolutionFunc = null,
             Func<SyncItem, ConflictResolution>? localConflictResolutionFunc = null,
@@ -88,15 +104,14 @@ namespace CoreSync
                 //await LocalSyncProvider.ApplyProvisionAsync(cancellationToken: cancellationToken);
                 //await RemoteSyncProvider.ApplyProvisionAsync(cancellationToken: cancellationToken);
             }
-            catch (SyncAnchorTooOldException)
-            {
-                // Deliberately not wrapped: this one is not retryable, the client has to be
-                // reinitialized from a fresh snapshot, and callers need to see that without digging
-                // through inner exceptions.
-                throw;
-            }
             catch (Exception ex)
             {
+                // Every failure leaves here as a SynchronizationException, including
+                // SyncAnchorTooOldException: callers have caught this one type around
+                // SynchronizeAsync since before the typed exception existed, and letting one case
+                // escape unwrapped would break them at runtime with nothing to catch it at compile
+                // time. The typed exception stays reachable as the inner exception, which is what
+                // callers branch on to tell "reinitialize this client" from a transient failure.
                 throw new SynchronizationException("Unable to synchronize stores", ex);
             }
         }

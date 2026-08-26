@@ -124,6 +124,46 @@ public class AnchorTooOldTests
     }
 
     [TestMethod]
+    public async Task SyncAgent_WrapsTheTypedExceptionSoExistingCatchesStillFire()
+    {
+        var localFile = CreateDatabase(nameof(SyncAgent_WrapsTheTypedExceptionSoExistingCatchesStillFire) + "_local");
+        var remoteFile = CreateDatabase(nameof(SyncAgent_WrapsTheTypedExceptionSoExistingCatchesStillFire) + "_remote");
+
+        var local = CreateProvider(localFile);
+        var remote = CreateProvider(remoteFile);
+
+        await local.ApplyProvisionAsync();
+        await remote.ApplyProvisionAsync();
+
+        using (var db = new SQLiteConnection(remoteFile))
+        {
+            for (var i = 0; i < 10; i++)
+            {
+                db.Insert(new Stock { Id = Guid.NewGuid(), Symbol = $"SYM{i}" });
+            }
+        }
+
+        SqliteConnection.ClearAllPools();
+
+        //the remote store believes this client is at version 1, then loses everything below 5
+        await remote.SaveVersionForStoreAsync(await local.GetStoreIdAsync(), 1);
+        await remote.ApplyRetentionPolicyAsync(5);
+
+        var agent = new SyncAgent(local, remote);
+
+        // Callers have caught SynchronizationException around SynchronizeAsync since before the typed
+        // exception existed. Letting this one case escape unwrapped would break them at runtime with
+        // nothing to catch it at compile time, so every failure still leaves here wrapped.
+        var ex = await Should.ThrowAsync<SynchronizationException>(() => agent.SynchronizeAsync());
+
+        ex.InnerException.ShouldBeOfType<SyncAnchorTooOldException>();
+
+        var tooOld = (SyncAnchorTooOldException)ex.InnerException!;
+        tooOld.RequestedVersion.ShouldBe(1);
+        tooOld.MinValidVersion.ShouldBe(4);
+    }
+
+    [TestMethod]
     public async Task HttpClient_RebuildsTypedExceptionFromServerSignal()
     {
         var thrown = new SyncAnchorTooOldException("[admin].[UserRole]", 1378, 1925);

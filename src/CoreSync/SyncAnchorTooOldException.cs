@@ -19,6 +19,11 @@ namespace CoreSync
     /// It derives from <see cref="InvalidOperationException"/> so that callers written against the
     /// previous, untyped behaviour keep working.
     /// </para>
+    /// <para>
+    /// Providers raise it directly. <see cref="SyncAgent.SynchronizeAsync"/> wraps it, like every
+    /// other failure, in a <see cref="SynchronizationException"/> - so callers at that level branch
+    /// on <see cref="Exception.InnerException"/> rather than catching this type directly.
+    /// </para>
     /// </remarks>
     public class SyncAnchorTooOldException : InvalidOperationException
     {
