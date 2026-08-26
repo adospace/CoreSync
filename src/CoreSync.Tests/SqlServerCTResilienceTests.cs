@@ -211,7 +211,7 @@ FROM sys.change_tracking_databases WHERE database_id = DB_ID()";
 
             var ex = await Should.ThrowAsync<SyncAnchorTooOldException>(() => provider.ApplyChangesAsync(changeSet));
 
-            ex.TableName.ShouldContain("Authors");
+            ex.TableName!.ShouldContain("Authors");
             ex.RequestedVersion.ShouldBe(-1);
             ex.MinValidVersion.ShouldBeGreaterThanOrEqualTo(0);
 
@@ -253,7 +253,7 @@ FROM sys.change_tracking_databases WHERE database_id = DB_ID()";
 
             var ex = await Should.ThrowAsync<SyncAnchorTooOldException>(() => provider.ApplyChangesAsync(changeSet));
 
-            ex.TableName.ShouldContain("Authors");
+            ex.TableName!.ShouldContain("Authors");
             ex.RequestedVersion.ShouldBe(0);
             ex.MinValidVersion.ShouldBeGreaterThan(0);
 

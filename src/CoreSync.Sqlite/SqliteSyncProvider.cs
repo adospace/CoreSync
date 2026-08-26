@@ -460,8 +460,16 @@ namespace CoreSync.Sqlite
                 cmd.Parameters.Clear();
                 var minVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
+                // MIN(ID) is the oldest change still journalled, so the oldest anchor that can still be
+                // served is the one immediately before it.
                 if (!fromAnchor.IsNull() && fromAnchor.Version < minVersion - 1)
-                    throw new InvalidOperationException($"Unable to get changes, version of data requested ({fromAnchor}) is too old (min valid version {minVersion})");
+                {
+                    // Traced before throwing: this runs ahead of the per-table loop below, so without
+                    // it a session that fails here leaves no account of why it stopped.
+                    var anchorTooOld = new SyncAnchorTooOldException(fromAnchor.Version, minVersion - 1);
+                    _logger?.Error($"[{_storeId}] {anchorTooOld.Message}");
+                    throw anchorTooOld;
+                }
 
                 foreach (var table in tablesToSync.Cast<SqliteSyncTable>().Where(_ => _.Columns.Any()))
                 {

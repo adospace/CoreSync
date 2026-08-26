@@ -283,10 +283,11 @@ namespace CoreSync.SqlServerCT
                     throw;
                 }
             }
-            catch (SyncAnchorTooOldException)
+            catch (SyncAnchorTooOldException ex)
             {
                 // Deliberately not wrapped: callers have to be able to tell "reinitialize this client"
                 // apart from a transient error worth retrying.
+                _logger?.Error($"[{_storeId}] {ex.Message}");
                 throw;
             }
             catch (Exception ex)
@@ -555,6 +556,36 @@ WHEN NOT MATCHED THEN INSERT ([ID], [LOCAL_VERSION]) VALUES (@id, @version);";
             _initialized = true;
         }
 
+        /// <summary>
+        /// Applies the configured change tracking retention to the database and reports the settings
+        /// actually in effect afterwards, without provisioning anything else.
+        /// </summary>
+        /// <param name="cancellationToken">A token to cancel the operation.</param>
+        /// <returns>
+        /// The settings read back from <c>sys.change_tracking_databases</c>, or <c>null</c> when change
+        /// tracking is not enabled on the database.
+        /// </returns>
+        /// <remarks>
+        /// Retention is normally reconciled as part of <see cref="ApplyProvisionAsync"/>. This exists for
+        /// callers that let an operator edit the retention on its own: changing the stored setting has no
+        /// effect until an <c>ALTER DATABASE</c> is actually issued, and a setting that looks saved but was
+        /// never applied is precisely how a database ends up quietly keeping a week of history when it was
+        /// configured for a month. The read-back lets the caller show what the database really holds rather
+        /// than what was requested.
+        /// </remarks>
+        /// <exception cref="InvalidOperationException">
+        /// The statement failed - most often because the account lacks the ALTER DATABASE permission.
+        /// </exception>
+        public async Task<ChangeTrackingDatabaseOptions?> ApplyChangeRetentionAsync(CancellationToken cancellationToken = default)
+        {
+            using var connection = new SqlConnection(Configuration.ConnectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            await ReconcileChangeTrackingRetentionAsync(connection, cancellationToken);
+
+            return await connection.GetChangeTrackingOptionsAsync(cancellationToken);
+        }
+
         public async Task ApplyProvisionAsync(CancellationToken cancellationToken = default)
         {
             await InitializeStoreAsync(cancellationToken);
@@ -758,7 +789,14 @@ WHEN NOT MATCHED THEN INSERT ([ID], [LOCAL_VERSION]) VALUES (@id, @version);";
                         var minVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
                         if (fromAnchor.Version < minVersion)
-                            throw new SyncAnchorTooOldException(table.NameWithSchema, fromAnchor.Version, minVersion);
+                        {
+                            // Traced before throwing: this runs ahead of the per-table loop below, so
+                            // without it a session that fails here records nothing but its opening
+                            // "Begin GetChanges" line and leaves no account of why it stopped.
+                            var anchorTooOld = new SyncAnchorTooOldException(table.NameWithSchema, fromAnchor.Version, minVersion);
+                            _logger?.Error($"[{_storeId}] {anchorTooOld.Message}");
+                            throw anchorTooOld;
+                        }
                     }
                 }
 
