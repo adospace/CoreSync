@@ -283,10 +283,11 @@ namespace CoreSync.SqlServerCT
                     throw;
                 }
             }
-            catch (SyncAnchorTooOldException)
+            catch (SyncAnchorTooOldException ex)
             {
                 // Deliberately not wrapped: callers have to be able to tell "reinitialize this client"
                 // apart from a transient error worth retrying.
+                _logger?.Error($"[{_storeId}] {ex.Message}");
                 throw;
             }
             catch (Exception ex)
@@ -758,7 +759,14 @@ WHEN NOT MATCHED THEN INSERT ([ID], [LOCAL_VERSION]) VALUES (@id, @version);";
                         var minVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
                         if (fromAnchor.Version < minVersion)
-                            throw new SyncAnchorTooOldException(table.NameWithSchema, fromAnchor.Version, minVersion);
+                        {
+                            // Traced before throwing: this runs ahead of the per-table loop below, so
+                            // without it a session that fails here records nothing but its opening
+                            // "Begin GetChanges" line and leaves no account of why it stopped.
+                            var anchorTooOld = new SyncAnchorTooOldException(table.NameWithSchema, fromAnchor.Version, minVersion);
+                            _logger?.Error($"[{_storeId}] {anchorTooOld.Message}");
+                            throw anchorTooOld;
+                        }
                     }
                 }
 

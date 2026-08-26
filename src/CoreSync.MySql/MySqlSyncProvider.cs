@@ -1,4 +1,4 @@
-using JetBrains.Annotations;
+﻿using JetBrains.Annotations;
 using MySqlConnector;
 using System;
 using System.Collections.Generic;
@@ -303,7 +303,11 @@ namespace CoreSync.MySql
                 // served is the one immediately before it.
                 if (!fromAnchor.IsNull() && fromAnchor.Version < minVersion - 1)
                 {
-                    throw new SyncAnchorTooOldException(fromAnchor.Version, minVersion - 1);
+                    // Traced before throwing: this runs ahead of the per-table loop below, so without
+                    // it a session that fails here leaves no account of why it stopped.
+                    var anchorTooOld = new SyncAnchorTooOldException(fromAnchor.Version, minVersion - 1);
+                    _logger?.Error($"[{_storeId}] {anchorTooOld.Message}");
+                    throw anchorTooOld;
                 }
 
                 foreach (var table in tablesToSync.Cast<MySqlSyncTable>().Where(_ => _.Columns.Any()))
