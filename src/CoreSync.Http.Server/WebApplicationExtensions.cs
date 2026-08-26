@@ -50,6 +50,9 @@ public static class WebApplicationExtensions
 
         void ConfigureEndpoint<T>(T endpoint, Action<T>? specificAction = null) where T : IEndpointConventionBuilder
         {
+            // Added before the caller's own conventions so that an aged-out anchor reaches the client
+            // as a documented 410 rather than whatever the host makes of an unhandled exception.
+            endpoint.AddSyncErrorEndpointFilter();
             options.AllEndpoints?.Invoke(endpoint);
             specificAction?.Invoke(endpoint);
         }
@@ -130,6 +133,45 @@ public static class WebApplicationExtensions
 
 }
 
+
+internal static class SyncErrorFilterEndpointExtensions
+{
+    /// <summary>
+    /// Translates <see cref="SyncAnchorTooOldException"/> into an HTTP 410 Gone carrying the
+    /// <see cref="SyncHttpErrorCodes.AnchorTooOld"/> header and a <see cref="SyncAnchorTooOldError"/> body.
+    /// </summary>
+    /// <remarks>
+    /// 410 is the honest code here: the change history the client asked for existed once and is
+    /// permanently gone, so unlike a 5xx there is nothing to retry. Without this the condition
+    /// surfaced as an unhandled exception, which the client could only report as a generic
+    /// "unable to synchronize".
+    /// </remarks>
+    public static TBuilder AddSyncErrorEndpointFilter<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
+    {
+        builder.AddEndpointFilter(async (context, next) =>
+        {
+            try
+            {
+                return await next(context);
+            }
+            catch (SyncAnchorTooOldException ex)
+            {
+                context.HttpContext.Response.Headers[SyncHttpHeaders.ErrorCode] = SyncHttpErrorCodes.AnchorTooOld;
+
+                return Results.Json(
+                    new SyncAnchorTooOldError
+                    {
+                        TableName = ex.TableName,
+                        RequestedVersion = ex.RequestedVersion,
+                        MinValidVersion = ex.MinValidVersion
+                    },
+                    statusCode: StatusCodes.Status410Gone);
+            }
+        });
+
+        return builder;
+    }
+}
 
 internal static class EndpointMessagePackFilterEndpointExtensions
 {

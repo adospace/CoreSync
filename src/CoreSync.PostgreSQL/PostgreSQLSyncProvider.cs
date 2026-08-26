@@ -315,8 +315,10 @@ namespace CoreSync.PostgreSQL
                 cmd.Parameters.Clear();
                 var minVersion = await cmd.ExecuteLongScalarAsync(cancellationToken);
 
+                // MIN(id) is the oldest change still journalled, so the oldest anchor that can still be
+                // served is the one immediately before it.
                 if (!fromAnchor.IsNull() && fromAnchor.Version < minVersion - 1)
-                    throw new InvalidOperationException($"Unable to get changes, version of data requested ({fromAnchor}) is too old (min valid version {minVersion})");
+                    throw new SyncAnchorTooOldException(fromAnchor.Version, minVersion - 1);
 
                 foreach (var table in tablesToSync.Cast<PostgreSQLSyncTable>().Where(_ => _.Columns.Any()))
                 {

@@ -32,6 +32,43 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
         _options = options;
     }
 
+    /// <summary>
+    /// Throws for an unsuccessful response, rebuilding <see cref="SyncAnchorTooOldException"/> from the
+    /// server's 410 Gone signal so that callers see the same typed error they would from a local provider.
+    /// </summary>
+    /// <remarks>
+    /// Used in place of <see cref="HttpResponseMessage.EnsureSuccessStatusCode"/> on every sync endpoint:
+    /// without it an aged-out anchor arrives as a bare <see cref="HttpRequestException"/> and the only
+    /// thing an application can tell the user is that synchronization failed.
+    /// </remarks>
+    private static async Task EnsureSyncSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        if (response.StatusCode == HttpStatusCode.Gone &&
+            response.Headers.TryGetValues(SyncHttpHeaders.ErrorCode, out var errorCodes) &&
+            errorCodes.Contains(SyncHttpErrorCodes.AnchorTooOld))
+        {
+            SyncAnchorTooOldError? error = null;
+            try
+            {
+                error = await response.Content.ReadFromJsonAsync<SyncAnchorTooOldError>(cancellationToken);
+            }
+            catch (JsonException)
+            {
+                // The header alone identifies the condition; a body we cannot read must not downgrade
+                // this into an ordinary transport failure.
+            }
+
+            var requestedVersion = error?.RequestedVersion ?? -1;
+            var minValidVersion = error?.MinValidVersion ?? -1;
+
+            throw error?.TableName is { } tableName
+                ? new SyncAnchorTooOldException(tableName, requestedVersion, minValidVersion)
+                : new SyncAnchorTooOldException(requestedVersion, minValidVersion);
+        }
+
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, [CanBeNull] Func<SyncItem, ConflictResolution>? onConflictFunc = null, CancellationToken cancellationToken = default)
     {
         var httpClient = _httpClientFactory.CreateClient(_options.HttpClientName ?? Options.DefaultName);
@@ -48,8 +85,9 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
 
         SyncProgress?.Invoke(this, new SyncProgressEventArgs(SyncStage.ComputingLocalChanges));
 
-        (await httpClient.PostAsJsonAsync($"/{_options.SyncControllerRoute}/changes-bulk-begin", bulkChangeSet, cancellationToken))
-            .EnsureSuccessStatusCode();
+        await EnsureSyncSuccessAsync(
+            await httpClient.PostAsJsonAsync($"/{_options.SyncControllerRoute}/changes-bulk-begin", bulkChangeSet, cancellationToken),
+            cancellationToken);
 
         var listOfItemsToUpload = new List<SyncItem>();
 
@@ -74,8 +112,9 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
 
                 beginUploadItemContent.Headers.ContentType = new MediaTypeHeaderValue("application/x-msgpack");
 
-                (await httpClient.PostAsync($"{_options.SyncControllerRoute}/changes-bulk-item-binary", beginUploadItemContent, cancellationToken))
-                    .EnsureSuccessStatusCode();
+                await EnsureSyncSuccessAsync(
+                    await httpClient.PostAsync($"{_options.SyncControllerRoute}/changes-bulk-item-binary", beginUploadItemContent, cancellationToken),
+                    cancellationToken);
             }
             else
             {
@@ -85,8 +124,9 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
                     Items = listOfItemsToUpload
                 }), Encoding.UTF8, "application/json");
 
-                (await httpClient.PostAsync($"{_options.SyncControllerRoute}/changes-bulk-item", beginUploadItemContent, cancellationToken))
-                    .EnsureSuccessStatusCode();
+                await EnsureSyncSuccessAsync(
+                    await httpClient.PostAsync($"{_options.SyncControllerRoute}/changes-bulk-item", beginUploadItemContent, cancellationToken),
+                    cancellationToken);
             }
 
             SyncProgress?.Invoke(this, new SyncProgressEventArgs(SyncStage.ApplyChanges, skip / (double)changeSet.Items.Count));
@@ -94,7 +134,7 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
 
         var remoteChangeSetResponse = await httpClient.PostAsync(
             $"{_options.SyncControllerRoute}/changes-bulk-complete{(_options.UseBinaryFormat ? "-binary" : string.Empty)}/{sessionId}", null, cancellationToken);
-        remoteChangeSetResponse.EnsureSuccessStatusCode();
+        await EnsureSyncSuccessAsync(remoteChangeSetResponse, cancellationToken);
 
         SyncProgress?.Invoke(this, new SyncProgressEventArgs(SyncStage.ApplyChanges, 1.0));
 
@@ -115,7 +155,7 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
         }
 
         var response = await httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        await EnsureSyncSuccessAsync(response, cancellationToken);
 
         var bulkSyncChangeSet = await response.Content.ReadFromJsonAsync<BulkSyncChangeSet>(cancellationToken)
             ?? throw new InvalidOperationException();
@@ -181,13 +221,19 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
                 {
                     var response = await httpClient.GetAsync($"{_options.SyncControllerRoute}/changes-bulk-item-binary/{bulkSyncChangeSet.SessionId}/{skip}/{_options.BulkItemSize}", cancellationToken);
 
-                    response.EnsureSuccessStatusCode();
+                    await EnsureSyncSuccessAsync(response, cancellationToken);
 
                     using var s = await response.Content.ReadAsStreamAsync(cancellationToken);
                     var downloadedItems = await CoreSyncMessagePackSerializer.DeserializeAsync<object>(s, cancellationToken);
                     var bulkItems = (List<SyncItem>?)(downloadedItems) ?? throw new InvalidOperationException();
                     items.AddRange(bulkItems);
                     break;
+                }
+                catch (SyncAnchorTooOldException)
+                {
+                    // Permanent for this client: the change history it asked for is gone. Retrying
+                    // burns three round trips and fifteen seconds to reach the same answer.
+                    throw;
                 }
                 catch (Exception)
                 {

@@ -22,6 +22,12 @@ internal sealed class SyncTestServer : IDisposable
 
     public ISyncProviderHttpClient HttpSyncProvider { get; }
 
+    /// <summary>
+    /// The underlying <see cref="HttpClient"/>, for tests that need to assert on the raw response
+    /// (status code, headers, body) rather than on what the sync provider makes of it.
+    /// </summary>
+    public HttpClient RawHttpClient => _httpClient;
+
     private SyncTestServer(WebApplication app, HttpClient httpClient, ServiceProvider clientServiceProvider, ISyncProviderHttpClient httpSyncProvider)
     {
         _app = app;

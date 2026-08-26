@@ -56,9 +56,27 @@ namespace CoreSync
         }
 
         /// <summary>
-        /// Gets the name of the table whose change history no longer covers <see cref="RequestedVersion"/>.
+        /// Initializes a new instance of the <see cref="SyncAnchorTooOldException"/> class for a store
+        /// that tracks changes in a single shared journal, where no individual table is implicated.
         /// </summary>
-        public string TableName { get; }
+        /// <param name="requestedVersion">
+        /// The version the operation asked for. A negative value means no anchor was recorded at all
+        /// (see <see cref="SyncAnchor.Null"/>), which is equally unrecoverable.
+        /// </param>
+        /// <param name="minValidVersion">The oldest version the store can still resolve changes from.</param>
+        public SyncAnchorTooOldException(long requestedVersion, long minValidVersion)
+            : base(BuildMessage(null, requestedVersion, minValidVersion))
+        {
+            RequestedVersion = requestedVersion;
+            MinValidVersion = minValidVersion;
+        }
+
+        /// <summary>
+        /// Gets the name of the table whose change history no longer covers <see cref="RequestedVersion"/>,
+        /// or <c>null</c> when the store keeps a single shared change journal and no individual table is
+        /// implicated.
+        /// </summary>
+        public string? TableName { get; }
 
         /// <summary>
         /// Gets the version the operation asked for. A negative value means the store holds no anchor
@@ -71,13 +89,17 @@ namespace CoreSync
         /// </summary>
         public long MinValidVersion { get; }
 
-        private static string BuildMessage(string tableName, long requestedVersion, long minValidVersion)
+        private static string BuildMessage(string? tableName, long requestedVersion, long minValidVersion)
         {
             var requested = requestedVersion < 0
                 ? "no anchor is recorded for the peer store"
                 : $"version {requestedVersion} is older than the retained history";
 
-            return $"Unable to resolve changes for table '{tableName}': {requested} " +
+            var target = tableName == null
+                ? "Unable to resolve changes"
+                : $"Unable to resolve changes for table '{tableName}'";
+
+            return $"{target}: {requested} " +
                    $"(requested version {requestedVersion}, minimum valid version {minValidVersion}). " +
                    "The peer store must be reinitialized from a fresh snapshot; retrying will not help.";
         }
