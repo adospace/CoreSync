@@ -1,6 +1,7 @@
 using MySqlConnector;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 namespace CoreSync.MySql
@@ -95,6 +96,15 @@ WHERE `{PrimaryColumnName}` = @PrimaryColumnParameter";
                     DateTime.TryParse(stringDate, out var parsedDate))
                 {
                     return parsedDate;
+                }
+
+                //a time column travels as an invariant "c" formatted string (see SyncItemValue): it has
+                //no dedicated SyncItemValueType and that is also how SQLite stores it
+                if (column.DataType.Equals("time", StringComparison.OrdinalIgnoreCase) &&
+                    value is string stringTime &&
+                    TimeSpan.TryParse(stringTime, CultureInfo.InvariantCulture, out var parsedTime))
+                {
+                    return parsedTime;
                 }
             }
 

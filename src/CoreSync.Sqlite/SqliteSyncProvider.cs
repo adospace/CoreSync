@@ -662,10 +662,19 @@ namespace CoreSync.Sqlite
 
         private static object GetValueFromRecord(SqliteDataReader r, int columnOrdinal, Type propertyType)
         {
+            //a nullable property is read exactly like its underlying type: the caller has already
+            //excluded DBNull. Without this, every nullable column fell through to GetValue() and was
+            //read back as whatever SQLite stored it as (an INTEGER for a byte?, a string for a
+            //TimeSpan?/DateTime?), which does not round-trip to the same SyncItemValueType the
+            //server sends down for the very same column.
+            propertyType = Nullable.GetUnderlyingType(propertyType) ?? propertyType;
+
             if (propertyType == typeof(string))
                 return r.GetString(columnOrdinal);
             if (propertyType == typeof(DateTime))
                 return r.GetDateTime(columnOrdinal);
+            if (propertyType == typeof(TimeSpan))
+                return r.GetTimeSpan(columnOrdinal);
             if (propertyType == typeof(int))
                 return r.GetInt32(columnOrdinal);
             if (propertyType == typeof(bool))
