@@ -94,10 +94,7 @@ namespace CoreSync.PostgreSQL
 
             // A time/interval column travels as an invariant "c" formatted string (see SyncItemValue):
             // it has no dedicated SyncItemValueType and that is also how SQLite stores it.
-            if (Columns.TryGetValue(columnName, out var timeColumn) &&
-                (timeColumn.Type.Equals("time", StringComparison.OrdinalIgnoreCase) ||
-                 timeColumn.Type.Equals("time without time zone", StringComparison.OrdinalIgnoreCase) ||
-                 timeColumn.Type.Equals("interval", StringComparison.OrdinalIgnoreCase)))
+            if (Columns.TryGetValue(columnName, out var timeColumn) && timeColumn.IsTimeLike)
             {
                 if (value is string timeString &&
                     TimeSpan.TryParse(timeString, CultureInfo.InvariantCulture, out var timeSpanValue))
