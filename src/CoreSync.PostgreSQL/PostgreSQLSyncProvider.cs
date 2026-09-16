@@ -490,6 +490,13 @@ namespace CoreSync.PostgreSQL
             if (r.IsDBNull(columnOrdinal))
                 return null;
 
+            //a time/interval column must be materialized as a TimeSpan: Npgsql's default CLR type for
+            //'time without time zone' is TimeOnly, which has no SyncItemValueType (and cannot even be
+            //named from netstandard2.0). SyncItemValue then turns the TimeSpan into an invariant "c"
+            //formatted string, the representation every other provider understands.
+            if (table.Columns.TryGetValue(columnName, out var timeColumn) && timeColumn.IsTimeLike)
+                return r.GetFieldValue<TimeSpan>(columnOrdinal);
+
             if (table.RecordType == null)
                 return r.GetValue(columnOrdinal);
 

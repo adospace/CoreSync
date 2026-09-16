@@ -497,7 +497,7 @@ namespace CoreSync.Sqlite
                         while (await r.ReadAsync(cancellationToken))
                         {
                             var values = Enumerable.Range(0, r.FieldCount)
-                                .ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
+                                .ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r, _logger));
                             items.Add(new SqliteSyncItem(table, ChangeType.Insert, values));
                             //snapshotItems.Add(values[table.PrimaryColumnName]);
                             _logger?.Trace($"[{_storeId}] Initial snapshot {items.Last()}");
@@ -519,7 +519,7 @@ namespace CoreSync.Sqlite
                         {
                             while (await r.ReadAsync(cancellationToken))
                             {
-                                var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
+                                var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r, _logger));
                                 //if (snapshotItems.Contains(values[table.PrimaryColumnName]))
                                 //    continue;
 
@@ -537,7 +537,7 @@ namespace CoreSync.Sqlite
                         {
                             while (await r.ReadAsync(cancellationToken))
                             {
-                                var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r));
+                                var values = Enumerable.Range(0, r.FieldCount).ToDictionary(_ => r.GetName(_), _ => GetValueFromRecord(table, r.GetName(_), _, r, _logger));
                                 items.Add(new SqliteSyncItem(table, ChangeType.Delete, values));
                                 _logger?.Trace($"[{_storeId}] Incremental delete {items.Last()}");
                             }
@@ -630,7 +630,7 @@ namespace CoreSync.Sqlite
             return ChangeType.Insert;
         }
 
-        private static object? GetValueFromRecord(SqliteSyncTable table, string columnName, int columnOrdinal, SqliteDataReader r)
+        private static object? GetValueFromRecord(SqliteSyncTable table, string columnName, int columnOrdinal, SqliteDataReader r, ISyncLogger? logger)
         {
             if (r.IsDBNull(columnOrdinal))
                 return null;
@@ -640,7 +640,7 @@ namespace CoreSync.Sqlite
 
             var property = table.RecordType.GetProperty(columnName);
             if (property != null)
-                return GetValueFromRecord(r, columnOrdinal, property.PropertyType);
+                return GetValueFromRecord(r, columnOrdinal, property.PropertyType, logger);
 
             property = table.RecordType.GetProperties().FirstOrDefault(_ =>
             {
@@ -654,18 +654,50 @@ namespace CoreSync.Sqlite
             });
 
             if (property != null)
-                return GetValueFromRecord(r, columnOrdinal, property.PropertyType);
+                return GetValueFromRecord(r, columnOrdinal, property.PropertyType, logger);
 
             //fallback to getvalue
             return r.GetValue(columnOrdinal);
         }
 
-        private static object GetValueFromRecord(SqliteDataReader r, int columnOrdinal, Type propertyType)
+        private static object GetValueFromRecord(SqliteDataReader r, int columnOrdinal, Type propertyType, ISyncLogger? logger)
+        {
+            //a nullable property is read exactly like its underlying type: the caller has already
+            //excluded DBNull. Without this, every nullable column fell through to GetValue() and was
+            //read back as whatever SQLite stored it as (an INTEGER for a byte?, a string for a
+            //TimeSpan?/DateTime?), which does not round-trip to the same SyncItemValueType the
+            //server sends down for the very same column.
+            propertyType = Nullable.GetUnderlyingType(propertyType) ?? propertyType;
+
+            try
+            {
+                return GetTypedValueFromRecord(r, columnOrdinal, propertyType);
+            }
+            catch (Exception ex) when (
+                ex is FormatException ||
+                ex is InvalidCastException ||
+                ex is OverflowException ||
+                ex is ArgumentException)
+            {
+                //SQLite has no column types, only affinities, so a store written by something other
+                //than this library (or by an older version of the application) can hold a value the
+                //typed getter refuses to parse - a date in a legacy format, a decimal written as a
+                //REAL, and so on. Returning the raw stored value keeps such a store synchronizable,
+                //which is what this method did for every nullable column before typed reads were
+                //extended to them.
+                logger?.Warning($"Unable to read column {r.GetName(columnOrdinal)} as {propertyType}, falling back to the raw stored value: {ex.Message}");
+                return r.GetValue(columnOrdinal);
+            }
+        }
+
+        private static object GetTypedValueFromRecord(SqliteDataReader r, int columnOrdinal, Type propertyType)
         {
             if (propertyType == typeof(string))
                 return r.GetString(columnOrdinal);
             if (propertyType == typeof(DateTime))
                 return r.GetDateTime(columnOrdinal);
+            if (propertyType == typeof(TimeSpan))
+                return r.GetTimeSpan(columnOrdinal);
             if (propertyType == typeof(int))
                 return r.GetInt32(columnOrdinal);
             if (propertyType == typeof(bool))

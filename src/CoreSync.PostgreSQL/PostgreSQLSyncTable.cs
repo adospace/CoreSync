@@ -1,6 +1,7 @@
 using Npgsql;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 namespace CoreSync.PostgreSQL
@@ -88,6 +89,17 @@ namespace CoreSync.PostgreSQL
                 if (value is string timestampString && DateTime.TryParse(timestampString, out var dateTimeValue))
                 {
                     return dateTimeValue;
+                }
+            }
+
+            // A time/interval column travels as an invariant "c" formatted string (see SyncItemValue):
+            // it has no dedicated SyncItemValueType and that is also how SQLite stores it.
+            if (Columns.TryGetValue(columnName, out var timeColumn) && timeColumn.IsTimeLike)
+            {
+                if (value is string timeString &&
+                    TimeSpan.TryParse(timeString, CultureInfo.InvariantCulture, out var timeSpanValue))
+                {
+                    return timeSpanValue;
                 }
             }
 
