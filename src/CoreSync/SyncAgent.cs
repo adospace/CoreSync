@@ -169,9 +169,9 @@ namespace CoreSync
             result.Stage = stage;
 
             ISyncFailureInfo? info = null;
+            System.Net.Http.HttpRequestException? httpFailure = null;
             var sawProviderFailure = false;
             var sawCancellation = false;
-            var sawHttpFailure = false;
             var sawUnauthorized = false;
 
             foreach (var inner in Flatten(failure))
@@ -186,8 +186,8 @@ namespace CoreSync
                 // alone has to count as a data error.
                 sawProviderFailure |= inner is SynchronizationException;
                 sawCancellation |= inner is OperationCanceledException;
-                sawHttpFailure |= inner is System.Net.Http.HttpRequestException;
                 sawUnauthorized |= inner is UnauthorizedAccessException;
+                httpFailure ??= inner as System.Net.Http.HttpRequestException;
 
                 if (result.TableName == null && inner is ISyncFailureInfo withTable && withTable.TableName != null)
                 {
@@ -214,14 +214,19 @@ namespace CoreSync
             }
             else if (sawUnauthorized)
             {
-                result.Kind = SyncFailureKind.Unauthorized;
+                // Only the remote side means "credentials refused". A local store raises the same type
+                // for a file it is not allowed to touch (a read-only folder, Android scoped storage),
+                // and re-authenticating would not fix that.
+                result.Kind = IsRemoteStage(stage) ? SyncFailureKind.Unauthorized : SyncFailureKind.Unknown;
             }
-            else if (sawHttpFailure)
+            else if (httpFailure != null)
             {
-                // An HttpRequestException that does not implement ISyncFailureInfo never carried a
-                // response: the connection failed, the name did not resolve, TLS failed. The server
-                // was not reached.
-                result.Kind = SyncFailureKind.Network;
+                // A plain HttpRequestException (one that does not implement ISyncFailureInfo) is what
+                // HttpClient throws when the server was never reached - but also what an older
+                // CoreSync.Http.Client throws from EnsureSuccessStatusCode for a 401, 404 or 500. The
+                // two are told apart by whether the exception carries a status code; when the runtime
+                // cannot say, nothing is claimed.
+                result.Kind = CarriesNoResponse(httpFailure) ? SyncFailureKind.Network : SyncFailureKind.Unknown;
             }
             else if (sawProviderFailure)
             {
@@ -229,6 +234,33 @@ namespace CoreSync
             }
 
             return result;
+        }
+
+        // HttpRequestException.StatusCode exists from .NET 5 on; this library targets .NET Standard 2.0,
+        // where the type has no such member, so it is read through reflection on the actual runtime.
+        private static readonly System.Reflection.PropertyInfo? HttpStatusCodeProperty =
+            typeof(System.Net.Http.HttpRequestException).GetProperty("StatusCode");
+
+        /// <summary>
+        /// Returns <c>true</c> only when the runtime exposes the response status on the exception and it
+        /// is absent, i.e. the request failed before any response arrived. <c>false</c> when a status is
+        /// present or when the runtime cannot tell.
+        /// </summary>
+        private static bool CarriesNoResponse(System.Net.Http.HttpRequestException exception)
+        {
+            if (HttpStatusCodeProperty == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                return HttpStatusCodeProperty.GetValue(exception) == null;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static bool IsRemoteStage(SynchronizationStage stage)

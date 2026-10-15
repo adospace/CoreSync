@@ -158,10 +158,14 @@ internal static class SyncErrorFilterEndpointExtensions
     /// </description></item>
     /// <item><description>
     /// Anything else keeps propagating to the host exactly as before - same status, same error page,
-    /// same logging and error reporting - with the two headers added to the host's response through
+    /// same logging and error reporting. The two headers are registered through
     /// <see cref="HttpResponse.OnStarting"/>, which survives the <c>Response.Clear()</c> the exception
-    /// handler middleware performs. <see cref="SyncControllerOptions.HandleUnexpectedExceptions"/>
-    /// switches this to a 500 with a <see cref="SyncErrorDetails"/> body produced here.
+    /// handler middleware performs, so they appear on the response an exception handler
+    /// (<c>UseExceptionHandler</c>, the developer exception page) produces. A host with no handler at
+    /// all lets Kestrel write a bare 500, which runs no OnStarting callbacks: that response carries no
+    /// header, and the status code alone still tells the client that the server answered.
+    /// <see cref="SyncControllerOptions.HandleUnexpectedExceptions"/> switches this to a 500 with a
+    /// <see cref="SyncErrorDetails"/> body produced here, headers guaranteed.
     /// </description></item>
     /// </list>
     /// </remarks>
@@ -212,19 +216,24 @@ internal static class SyncErrorFilterEndpointExtensions
 
                 // Not handled here: the host decides the status and the body, and keeps logging and
                 // reporting the exception the way it always did. Only the headers are ours. They are
-                // attached when the host's response starts because the exception handler middleware
-                // clears every header set before it runs; OnStarting callbacks are not cleared.
-                var traceId = context.HttpContext.TraceIdentifier;
-                response.OnStarting(() =>
+                // attached when the host's error response starts because the exception handler
+                // middleware clears every header set before it runs; OnStarting callbacks are not
+                // cleared. Once the response has started nothing can be added, and registering would
+                // throw and replace the real failure, so it is skipped.
+                if (!response.HasStarted)
                 {
-                    if (!response.Headers.ContainsKey(SyncHttpHeaders.ErrorCode))
+                    var traceId = context.HttpContext.TraceIdentifier;
+                    response.OnStarting(() =>
                     {
-                        response.Headers[SyncHttpHeaders.ErrorCode] = code;
-                        response.Headers[SyncHttpHeaders.TraceId] = traceId;
-                    }
+                        if (!response.Headers.ContainsKey(SyncHttpHeaders.ErrorCode))
+                        {
+                            response.Headers[SyncHttpHeaders.ErrorCode] = code;
+                            response.Headers[SyncHttpHeaders.TraceId] = traceId;
+                        }
 
-                    return Task.CompletedTask;
-                });
+                        return Task.CompletedTask;
+                    });
+                }
 
                 throw;
             }

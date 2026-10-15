@@ -59,6 +59,17 @@ public static class SyncHttpErrorCodes
     public const string AgentUnavailable = "agent-unavailable";
 
     /// <summary>
+    /// The component that owns the data store (for example an on-premise agent) was reached and
+    /// executed the request, but reported that it failed. Accompanied by a
+    /// <see cref="SyncErrorDetails"/> body.
+    /// </summary>
+    /// <remarks>
+    /// Not marked permanent: the agent's message is not structured enough to tell a data error from
+    /// a database that was briefly unreachable from the agent, so the client keeps the retries it had.
+    /// </remarks>
+    public const string AgentError = "agent-error";
+
+    /// <summary>
     /// The store is configured in a way the server cannot synchronize (a table without a primary key,
     /// a reserved column name, a table missing from the configuration...). Accompanied by a
     /// <see cref="SyncErrorDetails"/> body.
@@ -134,6 +145,8 @@ public static class SyncHttpErrorCodes
                 return SyncFailureKind.ConfigurationError;
             case AgentUnavailable:
                 return SyncFailureKind.ServerUnavailable;
+            case AgentError:
+                return SyncFailureKind.ServerError;
             case DataError:
                 return SyncFailureKind.DataError;
             default:

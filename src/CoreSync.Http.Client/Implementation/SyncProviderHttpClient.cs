@@ -201,7 +201,7 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
             SyncProgress?.Invoke(this, new SyncProgressEventArgs(SyncStage.ApplyChanges, skip / (double)changeSet.Items.Count));
         }
 
-        var remoteChangeSetResponse = await httpClient.PostAsync(
+        using var remoteChangeSetResponse = await httpClient.PostAsync(
             $"{_options.SyncControllerRoute}/changes-bulk-complete{(_options.UseBinaryFormat ? "-binary" : string.Empty)}/{sessionId}", null, cancellationToken);
         await EnsureSyncSuccessAsync(remoteChangeSetResponse, cancellationToken);
 
@@ -223,7 +223,7 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
             request.Headers.Add(SyncHttpHeaders.TablesCount, tables.Length.ToString());
         }
 
-        var response = await httpClient.SendAsync(request, cancellationToken);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
         await EnsureSyncSuccessAsync(response, cancellationToken);
 
         var bulkSyncChangeSet = await response.Content.ReadFromJsonAsync<BulkSyncChangeSet>(cancellationToken)
@@ -263,7 +263,9 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
         {
             await pipeline.ExecuteAsync(async (token) =>
             {
-                var response = await httpClient.GetAsync($"/{_options.SyncControllerRoute}/changes-bulk-item/{bulkSyncChangeSet.SessionId}/{skip}/{_options.BulkItemSize}", token);
+                // Headers first and disposed when done, as GetFromJsonAsync did before the response had
+                // to be inspected for the error signal.
+                using var response = await httpClient.GetAsync($"/{_options.SyncControllerRoute}/changes-bulk-item/{bulkSyncChangeSet.SessionId}/{skip}/{_options.BulkItemSize}", HttpCompletionOption.ResponseHeadersRead, token);
 
                 await EnsureSyncSuccessAsync(response, token);
 
@@ -301,7 +303,7 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
 
                 try
                 {
-                    var response = await httpClient.GetAsync($"{_options.SyncControllerRoute}/changes-bulk-item-binary/{bulkSyncChangeSet.SessionId}/{skip}/{_options.BulkItemSize}", cancellationToken);
+                    using var response = await httpClient.GetAsync($"{_options.SyncControllerRoute}/changes-bulk-item-binary/{bulkSyncChangeSet.SessionId}/{skip}/{_options.BulkItemSize}", HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
                     await EnsureSyncSuccessAsync(response, cancellationToken);
 
@@ -384,7 +386,7 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
     public async Task<Guid> GetStoreIdAsync(CancellationToken cancellationToken = default)
     {
         var httpClient = _httpClientFactory.CreateClient(_options.HttpClientName ?? Options.DefaultName);
-        var res = await httpClient.GetAsync($"/{_options.SyncControllerRoute}/store-id", cancellationToken);
+        using var res = await httpClient.GetAsync($"/{_options.SyncControllerRoute}/store-id", cancellationToken);
 
         // Kept ahead of the generic handling on purpose: applications have been catching this exact
         // type around SynchronizeAsync to trigger a re-authentication.
@@ -399,15 +401,14 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
     public async Task SaveVersionForStoreAsync(Guid otherStoreId, long version, CancellationToken cancellationToken = default)
     {
         var httpClient = _httpClientFactory.CreateClient(_options.HttpClientName ?? Options.DefaultName);
-        await EnsureSyncSuccessAsync(
-            await httpClient.PostAsync($"/{_options.SyncControllerRoute}/save-version/{otherStoreId}/{version}", null, cancellationToken),
-            cancellationToken);
+        using var response = await httpClient.PostAsync($"/{_options.SyncControllerRoute}/save-version/{otherStoreId}/{version}", null, cancellationToken);
+        await EnsureSyncSuccessAsync(response, cancellationToken);
     }
 
     public async Task<SyncVersion> GetSyncVersionAsync(CancellationToken cancellationToken = default)
     {
         var httpClient = _httpClientFactory.CreateClient(_options.HttpClientName ?? Options.DefaultName);
-        var response = await httpClient.GetAsync($"/{_options.SyncControllerRoute}/sync-version", cancellationToken);
+        using var response = await httpClient.GetAsync($"/{_options.SyncControllerRoute}/sync-version", HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         await EnsureSyncSuccessAsync(response, cancellationToken);
 
         return await response.Content.ReadFromJsonAsync<SyncVersion>(cancellationToken) ?? throw new InvalidOperationException();

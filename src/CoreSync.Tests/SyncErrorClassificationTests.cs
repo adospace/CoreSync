@@ -384,6 +384,32 @@ public class SyncErrorClassificationTests
     }
 
     [TestMethod]
+    public async Task HttpClient_BinaryDownload_StillRetriesFailuresWithoutAnErrorCode()
+    {
+        var itemRequests = 0;
+        using var handler = new ScriptedHandler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath.Contains("/changes-bulk-item"))
+            {
+                itemRequests++;
+                // What a 1.0.1 server (or a proxy) sends for anything unexpected
+                return new HttpResponseMessage(HttpStatusCode.InternalServerError);
+            }
+
+            return BulkChangeSetResponse(totalChanges: 10);
+        });
+
+        var client = SyncTestServer.CreateClient(handler, useBinaryFormat: true);
+
+        var ex = await Should.ThrowAsync<HttpRequestException>(() => client.GetChangesAsync(Guid.NewGuid(), null, SyncDirection.DownloadOnly));
+
+        // The binary loop has always made three attempts five seconds apart; a failure the server did
+        // not classify keeps every one of them
+        itemRequests.ShouldBe(3);
+        ex.ShouldBeOfType<SyncHttpRequestException>().Kind.ShouldBe(SyncFailureKind.ServerError);
+    }
+
+    [TestMethod]
     public async Task HttpClient_JsonDownload_DoesNotRetryAnchorTooOld()
     {
         var itemRequests = 0;
@@ -513,6 +539,56 @@ public class SyncErrorClassificationTests
     }
 
     [TestMethod]
+    public async Task SyncAgent_OldClient_PlainHttpRequestExceptionWithAStatusIsNotNetwork()
+    {
+        // A CoreSync.Http.Client that predates SyncHttpRequestException throws what
+        // EnsureSuccessStatusCode throws: a plain HttpRequestException that does carry the status.
+        // The server answered, so this must not be reported as "you are offline".
+        foreach (var status in new[] { HttpStatusCode.Unauthorized, HttpStatusCode.NotFound, HttpStatusCode.InternalServerError, HttpStatusCode.ServiceUnavailable })
+        {
+            var remote = new ScriptedSyncProvider
+            {
+                GetStoreId = () => throw new HttpRequestException($"Response status code does not indicate success: {(int)status} ({status}).", null, status)
+            };
+
+            var ex = await Should.ThrowAsync<SynchronizationException>(() => new SyncAgent(new ScriptedSyncProvider(), remote).SynchronizeAsync());
+
+            ex.Kind.ShouldBe(SyncFailureKind.Unknown, $"status {status}");
+            ex.Stage.ShouldBe(SynchronizationStage.RemoteStoreId);
+            ex.InnerException.ShouldBeOfType<HttpRequestException>();
+        }
+    }
+
+    [TestMethod]
+    public async Task SyncAgent_OldClient_PlainHttpRequestExceptionWithoutAStatusIsNetwork()
+    {
+        // ...while the same type with no status is what HttpClient itself throws when the server was
+        // never reached, on an old client and a new one alike.
+        var remote = new ScriptedSyncProvider
+        {
+            GetStoreId = () => throw new HttpRequestException("No such host is known.", new System.Net.Sockets.SocketException(11001))
+        };
+
+        var ex = await Should.ThrowAsync<SynchronizationException>(() => new SyncAgent(new ScriptedSyncProvider(), remote).SynchronizeAsync());
+
+        ex.Kind.ShouldBe(SyncFailureKind.Network);
+    }
+
+    [TestMethod]
+    public async Task SyncAgent_LocalUnauthorizedAccessIsNotACredentialsProblem()
+    {
+        // SQLite raises UnauthorizedAccessException for a database file the app may not write (a
+        // read-only folder, Android scoped storage). Re-authenticating with the server would not help.
+        var local = new ScriptedSyncProvider { GetChanges = _ => throw new UnauthorizedAccessException("Access to the path is denied.") };
+
+        var ex = await Should.ThrowAsync<SynchronizationException>(() => new SyncAgent(local, new ScriptedSyncProvider()).SynchronizeAsync());
+
+        ex.Kind.ShouldBe(SyncFailureKind.Unknown);
+        ex.Stage.ShouldBe(SynchronizationStage.LocalChanges);
+        ex.InnerException.ShouldBeOfType<UnauthorizedAccessException>();
+    }
+
+    [TestMethod]
     public async Task SyncAgent_ClassifiesUnauthorizedAndKeepsTheInnerType()
     {
         var remote = new ScriptedSyncProvider { GetStoreId = () => throw new UnauthorizedAccessException() };
@@ -610,6 +686,7 @@ public class SyncErrorClassificationTests
         SyncHttpErrorCodes.IsPermanent(SyncHttpErrorCodes.ConfigurationError).ShouldBeTrue();
         SyncHttpErrorCodes.IsPermanent(SyncHttpErrorCodes.EndpointNotFound).ShouldBeTrue();
         SyncHttpErrorCodes.IsPermanent(SyncHttpErrorCodes.AgentUnavailable).ShouldBeFalse();
+        SyncHttpErrorCodes.IsPermanent(SyncHttpErrorCodes.AgentError).ShouldBeFalse();
         SyncHttpErrorCodes.IsPermanent(SyncHttpErrorCodes.ServerError).ShouldBeFalse();
 
         // A code this version does not know, or no code at all, must never stop a retry
@@ -619,6 +696,7 @@ public class SyncErrorClassificationTests
         SyncHttpErrorCodes.ToFailureKind(null).ShouldBe(SyncFailureKind.Unknown);
         SyncHttpErrorCodes.ToFailureKind("something-newer").ShouldBe(SyncFailureKind.ServerError);
         SyncHttpErrorCodes.ToFailureKind(SyncHttpErrorCodes.AgentUnavailable).ShouldBe(SyncFailureKind.ServerUnavailable);
+        SyncHttpErrorCodes.ToFailureKind(SyncHttpErrorCodes.AgentError).ShouldBe(SyncFailureKind.ServerError);
         SyncHttpErrorCodes.ToFailureKind(SyncHttpErrorCodes.EndpointNotFound).ShouldBe(SyncFailureKind.ConfigurationError);
     }
 
