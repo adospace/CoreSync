@@ -65,4 +65,26 @@ public class SyncControllerOptions
     /// </summary>
     public Action<IEndpointConventionBuilder>? PostSaveVersionForStoreAsyncEndPoint { get; set; }
 
+    /// <summary>
+    /// Gets or sets a value indicating whether the sync endpoints answer unexpected exceptions
+    /// themselves, with HTTP 500 and a <see cref="CoreSync.Http.SyncErrorDetails"/> JSON body, instead
+    /// of letting them propagate to the host's exception handling. Defaults to <c>false</c>.
+    /// </summary>
+    /// <remarks>
+    /// With the default, an unexpected exception reaches the host exactly as before (its exception
+    /// handler, its logging and its error reporting all see it); the endpoints only add the
+    /// <see cref="CoreSync.Http.SyncHttpHeaders.ErrorCode"/> and <see cref="CoreSync.Http.SyncHttpHeaders.TraceId"/>
+    /// headers to whatever response the host produces, so a client can still classify the failure.
+    /// Set to <c>true</c> for a host that prefers a JSON body over its error page; the exception is then
+    /// logged at Error level through <see cref="Microsoft.Extensions.Logging.ILogger"/> and does not
+    /// reach the host's exception handler.
+    /// </remarks>
+    public bool HandleUnexpectedExceptions { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether <see cref="CoreSync.Http.SyncErrorDetails.Detail"/>
+    /// (the exception types and messages behind a failure) is sent to clients. Defaults to <c>false</c>:
+    /// provider messages can carry SQL text and schema details that do not belong on a device.
+    /// </summary>
+    public bool IncludeExceptionDetails { get; set; }
 }

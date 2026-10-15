@@ -90,6 +90,7 @@ namespace CoreSync.SqlServerCT
                         var failedItems = new List<SyncItem>();
                         int appliedInPass = 0;
                         SqlException? lastFailure = null;
+                        string? lastFailureTable = null;
 
                         foreach (var item in remainingItems)
                         {
@@ -151,13 +152,18 @@ namespace CoreSync.SqlServerCT
                                 // than dropped.
                                 _logger?.Trace($"[{_storeId}] Deferring {itemChangeType} of {item} on table {table} (pass {pass}): {ex.Message}");
                                 lastFailure = ex;
+                                lastFailureTable = item.TableName;
                                 failedItems.Add(item);
                                 continue;
                             }
                             catch (Exception ex)
                             {
                                 _logger?.Error(DescribeItemFailure(itemChangeType, item, table, cmd.CommandText, messageLog, ex));
-                                throw new SynchronizationException($"Unable to {itemChangeType} item {item} to store for table {table}", ex);
+                                throw new SynchronizationException($"Unable to {itemChangeType} item {item} to store for table {table}", ex)
+                                {
+                                    Kind = SyncFailureKind.DataError,
+                                    TableName = item.TableName
+                                };
                             }
 
                             if (affectedRows == 0)
@@ -235,6 +241,7 @@ namespace CoreSync.SqlServerCT
                                 if (itemFailure != null)
                                 {
                                     lastFailure = itemFailure;
+                                    lastFailureTable = item.TableName;
                                 }
                             }
                         }
@@ -251,7 +258,11 @@ namespace CoreSync.SqlServerCT
                                     _logger?.Error($"[{_storeId}] {failedItems.Count} item(s) could not be applied after {pass} pass(es): {lastFailure.Message}");
                                     throw new SynchronizationException(
                                         $"Unable to apply {failedItems.Count} item(s) after {pass} pass(es); the change set does not resolve the last failure",
-                                        lastFailure);
+                                        lastFailure)
+                                    {
+                                        Kind = SyncFailureKind.DataError,
+                                        TableName = lastFailureTable
+                                    };
                                 }
 
                                 _logger?.Warning($"[{_storeId}] {failedItems.Count} item(s) could not be applied after {pass} pass(es)");

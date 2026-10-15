@@ -99,7 +99,7 @@ class SyncAgentController
             return bufferList;
         }
 
-        throw new InvalidOperationException();
+        throw new SyncSessionNotFoundException(item.SessionId);
     }
 
     public byte[] GetBulkChangeSetItemBinary([FromBody] BulkChangeSetDownloadItem item)
@@ -123,7 +123,7 @@ class SyncAgentController
             return CoreSyncMessagePackSerializer.Serialize<object>(bufferList);
         }
 
-        throw new InvalidOperationException();
+        throw new SyncSessionNotFoundException(item.SessionId);
     }
 
     public void BeginApplyBulkChanges(BulkSyncChangeSet bulkChangeSet)
@@ -142,7 +142,7 @@ class SyncAgentController
             return;
         }
 
-        throw new InvalidOperationException();
+        throw new SyncSessionNotFoundException(bulkUploadItem.SessionId);
     }
 
     public async Task ApplyBulkChangesItemBinary(HttpRequest httpRequest)
@@ -157,7 +157,7 @@ class SyncAgentController
             return;
         }
 
-        throw new InvalidOperationException();
+        throw new SyncSessionNotFoundException(bulkUploadItem.SessionId);
     }
 
     public async Task<SyncAnchor> CompleteApplyBulkChangesAsync(Guid sessionId)
@@ -187,7 +187,7 @@ class SyncAgentController
             return resAnchor;
         }
 
-        throw new InvalidOperationException();
+        throw new SyncSessionNotFoundException(sessionId);
     }
 
     public async Task<SyncAnchor> CompleteApplyBulkChangesBinaryAsync(Guid sessionId)
@@ -204,7 +204,7 @@ class SyncAgentController
             return resAnchor;
         }
 
-        throw new InvalidOperationException();
+        throw new SyncSessionNotFoundException(sessionId);
     }
 
 
