@@ -5,6 +5,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.Formatters;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Primitives;
 using System;
 using System.IO;
@@ -50,9 +52,10 @@ public static class WebApplicationExtensions
 
         void ConfigureEndpoint<T>(T endpoint, Action<T>? specificAction = null) where T : IEndpointConventionBuilder
         {
-            // Added before the caller's own conventions so that an aged-out anchor reaches the client
-            // as a documented 410 rather than whatever the host makes of an unhandled exception.
-            endpoint.AddSyncErrorEndpointFilter();
+            // Added before the caller's own conventions so that a recognised failure (an aged-out
+            // anchor, an expired session) reaches the client as a documented status with an error
+            // code rather than whatever the host makes of an unhandled exception.
+            endpoint.AddSyncErrorEndpointFilter(options);
             options.AllEndpoints?.Invoke(endpoint);
             specificAction?.Invoke(endpoint);
         }
@@ -137,26 +140,49 @@ public static class WebApplicationExtensions
 internal static class SyncErrorFilterEndpointExtensions
 {
     /// <summary>
-    /// Translates <see cref="SyncAnchorTooOldException"/> into an HTTP 410 Gone carrying the
-    /// <see cref="SyncHttpErrorCodes.AnchorTooOld"/> header and a <see cref="SyncAnchorTooOldError"/> body.
+    /// Translates the failures a sync endpoint can raise into responses a client can classify:
+    /// a status code, the <see cref="SyncHttpHeaders.ErrorCode"/> and <see cref="SyncHttpHeaders.TraceId"/>
+    /// headers, and a JSON body where the endpoint produces the response itself.
     /// </summary>
     /// <remarks>
-    /// 410 is the honest code here: the change history the client asked for existed once and is
-    /// permanently gone, so unlike a 5xx there is nothing to retry. Without this the condition
-    /// surfaced as an unhandled exception, which the client could only report as a generic
-    /// "unable to synchronize".
+    /// <list type="bullet">
+    /// <item><description>
+    /// <see cref="SyncAnchorTooOldException"/>: 410 Gone, <see cref="SyncHttpErrorCodes.AnchorTooOld"/>,
+    /// <see cref="SyncAnchorTooOldError"/> body. 410 is the honest code: the change history the client
+    /// asked for existed once and is permanently gone, so unlike a 5xx there is nothing to retry.
+    /// </description></item>
+    /// <item><description>
+    /// <see cref="SyncSessionNotFoundException"/>: 410 Gone, <see cref="SyncHttpErrorCodes.SessionExpired"/>,
+    /// <see cref="SyncErrorDetails"/> body. Before it had a name this was an unhandled
+    /// <see cref="InvalidOperationException"/>, i.e. a 500 that clients retried for nothing.
+    /// </description></item>
+    /// <item><description>
+    /// Anything else keeps propagating to the host exactly as before - same status, same error page,
+    /// same logging and error reporting. The two headers are registered through
+    /// <see cref="HttpResponse.OnStarting(System.Func{System.Threading.Tasks.Task})"/>, which survives the <c>Response.Clear()</c> the exception
+    /// handler middleware performs, so they appear on the response an exception handler
+    /// (<c>UseExceptionHandler</c>, the developer exception page) produces. A host with no handler at
+    /// all lets Kestrel write a bare 500, which runs no OnStarting callbacks: that response carries no
+    /// header, and the status code alone still tells the client that the server answered.
+    /// <see cref="SyncControllerOptions.HandleUnexpectedExceptions"/> switches this to a 500 with a
+    /// <see cref="SyncErrorDetails"/> body produced here, headers guaranteed.
+    /// </description></item>
+    /// </list>
     /// </remarks>
-    public static TBuilder AddSyncErrorEndpointFilter<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
+    public static TBuilder AddSyncErrorEndpointFilter<TBuilder>(this TBuilder builder, SyncControllerOptions options) where TBuilder : IEndpointConventionBuilder
     {
         builder.AddEndpointFilter(async (context, next) =>
         {
+            var response = context.HttpContext.Response;
+
             try
             {
                 return await next(context);
             }
             catch (SyncAnchorTooOldException ex)
             {
-                context.HttpContext.Response.Headers[SyncHttpHeaders.ErrorCode] = SyncHttpErrorCodes.AnchorTooOld;
+                response.Headers[SyncHttpHeaders.ErrorCode] = SyncHttpErrorCodes.AnchorTooOld;
+                response.Headers[SyncHttpHeaders.TraceId] = context.HttpContext.TraceIdentifier;
 
                 return Results.Json(
                     new SyncAnchorTooOldError
@@ -167,9 +193,128 @@ internal static class SyncErrorFilterEndpointExtensions
                     },
                     statusCode: StatusCodes.Status410Gone);
             }
+            catch (SyncSessionNotFoundException ex)
+            {
+                var details = SyncErrorResponse.Describe(context.HttpContext, SyncHttpErrorCodes.SessionExpired, ex, tableName: null, options.IncludeExceptionDetails);
+                return SyncErrorResponse.Create(context.HttpContext, details, StatusCodes.Status410Gone);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                var code = SyncErrorResponse.ClassifyUnexpected(ex, out var tableName);
+
+                if (options.HandleUnexpectedExceptions)
+                {
+                    // The host's exception handler will not see this one, so make sure its loggers do.
+                    context.HttpContext.RequestServices
+                        .GetRequiredService<ILoggerFactory>()
+                        .CreateLogger(typeof(SyncAgentController).Namespace!)
+                        .LogError(ex, "Synchronization request {Method} {Path} failed ({ErrorCode})", context.HttpContext.Request.Method, context.HttpContext.Request.Path, code);
+
+                    var details = SyncErrorResponse.Describe(context.HttpContext, code, ex, tableName, options.IncludeExceptionDetails);
+                    return SyncErrorResponse.Create(context.HttpContext, details, StatusCodes.Status500InternalServerError);
+                }
+
+                // Not handled here: the host decides the status and the body, and keeps logging and
+                // reporting the exception the way it always did. Only the headers are ours. They are
+                // attached when the host's error response starts because the exception handler
+                // middleware clears every header set before it runs; OnStarting callbacks are not
+                // cleared. Once the response has started nothing can be added, and registering would
+                // throw and replace the real failure, so it is skipped.
+                if (!response.HasStarted)
+                {
+                    var traceId = context.HttpContext.TraceIdentifier;
+                    response.OnStarting(() =>
+                    {
+                        if (!response.Headers.ContainsKey(SyncHttpHeaders.ErrorCode))
+                        {
+                            response.Headers[SyncHttpHeaders.ErrorCode] = code;
+                            response.Headers[SyncHttpHeaders.TraceId] = traceId;
+                        }
+
+                        return Task.CompletedTask;
+                    });
+                }
+
+                throw;
+            }
         });
 
         return builder;
+    }
+}
+
+/// <summary>
+/// Builds the <see cref="SyncErrorDetails"/> responses of the sync endpoints.
+/// </summary>
+internal static class SyncErrorResponse
+{
+    /// <summary>
+    /// Picks the error code for an exception the endpoint did not expect.
+    /// </summary>
+    /// <remarks>
+    /// A <see cref="SynchronizationException"/> anywhere in the chain is a provider telling that the
+    /// store refused a change (constraint violation, missing table, bad value), and it names the table
+    /// when it can. <see cref="NotSupportedException"/> is what providers raise for a store they cannot
+    /// synchronize as configured. Everything else is simply "the server failed", which still tells the
+    /// client that the device is online.
+    /// </remarks>
+    public static string ClassifyUnexpected(Exception exception, out string? tableName)
+    {
+        tableName = null;
+
+        for (var current = exception; current != null; current = current.InnerException)
+        {
+            switch (current)
+            {
+                case SynchronizationException sync:
+                    tableName = sync.TableName;
+                    return SyncHttpErrorCodes.DataError;
+                case NotSupportedException:
+                    return SyncHttpErrorCodes.ConfigurationError;
+            }
+        }
+
+        return SyncHttpErrorCodes.ServerError;
+    }
+
+    public static SyncErrorDetails Describe(HttpContext httpContext, string code, Exception exception, string? tableName, bool includeExceptionDetails)
+    {
+        var message = code switch
+        {
+            SyncHttpErrorCodes.SessionExpired => "The synchronization session is no longer available on the server. Start a new synchronization.",
+            SyncHttpErrorCodes.DataError when tableName != null => $"The server could not apply the synchronized changes for table '{tableName}'.",
+            SyncHttpErrorCodes.DataError => "The server could not apply the synchronized changes.",
+            SyncHttpErrorCodes.ConfigurationError => "The server's data store is not configured in a way that can be synchronized.",
+            _ => "The server could not process the synchronization request."
+        };
+
+        return new SyncErrorDetails
+        {
+            Code = code,
+            Message = message,
+            TableName = tableName,
+            TraceId = httpContext.TraceIdentifier,
+            Detail = includeExceptionDetails ? DescribeChain(exception) : null
+        };
+    }
+
+    public static IResult Create(HttpContext httpContext, SyncErrorDetails details, int statusCode)
+    {
+        httpContext.Response.Headers[SyncHttpHeaders.ErrorCode] = details.Code;
+        httpContext.Response.Headers[SyncHttpHeaders.TraceId] = details.TraceId;
+
+        return Results.Json(details, statusCode: statusCode);
+    }
+
+    private static string DescribeChain(Exception exception)
+    {
+        var parts = new System.Collections.Generic.List<string>();
+        for (var current = exception; current != null; current = current.InnerException)
+        {
+            parts.Add($"{current.GetType().FullName}: {current.Message}");
+        }
+
+        return string.Join(" --> ", parts);
     }
 }
 

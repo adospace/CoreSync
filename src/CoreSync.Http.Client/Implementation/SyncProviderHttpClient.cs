@@ -34,18 +34,34 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
 
     /// <summary>
     /// Throws for an unsuccessful response, rebuilding <see cref="SyncAnchorTooOldException"/> from the
-    /// server's 410 Gone signal so that callers see the same typed error they would from a local provider.
+    /// server's 410 Gone signal and <see cref="SyncHttpRequestException"/> from everything else, so that
+    /// callers see what the server said instead of a bare status code.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Used in place of <see cref="HttpResponseMessage.EnsureSuccessStatusCode"/> on every sync endpoint:
-    /// without it an aged-out anchor arrives as a bare <see cref="HttpRequestException"/> and the only
-    /// thing an application can tell the user is that synchronization failed.
+    /// without it a failure arrives as a bare <see cref="HttpRequestException"/> and the only thing an
+    /// application can tell the user is that synchronization failed.
+    /// </para>
+    /// <para>
+    /// <see cref="SyncHttpRequestException"/> derives from <see cref="HttpRequestException"/> and carries
+    /// the very message <see cref="HttpResponseMessage.EnsureSuccessStatusCode"/> would have produced, so
+    /// the failure callers used to see is still there; the <see cref="SyncHttpHeaders.ErrorCode"/> header
+    /// and <see cref="SyncErrorDetails"/> body are read when present and inferred from the status code
+    /// when the server (an older one) sends neither.
+    /// </para>
     /// </remarks>
     private static async Task EnsureSyncSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
-        if (response.StatusCode == HttpStatusCode.Gone &&
-            response.Headers.TryGetValues(SyncHttpHeaders.ErrorCode, out var errorCodes) &&
-            errorCodes.Contains(SyncHttpErrorCodes.AnchorTooOld))
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        var errorCode = ReadHeader(response, SyncHttpHeaders.ErrorCode);
+        var traceId = ReadHeader(response, SyncHttpHeaders.TraceId);
+
+        if (response.StatusCode == HttpStatusCode.Gone && errorCode == SyncHttpErrorCodes.AnchorTooOld)
         {
             SyncAnchorTooOldError? error = null;
             try
@@ -66,8 +82,61 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
                 : new SyncAnchorTooOldException(requestedVersion, minValidVersion);
         }
 
-        response.EnsureSuccessStatusCode();
+        // The body is only read on the server's word: a JSON body without the header is the host's
+        // (a ProblemDetails for a 404, an error page), and reading it as SyncErrorDetails would
+        // invent an error code the server never sent.
+        SyncErrorDetails? details = null;
+        if (errorCode != null && IsJson(response.Content.Headers.ContentType))
+        {
+            try
+            {
+                details = await response.Content.ReadFromJsonAsync<SyncErrorDetails>(cancellationToken);
+            }
+            catch (Exception ex) when (ex is JsonException || ex is NotSupportedException)
+            {
+                // A body in a shape we do not know is not a reason to lose the header or the status code.
+            }
+        }
+
+        string message;
+        try
+        {
+            response.EnsureSuccessStatusCode();
+            return;
+        }
+        catch (HttpRequestException ex)
+        {
+            // Reused verbatim so the message callers have been reading (and logging) does not change.
+            message = ex.Message;
+        }
+
+        throw new SyncHttpRequestException(message, response.StatusCode, errorCode, traceId, details);
     }
+
+    private static string? ReadHeader(HttpResponseMessage response, string name)
+        => response.Headers.TryGetValues(name, out var values) ? values.FirstOrDefault() : null;
+
+    private static bool IsJson(MediaTypeHeaderValue? contentType)
+        => contentType?.MediaType is { } mediaType
+           && (mediaType.Equals("application/json", StringComparison.OrdinalIgnoreCase)
+               || mediaType.EndsWith("+json", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Decides whether a failed bulk download request is worth repeating.
+    /// </summary>
+    /// <remarks>
+    /// Only a failure the server marked as permanent is not retried: an aged-out anchor, an expired
+    /// session, a data or configuration error. Everything else - a dropped connection, a timeout, a
+    /// 5xx without an error code from an older server or a proxy - keeps the retries it always had,
+    /// because those are what let a synchronization survive a flaky connection in the field.
+    /// </remarks>
+    private static bool IsWorthRetrying(Exception exception)
+        => exception switch
+        {
+            SyncAnchorTooOldException => false,
+            SyncHttpRequestException http => http.IsTransient,
+            _ => true
+        };
 
     public async Task<SyncAnchor> ApplyChangesAsync([NotNull] SyncChangeSet changeSet, [CanBeNull] Func<SyncItem, ConflictResolution>? onConflictFunc = null, CancellationToken cancellationToken = default)
     {
@@ -132,7 +201,7 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
             SyncProgress?.Invoke(this, new SyncProgressEventArgs(SyncStage.ApplyChanges, skip / (double)changeSet.Items.Count));
         }
 
-        var remoteChangeSetResponse = await httpClient.PostAsync(
+        using var remoteChangeSetResponse = await httpClient.PostAsync(
             $"{_options.SyncControllerRoute}/changes-bulk-complete{(_options.UseBinaryFormat ? "-binary" : string.Empty)}/{sessionId}", null, cancellationToken);
         await EnsureSyncSuccessAsync(remoteChangeSetResponse, cancellationToken);
 
@@ -154,7 +223,7 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
             request.Headers.Add(SyncHttpHeaders.TablesCount, tables.Length.ToString());
         }
 
-        var response = await httpClient.SendAsync(request, cancellationToken);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
         await EnsureSyncSuccessAsync(response, cancellationToken);
 
         var bulkSyncChangeSet = await response.Content.ReadFromJsonAsync<BulkSyncChangeSet>(cancellationToken)
@@ -177,7 +246,16 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
         SyncProgress?.Invoke(this, new SyncProgressEventArgs(stage, 0.0));
 
         ResiliencePipeline pipeline = new ResiliencePipelineBuilder()
-            .AddRetry(new RetryStrategyOptions { MaxRetryAttempts = _options.MaxRetryAttempts }) // Add retry using the default options
+            .AddRetry(new RetryStrategyOptions
+            {
+                MaxRetryAttempts = _options.MaxRetryAttempts,
+                // Polly's default handles every exception except a cancellation; keep that and
+                // additionally stop on failures the server marked as permanent.
+                ShouldHandle = args => new ValueTask<bool>(
+                    args.Outcome.Exception is { } exception
+                    && exception is not OperationCanceledException
+                    && IsWorthRetrying(exception))
+            })
             .Build(); // Builds the resilience pipeline
 
         List<SyncItem> items = [];
@@ -185,7 +263,13 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
         {
             await pipeline.ExecuteAsync(async (token) =>
             {
-                var bulkItems = await httpClient.GetFromJsonAsync<SyncItem[]>($"/{_options.SyncControllerRoute}/changes-bulk-item/{bulkSyncChangeSet.SessionId}/{skip}/{_options.BulkItemSize}", cancellationToken: token)
+                // Headers first and disposed when done, as GetFromJsonAsync did before the response had
+                // to be inspected for the error signal.
+                using var response = await httpClient.GetAsync($"/{_options.SyncControllerRoute}/changes-bulk-item/{bulkSyncChangeSet.SessionId}/{skip}/{_options.BulkItemSize}", HttpCompletionOption.ResponseHeadersRead, token);
+
+                await EnsureSyncSuccessAsync(response, token);
+
+                var bulkItems = await response.Content.ReadFromJsonAsync<SyncItem[]>(cancellationToken: token)
                     ?? throw new InvalidOperationException();
 
                 items.AddRange(bulkItems);
@@ -219,7 +303,7 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
 
                 try
                 {
-                    var response = await httpClient.GetAsync($"{_options.SyncControllerRoute}/changes-bulk-item-binary/{bulkSyncChangeSet.SessionId}/{skip}/{_options.BulkItemSize}", cancellationToken);
+                    using var response = await httpClient.GetAsync($"{_options.SyncControllerRoute}/changes-bulk-item-binary/{bulkSyncChangeSet.SessionId}/{skip}/{_options.BulkItemSize}", HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
                     await EnsureSyncSuccessAsync(response, cancellationToken);
 
@@ -229,10 +313,11 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
                     items.AddRange(bulkItems);
                     break;
                 }
-                catch (SyncAnchorTooOldException)
+                catch (Exception ex) when (!IsWorthRetrying(ex))
                 {
-                    // Permanent for this client: the change history it asked for is gone. Retrying
-                    // burns three round trips and fifteen seconds to reach the same answer.
+                    // Permanent for this client (the change history it asked for is gone, the session
+                    // expired, the server refused the data). Retrying burns three round trips and
+                    // fifteen seconds to reach the same answer.
                     throw;
                 }
                 catch (Exception)
@@ -301,12 +386,14 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
     public async Task<Guid> GetStoreIdAsync(CancellationToken cancellationToken = default)
     {
         var httpClient = _httpClientFactory.CreateClient(_options.HttpClientName ?? Options.DefaultName);
-        var res = await httpClient.GetAsync($"/{_options.SyncControllerRoute}/store-id", cancellationToken);
+        using var res = await httpClient.GetAsync($"/{_options.SyncControllerRoute}/store-id", cancellationToken);
 
+        // Kept ahead of the generic handling on purpose: applications have been catching this exact
+        // type around SynchronizeAsync to trigger a re-authentication.
         if (res.StatusCode == HttpStatusCode.Unauthorized)
             throw new UnauthorizedAccessException();
 
-        res.EnsureSuccessStatusCode();
+        await EnsureSyncSuccessAsync(res, cancellationToken);
 
         return Guid.Parse(await res.Content.ReadAsStringAsync(cancellationToken));
     }
@@ -314,13 +401,16 @@ internal class SyncProviderHttpClient : ISyncProviderHttpClient
     public async Task SaveVersionForStoreAsync(Guid otherStoreId, long version, CancellationToken cancellationToken = default)
     {
         var httpClient = _httpClientFactory.CreateClient(_options.HttpClientName ?? Options.DefaultName);
-        (await httpClient.PostAsync($"/{_options.SyncControllerRoute}/save-version/{otherStoreId}/{version}", null, cancellationToken))
-            .EnsureSuccessStatusCode();
+        using var response = await httpClient.PostAsync($"/{_options.SyncControllerRoute}/save-version/{otherStoreId}/{version}", null, cancellationToken);
+        await EnsureSyncSuccessAsync(response, cancellationToken);
     }
 
     public async Task<SyncVersion> GetSyncVersionAsync(CancellationToken cancellationToken = default)
     {
         var httpClient = _httpClientFactory.CreateClient(_options.HttpClientName ?? Options.DefaultName);
-        return await httpClient.GetFromJsonAsync<SyncVersion>($"/{_options.SyncControllerRoute}/sync-version", cancellationToken) ?? throw new InvalidOperationException();
+        using var response = await httpClient.GetAsync($"/{_options.SyncControllerRoute}/sync-version", HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        await EnsureSyncSuccessAsync(response, cancellationToken);
+
+        return await response.Content.ReadFromJsonAsync<SyncVersion>(cancellationToken) ?? throw new InvalidOperationException();
     }
 }

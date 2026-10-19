@@ -120,7 +120,11 @@ namespace CoreSync.MySql
                         catch (Exception ex)
                         {
                             _logger?.Error($"Unable to {itemChangeType} item {item} to store for table {table}.{Environment.NewLine}{ex}{Environment.NewLine}Generated SQL:{Environment.NewLine}{cmd.CommandText}");
-                            throw new SynchronizationException($"Unable to {itemChangeType} item {item} to store for table {table}", ex);
+                            throw new SynchronizationException($"Unable to {itemChangeType} item {item} to store for table {table}", ex)
+                            {
+                                Kind = SyncFailureKind.DataError,
+                                TableName = item.TableName
+                            };
                         }
 
                         if (affectedRows == 0)

@@ -23,4 +23,12 @@ public static class SyncHttpHeaders
     /// See <see cref="SyncHttpErrorCodes"/> for the defined values.
     /// </summary>
     public const string ErrorCode = "X-CoreSync-Error";
+
+    /// <summary>
+    /// The identifier under which the server logged a failed request (its request trace identifier),
+    /// set on unsuccessful responses so that a user report can be matched with the server's logs.
+    /// Sent as a header, and not only inside <see cref="SyncErrorDetails"/>, because for unexpected
+    /// failures the body is whatever the host's error handler produces.
+    /// </summary>
+    public const string TraceId = "X-CoreSync-Trace";
 }

@@ -65,10 +65,26 @@ namespace CoreSync
         /// Thrown when synchronization fails, with the underlying failure as
         /// <see cref="Exception.InnerException"/>.
         /// <para>
-        /// An inner <see cref="SyncAnchorTooOldException"/> means one of the stores can no longer
-        /// resolve changes from the other's anchor, because the change history covering it has been
-        /// discarded by its retention policy. That is permanent: the affected store has to be
-        /// reinitialized from a fresh snapshot, and retrying will not help.
+        /// <see cref="SynchronizationException.Kind"/> says why it failed as far as the failing component
+        /// could tell (offline, unauthorized, server-side data error, ...) and
+        /// <see cref="SynchronizationException.Stage"/> says which step was running. Both are additive:
+        /// the message and the inner exception are the same as before they existed.
+        /// <code>
+        /// catch (SynchronizationException ex) when (ex.Kind == SyncFailureKind.Network)
+        /// {
+        ///     // the device is offline: ask the user to check connectivity and try again
+        /// }
+        /// catch (SynchronizationException ex)
+        /// {
+        ///     // ex.Kind, ex.Stage, ex.TableName, ex.ErrorCode, ex.TraceId, ex.ServerMessage
+        /// }
+        /// </code>
+        /// </para>
+        /// <para>
+        /// An inner <see cref="SyncAnchorTooOldException"/> (<see cref="SyncFailureKind.AnchorTooOld"/>)
+        /// means one of the stores can no longer resolve changes from the other's anchor, because the
+        /// change history covering it has been discarded by its retention policy. That is permanent:
+        /// the affected store has to be reinitialized from a fresh snapshot, and retrying will not help.
         /// <code>
         /// catch (SynchronizationException ex)
         ///     when (ex.InnerException is SyncAnchorTooOldException tooOld)
@@ -85,20 +101,35 @@ namespace CoreSync
             SyncFilterParameter[]? remoteSyncFilterParameters = null,
             SyncFilterParameter[]? localSyncFilterParameters = null)
         {
+            var stage = SynchronizationStage.Unknown;
+
             try
             {
                 remoteConflictResolutionFunc ??= ((_) => ConflictResolution.Skip);
                 localConflictResolutionFunc ??= ((_) => ConflictResolution.ForceWrite);
 
+                stage = SynchronizationStage.LocalStoreId;
                 var localStoreId = await LocalSyncProvider.GetStoreIdAsync(cancellationToken);
+
+                stage = SynchronizationStage.RemoteStoreId;
                 var remoteStoreId = await RemoteSyncProvider.GetStoreIdAsync(cancellationToken);
 
+                stage = SynchronizationStage.LocalChanges;
                 var localChangeSet = await LocalSyncProvider.GetChangesAsync(remoteStoreId, localSyncFilterParameters, SyncDirection.UploadOnly, RemoteSyncProvider.SyncTableNames, cancellationToken: cancellationToken);
+
+                stage = SynchronizationStage.UploadChanges;
                 await RemoteSyncProvider.ApplyChangesAsync(localChangeSet, remoteConflictResolutionFunc, cancellationToken: cancellationToken);
+
+                stage = SynchronizationStage.SaveLocalVersion;
                 await LocalSyncProvider.SaveVersionForStoreAsync(remoteStoreId, localChangeSet.SourceAnchor.Version, cancellationToken: cancellationToken);
 
+                stage = SynchronizationStage.DownloadChanges;
                 var remoteChangeSet = await RemoteSyncProvider.GetChangesAsync(localStoreId, remoteSyncFilterParameters, SyncDirection.DownloadOnly, LocalSyncProvider.SyncTableNames, cancellationToken: cancellationToken);
+
+                stage = SynchronizationStage.ApplyChangesLocally;
                 await LocalSyncProvider.ApplyChangesAsync(remoteChangeSet, localConflictResolutionFunc, cancellationToken: cancellationToken);
+
+                stage = SynchronizationStage.SaveRemoteVersion;
                 await RemoteSyncProvider.SaveVersionForStoreAsync(localStoreId, remoteChangeSet.SourceAnchor.Version, cancellationToken: cancellationToken);
 
                 //await LocalSyncProvider.ApplyProvisionAsync(cancellationToken: cancellationToken);
@@ -112,7 +143,152 @@ namespace CoreSync
                 // escape unwrapped would break them at runtime with nothing to catch it at compile
                 // time. The typed exception stays reachable as the inner exception, which is what
                 // callers branch on to tell "reinitialize this client" from a transient failure.
-                throw new SynchronizationException("Unable to synchronize stores", ex);
+                // The message and the inner exception are unchanged; the classification is additive.
+                throw Classify(new SynchronizationException("Unable to synchronize stores", ex), ex, stage, cancellationToken);
+            }
+        }
+
+        /// <summary>
+        /// Fills the classification properties of <paramref name="result"/> from what the failing
+        /// component was able to say about <paramref name="failure"/>.
+        /// </summary>
+        /// <remarks>
+        /// Best effort by design: anything implementing <see cref="ISyncFailureInfo"/> in the inner
+        /// exception chain wins, because it was produced by the component that saw the failure (the
+        /// HTTP client reading the server's error code, a provider naming the table it could not
+        /// write). Without one, the exception types that reliably mean one thing are mapped - a
+        /// cancelled token, an unreachable server, refused credentials - and everything else stays
+        /// <see cref="SyncFailureKind.Unknown"/>, which is what callers had before.
+        /// </remarks>
+        private static SynchronizationException Classify(
+            SynchronizationException result,
+            Exception failure,
+            SynchronizationStage stage,
+            CancellationToken cancellationToken)
+        {
+            result.Stage = stage;
+
+            ISyncFailureInfo? info = null;
+            System.Net.Http.HttpRequestException? httpFailure = null;
+            var sawProviderFailure = false;
+            var sawCancellation = false;
+            var sawUnauthorized = false;
+
+            foreach (var inner in Flatten(failure))
+            {
+                if (info == null && inner is ISyncFailureInfo candidate && candidate.Kind != SyncFailureKind.Unknown)
+                {
+                    info = candidate;
+                }
+
+                // A provider raises SynchronizationException for a change it could not apply (constraint
+                // violation, missing table...). Older provider packages do not set Kind on it, so the type
+                // alone has to count as a data error.
+                sawProviderFailure |= inner is SynchronizationException;
+                sawCancellation |= inner is OperationCanceledException;
+                sawUnauthorized |= inner is UnauthorizedAccessException;
+                httpFailure ??= inner as System.Net.Http.HttpRequestException;
+
+                if (result.TableName == null && inner is ISyncFailureInfo withTable && withTable.TableName != null)
+                {
+                    result.TableName = withTable.TableName;
+                }
+            }
+
+            if (info != null)
+            {
+                result.Kind = info.Kind;
+                result.ErrorCode = info.ErrorCode;
+                result.TraceId = info.TraceId;
+                result.ServerMessage = info.ServerMessage;
+                return result;
+            }
+
+            if (sawCancellation)
+            {
+                // The caller asked to stop. Otherwise a cancellation nobody requested is a timeout:
+                // HttpClient reports an expired request timeout as TaskCanceledException.
+                result.Kind = cancellationToken.IsCancellationRequested
+                    ? SyncFailureKind.Cancelled
+                    : IsRemoteStage(stage) ? SyncFailureKind.Network : SyncFailureKind.Unknown;
+            }
+            else if (sawUnauthorized)
+            {
+                // Only the remote side means "credentials refused". A local store raises the same type
+                // for a file it is not allowed to touch (a read-only folder, Android scoped storage),
+                // and re-authenticating would not fix that.
+                result.Kind = IsRemoteStage(stage) ? SyncFailureKind.Unauthorized : SyncFailureKind.Unknown;
+            }
+            else if (httpFailure != null)
+            {
+                // A plain HttpRequestException (one that does not implement ISyncFailureInfo) is what
+                // HttpClient throws when the server was never reached - but also what an older
+                // CoreSync.Http.Client throws from EnsureSuccessStatusCode for a 401, 404 or 500. The
+                // two are told apart by whether the exception carries a status code; when the runtime
+                // cannot say, nothing is claimed.
+                result.Kind = CarriesNoResponse(httpFailure) ? SyncFailureKind.Network : SyncFailureKind.Unknown;
+            }
+            else if (sawProviderFailure)
+            {
+                result.Kind = SyncFailureKind.DataError;
+            }
+
+            return result;
+        }
+
+        // HttpRequestException.StatusCode exists from .NET 5 on; this library targets .NET Standard 2.0,
+        // where the type has no such member, so it is read through reflection on the actual runtime.
+        private static readonly System.Reflection.PropertyInfo? HttpStatusCodeProperty =
+            typeof(System.Net.Http.HttpRequestException).GetProperty("StatusCode");
+
+        /// <summary>
+        /// Returns <c>true</c> only when the runtime exposes the response status on the exception and it
+        /// is absent, i.e. the request failed before any response arrived. <c>false</c> when a status is
+        /// present or when the runtime cannot tell.
+        /// </summary>
+        private static bool CarriesNoResponse(System.Net.Http.HttpRequestException exception)
+        {
+            if (HttpStatusCodeProperty == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                return HttpStatusCodeProperty.GetValue(exception) == null;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsRemoteStage(SynchronizationStage stage)
+            => stage == SynchronizationStage.RemoteStoreId
+            || stage == SynchronizationStage.UploadChanges
+            || stage == SynchronizationStage.DownloadChanges
+            || stage == SynchronizationStage.SaveRemoteVersion;
+
+        private static IEnumerable<Exception> Flatten(Exception exception)
+        {
+            var current = exception;
+            while (current != null)
+            {
+                if (current is AggregateException aggregate)
+                {
+                    foreach (var inner in aggregate.InnerExceptions)
+                    {
+                        foreach (var nested in Flatten(inner))
+                        {
+                            yield return nested;
+                        }
+                    }
+
+                    yield break;
+                }
+
+                yield return current;
+                current = current.InnerException;
             }
         }
     }

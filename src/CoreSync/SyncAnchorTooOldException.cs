@@ -25,7 +25,7 @@ namespace CoreSync
     /// on <see cref="Exception.InnerException"/> rather than catching this type directly.
     /// </para>
     /// </remarks>
-    public class SyncAnchorTooOldException : InvalidOperationException
+    public class SyncAnchorTooOldException : InvalidOperationException, ISyncFailureInfo
     {
         /// <summary>
         /// Initializes a new instance of the <see cref="SyncAnchorTooOldException"/> class.
@@ -93,6 +93,18 @@ namespace CoreSync
         /// Gets the oldest version the store can still resolve changes from.
         /// </summary>
         public long MinValidVersion { get; }
+
+        /// <summary>
+        /// Always <see cref="SyncFailureKind.AnchorTooOld"/>: lets <see cref="SyncAgent"/> classify the
+        /// failure without a type check.
+        /// </summary>
+        SyncFailureKind ISyncFailureInfo.Kind => SyncFailureKind.AnchorTooOld;
+
+        string? ISyncFailureInfo.ErrorCode => null;
+
+        string? ISyncFailureInfo.TraceId => null;
+
+        string? ISyncFailureInfo.ServerMessage => null;
 
         private static string BuildMessage(string? tableName, long requestedVersion, long minValidVersion)
         {
