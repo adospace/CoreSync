@@ -159,7 +159,7 @@ internal static class SyncErrorFilterEndpointExtensions
     /// <item><description>
     /// Anything else keeps propagating to the host exactly as before - same status, same error page,
     /// same logging and error reporting. The two headers are registered through
-    /// <see cref="HttpResponse.OnStarting"/>, which survives the <c>Response.Clear()</c> the exception
+    /// <see cref="HttpResponse.OnStarting(System.Func{System.Threading.Tasks.Task})"/>, which survives the <c>Response.Clear()</c> the exception
     /// handler middleware performs, so they appear on the response an exception handler
     /// (<c>UseExceptionHandler</c>, the developer exception page) produces. A host with no handler at
     /// all lets Kestrel write a bare 500, which runs no OnStarting callbacks: that response carries no
