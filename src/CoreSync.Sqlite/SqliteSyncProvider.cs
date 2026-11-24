@@ -148,6 +148,11 @@ namespace CoreSync.Sqlite
 
                     return existsCommand;
                 }
+                // Last write error per item, kept across passes so that an item that is eventually
+                // applied is not reported, and one that never is gets reported once with its cause.
+                // (SyncItem does not override Equals, so items are keyed by reference.)
+                var lastWriteErrors = new Dictionary<SyncItem, (ChangeType ChangeType, Exception Error, string CommandText)>();
+
                 int pass = 0;
                 while (remainingItems.Count > 0)
                 {
@@ -195,6 +200,7 @@ namespace CoreSync.Sqlite
                         }
 
                         int affectedRows = 0;
+                        Exception? writeError = null;
 
                         try
                         {
@@ -215,8 +221,21 @@ namespace CoreSync.Sqlite
                         }
                         catch (Exception ex)
                         {
-                            //throw new SynchronizationException($"Unable to {item} item to store for table {table}", ex);
-                            _logger?.Error($"Unable to {itemChangeType} item {item} to store for table {table}.{Environment.NewLine}{ex}{Environment.NewLine}Generated SQL:{Environment.NewLine}{itemCommand.CommandText}");
+                            writeError = ex;
+                        }
+
+                        if (writeError != null)
+                        {
+                            // The statement itself failed (typically a foreign key constraint, e.g. a
+                            // parent delete that arrives before the delete of a child row that does not
+                            // cascade). This is not a conflict: retrying it with force-write fails the
+                            // same way, and the delete branch below would then mistake it for an already
+                            // deleted row and drop it. Queue it for the next pass instead, where the rows
+                            // blocking it may have been applied; it is reported only if it never succeeds.
+                            _logger?.Warning($"[{_storeId}] Unable to {itemChangeType} item {item} in table {table} (pass {pass}), will retry: {writeError.Message}");
+                            lastWriteErrors[item] = (itemChangeType, writeError, itemCommand.CommandText);
+                            failedItems.Add(item);
+                            continue;
                         }
 
                         if (affectedRows == 0)
@@ -285,6 +304,7 @@ namespace CoreSync.Sqlite
                         {
                             itemHandled = true;
                             appliedInPass++;
+                            lastWriteErrors.Remove(item);
                         }
 
                         if (!itemHandled)
@@ -298,6 +318,14 @@ namespace CoreSync.Sqlite
                         if (failedItems.Count > 0)
                         {
                             _logger?.Warning($"[{_storeId}] {failedItems.Count} item(s) could not be applied after {pass} pass(es) (possible unresolvable foreign key constraint)");
+
+                            foreach (var failedItem in failedItems)
+                            {
+                                if (lastWriteErrors.TryGetValue(failedItem, out var failure))
+                                {
+                                    _logger?.Error($"Unable to {failure.ChangeType} item {failedItem} to store for table {failedItem.TableName}.{Environment.NewLine}{failure.Error}{Environment.NewLine}Generated SQL:{Environment.NewLine}{failure.CommandText}");
+                                }
+                            }
                         }
                         break;
                     }
