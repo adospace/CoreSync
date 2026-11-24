@@ -78,6 +78,9 @@ jobs:
     needs: build-and-test
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # GitHub OIDC token for NuGet trusted publishing
 
     steps:
       - uses: actions/checkout@v4
@@ -97,5 +100,14 @@ jobs:
       - name: Build and pack
         run: dotnet build src/CoreSync.sln --configuration Release --no-restore -p:Version=${{ steps.version.outputs.VERSION }}
 
+      # Trusted publishing: exchange the workflow's OIDC token for a short-lived (1 hour) API key,
+      # right before pushing. Requires a trusted publishing policy on nuget.org for this repository
+      # and workflow file; NUGET_USER is the nuget.org profile name that owns the packages.
+      - name: NuGet login (OIDC to temporary API key)
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
       - name: Push to NuGet
-        run: dotnet nuget push "src/**/bin/Release/*.nupkg" --api-key "${{ secrets.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+        run: dotnet nuget push "src/**/bin/Release/*.nupkg" --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
