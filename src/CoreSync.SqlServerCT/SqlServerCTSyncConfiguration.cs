@@ -54,13 +54,23 @@ namespace CoreSync.SqlServerCT
         /// </summary>
         internal bool IsChangeRetentionConfigured { get; }
 
+        /// <summary>
+        /// Gets a value indicating whether incoming changes orphaned by a delete on this store are discarded
+        /// instead of failing the whole change set. Off by default.
+        /// </summary>
+        /// <remarks>
+        /// See <see cref="SqlServerCTSyncConfigurationBuilder.DiscardOrphanedChanges"/>.
+        /// </remarks>
+        public bool DiscardOrphanedChanges { get; }
+
         internal SqlServerCTSyncConfiguration(
             [NotNull] string connectionString,
             [NotNull] SqlServerCTSyncTable[] tables,
             int changeRetention = 7,
             ChangeRetentionUnit changeRetentionUnit = ChangeRetentionUnit.Days,
             bool autoCleanup = true,
-            bool isChangeRetentionConfigured = false)
+            bool isChangeRetentionConfigured = false,
+            bool discardOrphanedChanges = false)
             : base(tables)
         {
             Validate.NotNullOrEmptyOrWhiteSpace(connectionString, nameof(connectionString));
@@ -71,6 +81,7 @@ namespace CoreSync.SqlServerCT
             ChangeRetentionUnit = changeRetentionUnit;
             AutoCleanup = autoCleanup;
             IsChangeRetentionConfigured = isChangeRetentionConfigured;
+            DiscardOrphanedChanges = discardOrphanedChanges;
         }
     }
 }

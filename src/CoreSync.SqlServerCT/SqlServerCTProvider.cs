@@ -88,6 +88,9 @@ namespace CoreSync.SqlServerCT
                     {
                         pass++;
                         var failedItems = new List<SyncItem>();
+                        // Items whose last attempt in this pass failed on a FOREIGN KEY / CHECK constraint:
+                        // the only ones that can be orphans of a delete (see DiscardOrphanedChanges).
+                        var constraintFailedItems = new HashSet<SyncItem>();
                         int appliedInPass = 0;
                         SqlException? lastFailure = null;
                         string? lastFailureTable = null;
@@ -154,6 +157,7 @@ namespace CoreSync.SqlServerCT
                                 lastFailure = ex;
                                 lastFailureTable = item.TableName;
                                 failedItems.Add(item);
+                                constraintFailedItems.Add(item);
                                 continue;
                             }
                             catch (Exception ex)
@@ -250,6 +254,16 @@ namespace CoreSync.SqlServerCT
                         {
                             if (failedItems.Count > 0)
                             {
+                                if (lastFailure != null &&
+                                    Configuration.DiscardOrphanedChanges &&
+                                    failedItems.All(constraintFailedItems.Contains) &&
+                                    await TryDiscardOrphanedItemsAsync(cmd, failedItems, changeSet.TargetAnchor, cancellationToken))
+                                {
+                                    // Every remaining item hangs off a row deleted here that the peer has
+                                    // not heard about yet: drop them and commit the rest of the change set.
+                                    break;
+                                }
+
                                 if (lastFailure != null)
                                 {
                                     // The retry loop has stopped making progress and the remaining items
@@ -356,6 +370,273 @@ WHEN NOT MATCHED THEN INSERT ([ID], [LOCAL_VERSION]) VALUES (@id, @version);";
             {
                 throw new SyncAnchorTooOldException(table.NameWithSchema, anchor.Version, minValidVersion);
             }
+        }
+
+        /// <summary>
+        /// Decides whether every item in <paramref name="failedItems"/> is an orphan of a delete made on this
+        /// store, and if so logs and discards them all. Returns <c>false</c>, discarding nothing, when even one
+        /// item fails for any other reason.
+        /// </summary>
+        /// <remarks>
+        /// An item is an orphan when it is an insert or update and each foreign key it violates points, through
+        /// a single column, to the primary key of a synchronized table, at a row that either was deleted on this
+        /// store after <paramref name="peerAnchor"/> or is itself an orphan in this change set. The second rule is
+        /// applied until it stops discovering orphans, so a whole subtree created under a deleted row qualifies.
+        /// </remarks>
+        private async Task<bool> TryDiscardOrphanedItemsAsync(SqlCommand cmd, List<SyncItem> failedItems, SyncAnchor peerAnchor, CancellationToken cancellationToken)
+        {
+            if (failedItems.Any(_ => _.ChangeType != ChangeType.Insert && _.ChangeType != ChangeType.Update))
+            {
+                // A failed delete means a row here still references the deleted one: not an orphan.
+                return false;
+            }
+
+            var foreignKeysByTable = new Dictionary<string, List<ForeignKeyInfo>>(StringComparer.OrdinalIgnoreCase);
+            var deletedRows = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            var minValidVersions = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            var missingParentsByItem = new Dictionary<SyncItem, List<(ForeignKeyInfo ForeignKey, string ParentKey)>>();
+
+            foreach (var item in failedItems)
+            {
+                var table = (SqlServerCTSyncTable?)Configuration.Tables.FirstOrDefault(_ => _.Name == item.TableName);
+                if (table == null)
+                {
+                    return false;
+                }
+
+                if (!foreignKeysByTable.TryGetValue(table.NameWithSchema, out var foreignKeys))
+                {
+                    foreignKeys = await GetForeignKeysAsync(cmd, table, cancellationToken);
+                    foreignKeysByTable[table.NameWithSchema] = foreignKeys;
+                }
+
+                var missingParents = new List<(ForeignKeyInfo, string)>();
+
+                foreach (var foreignKey in foreignKeys)
+                {
+                    // Columns the peer did not send keep their stored value: on an update they cannot have
+                    // broken the key, on an insert they are NULL or defaulted and checked like any other.
+                    var columns = foreignKey.Columns;
+                    if (columns.Any(_ => !item.Values.TryGetValue(_.ParentColumn, out var v) || v.Value == null))
+                    {
+                        continue;
+                    }
+
+                    if (await ParentRowExistsAsync(cmd, table, foreignKey, item, cancellationToken))
+                    {
+                        continue;
+                    }
+
+                    if (columns.Count != 1 || foreignKey.ReferencedTable == null ||
+                        !string.Equals(columns[0].ReferencedColumn, foreignKey.ReferencedTable.PrimaryColumnName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Composite key, unsynchronized parent table or a key that is not the parent's
+                        // primary key: change tracking cannot tell whether the parent was deleted.
+                        return false;
+                    }
+
+                    missingParents.Add((foreignKey, KeyOf(foreignKey.ReferencedTable, item.Values[columns[0].ParentColumn].Value)));
+                }
+
+                if (missingParents.Count == 0)
+                {
+                    // Nothing this item points to is missing, so the failure was something else (a CHECK
+                    // constraint, or a row that references the item's own key).
+                    return false;
+                }
+
+                missingParentsByItem[item] = missingParents;
+            }
+
+            var orphanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var orphans = new HashSet<SyncItem>();
+            var reasons = new Dictionary<SyncItem, string>();
+
+            bool foundOrphan;
+            do
+            {
+                foundOrphan = false;
+
+                foreach (var pair in missingParentsByItem)
+                {
+                    if (orphans.Contains(pair.Key))
+                    {
+                        continue;
+                    }
+
+                    var explained = true;
+                    var reason = new List<string>();
+
+                    foreach (var (foreignKey, parentKey) in pair.Value)
+                    {
+                        if (orphanKeys.Contains(parentKey))
+                        {
+                            reason.Add($"{foreignKey.Name}: parent {parentKey} is discarded in this change set");
+                            continue;
+                        }
+
+                        if (!deletedRows.TryGetValue(parentKey, out var deleted))
+                        {
+                            var parentValue = pair.Key.Values[foreignKey.Columns[0].ParentColumn];
+                            deleted = await WasDeletedSinceAsync(cmd, foreignKey.ReferencedTable!, parentValue, peerAnchor, minValidVersions, cancellationToken);
+                            deletedRows[parentKey] = deleted;
+                        }
+
+                        if (deleted)
+                        {
+                            reason.Add($"{foreignKey.Name}: parent {parentKey} was deleted after version {peerAnchor.Version}");
+                        }
+                        else
+                        {
+                            explained = false;
+                            break;
+                        }
+                    }
+
+                    if (explained)
+                    {
+                        var table = (SqlServerCTSyncTable)Configuration.Tables.First(_ => _.Name == pair.Key.TableName);
+                        orphans.Add(pair.Key);
+                        orphanKeys.Add(KeyOf(table, pair.Key.Values[table.PrimaryColumnName].Value));
+                        reasons[pair.Key] = string.Join("; ", reason);
+                        foundOrphan = true;
+                    }
+                }
+            }
+            while (foundOrphan && orphans.Count < failedItems.Count);
+
+            if (orphans.Count < failedItems.Count)
+            {
+                return false;
+            }
+
+            foreach (var item in failedItems)
+            {
+                _logger?.Warning($"[{_storeId}] Discarding {item}: {reasons[item]}");
+            }
+
+            _logger?.Warning($"[{_storeId}] Discarded {failedItems.Count} item(s) orphaned by rows deleted on this store");
+
+            return true;
+        }
+
+        private static string KeyOf(SqlServerCTSyncTable table, object? value)
+            => $"{table.NameWithSchemaRaw}#{(value is byte[] bytes ? Convert.ToBase64String(bytes) : Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture))}";
+
+        private sealed class ForeignKeyInfo
+        {
+            public ForeignKeyInfo(string name, string referencedSchema, string referencedTableName, SqlServerCTSyncTable? referencedTable)
+            {
+                Name = name;
+                ReferencedSchema = referencedSchema;
+                ReferencedTableName = referencedTableName;
+                ReferencedTable = referencedTable;
+            }
+
+            public string Name { get; }
+            public string ReferencedSchema { get; }
+            public string ReferencedTableName { get; }
+
+            /// <summary>
+            /// The synchronized table the key points to, or <c>null</c> when that table is not synchronized.
+            /// </summary>
+            public SqlServerCTSyncTable? ReferencedTable { get; }
+
+            public List<(string ParentColumn, string ReferencedColumn)> Columns { get; } = new();
+        }
+
+        private async Task<List<ForeignKeyInfo>> GetForeignKeysAsync(SqlCommand cmd, SqlServerCTSyncTable table, CancellationToken cancellationToken)
+        {
+            cmd.CommandText = @"SELECT fk.name, OBJECT_SCHEMA_NAME(fk.referenced_object_id), OBJECT_NAME(fk.referenced_object_id), pc.name, rc.name
+FROM sys.foreign_keys fk
+JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
+JOIN sys.columns pc ON pc.object_id = fkc.parent_object_id AND pc.column_id = fkc.parent_column_id
+JOIN sys.columns rc ON rc.object_id = fkc.referenced_object_id AND rc.column_id = fkc.referenced_column_id
+WHERE fk.parent_object_id = OBJECT_ID(@table) AND fk.is_disabled = 0
+ORDER BY fk.name, fkc.constraint_column_id";
+            cmd.Parameters.Clear();
+            cmd.Parameters.AddWithValue("@table", table.NameWithSchema);
+
+            var foreignKeys = new List<ForeignKeyInfo>();
+
+            using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
+            {
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    var name = reader.GetString(0);
+                    var foreignKey = foreignKeys.LastOrDefault();
+                    if (foreignKey == null || foreignKey.Name != name)
+                    {
+                        var referencedSchema = reader.GetString(1);
+                        var referencedTableName = reader.GetString(2);
+                        var referencedTable = Configuration.Tables.Cast<SqlServerCTSyncTable>().FirstOrDefault(_ =>
+                            string.Equals(_.Schema, referencedSchema, StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(_.Name, referencedTableName, StringComparison.OrdinalIgnoreCase));
+
+                        foreignKey = new ForeignKeyInfo(name, referencedSchema, referencedTableName, referencedTable);
+                        foreignKeys.Add(foreignKey);
+                    }
+
+                    foreignKey.Columns.Add((reader.GetString(3), reader.GetString(4)));
+                }
+            }
+
+            return foreignKeys;
+        }
+
+        private static async Task<bool> ParentRowExistsAsync(SqlCommand cmd, SqlServerCTSyncTable table, ForeignKeyInfo foreignKey, SyncItem item, CancellationToken cancellationToken)
+        {
+            cmd.Parameters.Clear();
+
+            var conditions = new List<string>();
+            for (int i = 0; i < foreignKey.Columns.Count; i++)
+            {
+                var (parentColumn, referencedColumn) = foreignKey.Columns[i];
+                conditions.Add($"[{referencedColumn}] = @p{i}");
+                // Typed as the child column: SQL Server requires both sides of a foreign key to share a type.
+                cmd.Parameters.Add(table.Columns[parentColumn].CreateParameter($"@p{i}", item.Values[parentColumn]));
+            }
+
+            cmd.CommandText = $"SELECT CASE WHEN EXISTS (SELECT 1 FROM [{foreignKey.ReferencedSchema}].[{foreignKey.ReferencedTableName}] WHERE {string.Join(" AND ", conditions)}) THEN 1 ELSE 0 END";
+
+            return (int)(await cmd.ExecuteScalarAsync(cancellationToken))! == 1;
+        }
+
+        /// <summary>
+        /// Returns whether change tracking records a delete of the row of <paramref name="table"/> whose
+        /// primary key is <paramref name="primaryKeyValue"/>, made after <paramref name="peerAnchor"/>. A peer
+        /// with no anchor, or one older than the table's retention window, gets <c>false</c>: there is no
+        /// history to prove the delete.
+        /// </summary>
+        private static async Task<bool> WasDeletedSinceAsync(SqlCommand cmd, SqlServerCTSyncTable table, SyncItemValue primaryKeyValue, SyncAnchor peerAnchor, IDictionary<string, long> minValidVersions, CancellationToken cancellationToken)
+        {
+            if (peerAnchor.Version < 0)
+            {
+                return false;
+            }
+
+            if (!minValidVersions.TryGetValue(table.NameWithSchema, out var minValidVersion))
+            {
+                cmd.CommandText = $"SELECT CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID('{table.NameWithSchema}'))";
+                cmd.Parameters.Clear();
+                var result = await cmd.ExecuteScalarAsync(cancellationToken);
+                // NULL when the table is not change tracked.
+                minValidVersion = result == null || result == DBNull.Value ? long.MaxValue : Convert.ToInt64(result);
+                minValidVersions[table.NameWithSchema] = minValidVersion;
+            }
+
+            if (peerAnchor.Version < minValidVersion)
+            {
+                return false;
+            }
+
+            cmd.CommandText = $@"SELECT CASE WHEN EXISTS (SELECT 1 FROM CHANGETABLE(CHANGES {table.NameWithSchema}, @version) AS CT
+WHERE CT.SYS_CHANGE_OPERATION = 'D' AND CT.[{table.PrimaryColumnName}] = @key) THEN 1 ELSE 0 END";
+            cmd.Parameters.Clear();
+            cmd.Parameters.Add(new SqlParameter("@version", peerAnchor.Version));
+            cmd.Parameters.Add(table.Columns[table.PrimaryColumnName].CreateParameter("@key", primaryKeyValue));
+
+            return (int)(await cmd.ExecuteScalarAsync(cancellationToken))! == 1;
         }
 
         private static string DescribeItemFailure(ChangeType changeType, SyncItem item, SqlServerCTSyncTable table, string commandText, List<SqlInfoMessageEventArgs> messageLog, Exception ex)
