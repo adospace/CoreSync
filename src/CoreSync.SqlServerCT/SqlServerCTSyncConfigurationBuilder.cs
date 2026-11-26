@@ -36,6 +36,7 @@ namespace CoreSync.SqlServerCT
         private ChangeRetentionUnit _changeRetentionUnit = ChangeRetentionUnit.Days;
         private bool _autoCleanup = true;
         private bool _changeRetentionConfigured;
+        private bool _discardOrphanedChanges;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="SqlServerCTSyncConfigurationBuilder"/> class.
@@ -108,6 +109,50 @@ namespace CoreSync.SqlServerCT
             _changeRetentionUnit = unit;
             _autoCleanup = autoCleanup;
             _changeRetentionConfigured = true;
+            return this;
+        }
+
+        /// <summary>
+        /// Discards incoming changes whose parent row was deleted on this store after the sending peer last
+        /// synchronized, instead of failing the whole change set.
+        /// </summary>
+        /// <param name="enabled"><c>true</c> to discard such changes; <c>false</c> (the default) to fail.</param>
+        /// <returns>This builder instance for method chaining.</returns>
+        /// <remarks>
+        /// <para>
+        /// A peer that works offline can add rows under a parent that is deleted here before the peer
+        /// uploads them, for example a child record created on a device under a header row that was deleted
+        /// on the server in the meantime. Those rows can never be applied: their foreign key points to a
+        /// row that no longer exists. By default the change set fails with a
+        /// <see cref="SynchronizationException"/> of kind <see cref="SyncFailureKind.DataError"/>, and it
+        /// fails again on every retry, so the peer can no longer upload anything.
+        /// </para>
+        /// <para>
+        /// With this option on, an insert or update that fails such a foreign key is discarded, and the rest
+        /// of the change set is applied, when each missing parent either:
+        /// <list type="bullet">
+        /// <item><description>was deleted on this store after the version the peer last synchronized from
+        /// (change tracking reports it as a delete the peer has not received yet); or</description></item>
+        /// <item><description>is itself a row discarded from the same change set (a whole subtree created
+        /// under a deleted parent is discarded together).</description></item>
+        /// </list>
+        /// The peer receives the parent's delete on its next download and removes its copies of the rows
+        /// there, so both stores converge on the delete. Each discarded change is logged as a warning, with
+        /// its values.
+        /// </para>
+        /// <para>
+        /// Any other constraint violation still fails the change set, exactly as when the option is off:
+        /// a missing parent that this store never deleted, a CHECK constraint, a parent table that is not
+        /// synchronized or a composite foreign key.
+        /// </para>
+        /// <para>
+        /// Turn this on only when losing the peer's changes under a deleted parent is the intended outcome
+        /// of that delete.
+        /// </para>
+        /// </remarks>
+        public SqlServerCTSyncConfigurationBuilder DiscardOrphanedChanges(bool enabled = true)
+        {
+            _discardOrphanedChanges = enabled;
             return this;
         }
 
@@ -294,6 +339,6 @@ namespace CoreSync.SqlServerCT
         /// Builds the <see cref="SqlServerCTSyncConfiguration"/> from the registered tables and change tracking settings.
         /// </summary>
         /// <returns>A new <see cref="SqlServerCTSyncConfiguration"/> instance.</returns>
-        public SqlServerCTSyncConfiguration Build() => new SqlServerCTSyncConfiguration(_connectionString, _tables.ToArray(), _changeRetention, _changeRetentionUnit, _autoCleanup, _changeRetentionConfigured);
+        public SqlServerCTSyncConfiguration Build() => new SqlServerCTSyncConfiguration(_connectionString, _tables.ToArray(), _changeRetention, _changeRetentionUnit, _autoCleanup, _changeRetentionConfigured, _discardOrphanedChanges);
     }
 }
